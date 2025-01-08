@@ -905,6 +905,18 @@ private:
       Writes the details of a contradiction to the UNSAT certificate node
     */
     void writeContradictionToCertificate( unsigned infeasibleVar ) const;
+
+    /*
+      Phase Fixes
+    */
+    unsigned _numPhaseFixed;
+
+    unsigned countPhaseFixed() const;
+
+    /*
+      Bound reduction
+    */
+    double calculateTotalBoundReduction() const;
 };
 
 #endif // __Engine_h__

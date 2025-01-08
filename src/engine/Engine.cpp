@@ -72,6 +72,7 @@ Engine::Engine()
     , _produceUNSATProofs( Options::get()->getBool( Options::PRODUCE_PROOFS ) )
     , _groundBoundManager( _context )
     , _UNSATCertificate( NULL )
+    , _numPhaseFixed( 0 )
 {
     _smtCore.setStatistics( &_statistics );
     _tableau->setStatistics( &_statistics );
@@ -93,6 +94,10 @@ Engine::Engine()
         _produceUNSATProofs ? new ( true )
                                   CVC4::context::CDO<UnsatCertificateNode *>( &_context, NULL )
                             : NULL;
+
+    _statistics.setUnsignedAttribute( Statistics::NUM_BOUND_REDUCTIONS_PER_SPLIT, 0 );
+    _statistics.setUnsignedAttribute( Statistics::NUM_PHASE_FIXES_PER_SPLIT, 0 );
+    _statistics.setDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT, 0 );
 }
 
 Engine::~Engine()
@@ -1954,6 +1959,43 @@ bool Engine::attemptToMergeVariables( unsigned x1, unsigned x2 )
     return true;
 }
 
+unsigned Engine::countPhaseFixed() const
+{
+    unsigned count = 0;
+    for ( const auto &constraint : _plConstraints )
+    {
+        if ( constraint->phaseFixed() )
+        {
+            count++;
+        }
+    }
+    printf( "Phase fixed: %d\n", count );
+    return count;
+}
+
+double Engine::calculateTotalBoundReduction() const
+{
+    double totalReduction = 0.0;
+
+    for ( unsigned i = 0; i < _tableau->getN(); i++ )
+    {
+        double currentLower = _boundManager.getLowerBound( i );
+        double currentUpper = _boundManager.getUpperBound( i );
+
+        double groundLower = getGroundBound( i, false );
+        double groundUpper = getGroundBound( i, true );
+        double groundWidth = groundUpper - groundLower;
+
+        double currentWidth = currentUpper - currentLower;
+
+        totalReduction += ( groundWidth - currentWidth );
+    }
+
+    printf( "Total bound reduction: %.3lf\n", totalReduction );
+
+    return totalReduction;
+}
+
 void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
 {
     ENGINE_LOG( "" );
@@ -1963,6 +2005,8 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
 
     List<Tightening> bounds = split.getBoundTightenings();
     List<Equation> equations = split.getEquations();
+
+    _statistics.incUnsignedAttribute( Statistics::NUM_BOUND_REDUCTIONS_PER_SPLIT, bounds.size() );
 
     // We assume that case splits only apply new bounds but do not apply
     // new equations. This can always be made possible.
@@ -2098,6 +2142,19 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
 
     if ( _produceUNSATProofs && _UNSATCertificateCurrentPointer )
         ( **_UNSATCertificateCurrentPointer ).setVisited();
+
+    // Count phase fixes
+    unsigned newPhaseFixed = countPhaseFixed();
+    _numPhaseFixed = newPhaseFixed;
+
+    // Calculate total bound reduction
+    double boundReduction = calculateTotalBoundReduction();
+
+    // Update statistics
+    _statistics.setDoubleAttribute(
+        Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT,
+        _statistics.getDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT ) +
+            boundReduction );
 
     DEBUG( _tableau->verifyInvariants() );
     ENGINE_LOG( "Done with split\n" );
@@ -2540,6 +2597,7 @@ void Engine::reset()
     resetSmtCore();
     resetBoundTighteners();
     resetExitCode();
+    _numPhaseFixed = 0;
 }
 
 void Engine::resetStatistics()
