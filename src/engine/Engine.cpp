@@ -1970,9 +1970,9 @@ unsigned Engine::countPhaseFixed() const
     // Safe loop through constraints
     for ( const auto &constraint : _plConstraints )
     {
-        if ( constraint->phaseFixed() )
+        if ( constraint && constraint->phaseFixed() )
         {
-            total += 1;
+            ++total;
         }
     }
 
@@ -2016,9 +2016,9 @@ unsigned Engine::countSatisfiedConstraints() const
     // Safe iteration through constraints
     for ( const auto &constraint : _plConstraints )
     {
-        if ( constraint->satisfied() )
+        if ( constraint && constraint->satisfied() )
         {
-            total++;
+            ++total;
         }
     }
 
@@ -2171,14 +2171,15 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
     if ( _produceUNSATProofs && _UNSATCertificateCurrentPointer )
         ( **_UNSATCertificateCurrentPointer ).setVisited();
 
+
+    // Count satisfied constraints
+    unsigned satisfiedConstraints = countSatisfiedConstraints();
+
     // Count phase fixes
     unsigned totalPhaseFixed = countPhaseFixed();
 
     // Calculate total bound reduction
     double boundReduction = calculateTotalBoundReduction();
-
-    // Count satisfied constraints
-    unsigned satisfiedConstraints = countSatisfiedConstraints();
 
     // Update statistics
     _statistics.setDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION, boundReduction );

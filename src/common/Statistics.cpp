@@ -96,6 +96,7 @@ Statistics::Statistics()
     _longAttributes[TIME_CONTEXT_POP_HOOK] = 0;
     _longAttributes[TOTAL_CERTIFICATION_TIME] = 0;
 
+    _unsignedAttributes[NUM_SATISFIED_CONSTRAINTS] = 0;
     _unsignedAttributes[NUM_PHASE_FIXES] = 0;
 
     _doubleAttributes[TOTAL_BOUND_REDUCTION] = 0.0;
