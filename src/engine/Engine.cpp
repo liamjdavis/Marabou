@@ -94,9 +94,8 @@ Engine::Engine()
                                   CVC4::context::CDO<UnsatCertificateNode *>( &_context, NULL )
                             : NULL;
 
-    _statistics.setUnsignedAttribute( Statistics::NUM_BOUND_REDUCTIONS_PER_SPLIT, 0 );
-    _statistics.setUnsignedAttribute( Statistics::NUM_PHASE_FIXES_PER_SPLIT, 0 );
-    _statistics.setDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT, 0 );
+    _statistics.setUnsignedAttribute( Statistics::NUM_PHASE_FIXES, 0 );
+    _statistics.setDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION, 0 );
 }
 
 Engine::~Engine()
@@ -2004,6 +2003,28 @@ double Engine::calculateTotalBoundReduction() const
     return totalReduction;
 }
 
+unsigned Engine::countSatisfiedConstraints() const
+{
+    unsigned total = 0;
+
+    // Early return if no constraints
+    if ( _plConstraints.empty() )
+    {
+        return 0;
+    }
+
+    // Safe iteration through constraints
+    for ( const auto &constraint : _plConstraints )
+    {
+        if ( constraint->satisfied() )
+        {
+            total++;
+        }
+    }
+
+    return total;
+}
+
 void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
 {
     ENGINE_LOG( "" );
@@ -2014,7 +2035,6 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
     List<Tightening> bounds = split.getBoundTightenings();
     List<Equation> equations = split.getEquations();
 
-    _statistics.incUnsignedAttribute( Statistics::NUM_BOUND_REDUCTIONS_PER_SPLIT, bounds.size() );
 
     // We assume that case splits only apply new bounds but do not apply
     // new equations. This can always be made possible.
@@ -2157,10 +2177,15 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
     // Calculate total bound reduction
     double boundReduction = calculateTotalBoundReduction();
 
-    // Update statistics
-    _statistics.setDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT, boundReduction );
+    // Count satisfied constraints
+    unsigned satisfiedConstraints = countSatisfiedConstraints();
 
-    _statistics.setUnsignedAttribute( Statistics::NUM_PHASE_FIXES_PER_SPLIT, totalPhaseFixed );
+    // Update statistics
+    _statistics.setDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION, boundReduction );
+
+    _statistics.setUnsignedAttribute( Statistics::NUM_PHASE_FIXES, totalPhaseFixed );
+
+    _statistics.setUnsignedAttribute( Statistics::NUM_SATISFIED_CONSTRAINTS, satisfiedConstraints );
 
     DEBUG( _tableau->verifyInvariants() );
     ENGINE_LOG( "Done with split\n" );

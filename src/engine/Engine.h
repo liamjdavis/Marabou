@@ -915,6 +915,11 @@ private:
       Bound reduction
     */
     double calculateTotalBoundReduction() const;
+
+    /*
+      Satisfied Constraints
+    */
+    unsigned countSatisfiedConstraints() const;
 };
 
 #endif // __Engine_h__

@@ -96,10 +96,9 @@ Statistics::Statistics()
     _longAttributes[TIME_CONTEXT_POP_HOOK] = 0;
     _longAttributes[TOTAL_CERTIFICATION_TIME] = 0;
 
-    _unsignedAttributes[NUM_BOUND_REDUCTIONS_PER_SPLIT] = 0;
-    _unsignedAttributes[NUM_PHASE_FIXES_PER_SPLIT] = 0;
+    _unsignedAttributes[NUM_PHASE_FIXES] = 0;
 
-    _doubleAttributes[TOTAL_BOUND_REDUCTION_PER_SPLIT] = 0.0;
+    _doubleAttributes[TOTAL_BOUND_REDUCTION] = 0.0;
 
     _doubleAttributes[CURRENT_DEGRADATION] = 0.0;
     _doubleAttributes[MAX_DEGRADATION] = 0.0;
@@ -351,13 +350,13 @@ void Statistics::print()
             getLongAttribute( Statistics::NUM_BOUNDS_PROPOSED_BY_PL_CONSTRAINTS ) );
 
     printf( "\t--- Split Statistics ---\n" );
-    printf( "\tNumber of bound reductions: %u\n",
-            getUnsignedAttribute( Statistics::NUM_BOUND_REDUCTIONS_PER_SPLIT ) );
-    printf( "\tNumber of phase fixes: %u\n",
-            getUnsignedAttribute( Statistics::NUM_PHASE_FIXES_PER_SPLIT ) );
+    printf( "\tNumber of phase fixes: %u\n", getUnsignedAttribute( Statistics::NUM_PHASE_FIXES ) );
 
     printf( "\tTotal Bound Reduction: %.10lf\n",
-            getDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT ) );
+            getDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION ) );
+
+    printf( "\tSatisfied Constraints: %u\n",
+            getUnsignedAttribute( Statistics::NUM_SATISFIED_CONSTRAINTS ) );
 
     printf( "\t--- Basis Factorization statistics ---\n" );
     printf( "\tNumber of basis refactorizations: %llu\n",

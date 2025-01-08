@@ -75,9 +75,9 @@ public:
         // 1 if returned UNSAT and proof was certified by proof checker, 0 otherwise.
         CERTIFIED_UNSAT,
 
-        // New attributes for bound reductions and phase fixes
-        NUM_BOUND_REDUCTIONS_PER_SPLIT,
-        NUM_PHASE_FIXES_PER_SPLIT,
+        // New attributes for phase fixes and satisfied constraints
+        NUM_PHASE_FIXES,
+        NUM_SATISFIED_CONSTRAINTS,
     };
 
     enum StatisticsLongAttribute {
@@ -234,7 +234,7 @@ public:
         MIN_COST_OF_PHASE_PATTERN,
 
         // Total bound reduction
-        TOTAL_BOUND_REDUCTION_PER_SPLIT,
+        TOTAL_BOUND_REDUCTION,
     };
 
     /*
