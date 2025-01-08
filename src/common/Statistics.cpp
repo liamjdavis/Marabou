@@ -351,12 +351,12 @@ void Statistics::print()
             getLongAttribute( Statistics::NUM_BOUNDS_PROPOSED_BY_PL_CONSTRAINTS ) );
 
     printf( "\t--- Split Statistics ---\n" );
-    printf( "\tNumber of bound reductions per split: %u\n",
+    printf( "\tNumber of bound reductions: %u\n",
             getUnsignedAttribute( Statistics::NUM_BOUND_REDUCTIONS_PER_SPLIT ) );
-    printf( "\tNumber of phase fixes per split: %u\n",
+    printf( "\tNumber of phase fixes: %u\n",
             getUnsignedAttribute( Statistics::NUM_PHASE_FIXES_PER_SPLIT ) );
 
-    printf( "\tTotal Bound Reduction Per Split: %.10lf\n",
+    printf( "\tTotal Bound Reduction: %.10lf\n",
             getDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT ) );
 
     printf( "\t--- Basis Factorization statistics ---\n" );

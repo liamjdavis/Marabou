@@ -72,7 +72,6 @@ Engine::Engine()
     , _produceUNSATProofs( Options::get()->getBool( Options::PRODUCE_PROOFS ) )
     , _groundBoundManager( _context )
     , _UNSATCertificate( NULL )
-    , _numPhaseFixed( 0 )
 {
     _smtCore.setStatistics( &_statistics );
     _tableau->setStatistics( &_statistics );
@@ -1961,37 +1960,46 @@ bool Engine::attemptToMergeVariables( unsigned x1, unsigned x2 )
 
 unsigned Engine::countPhaseFixed() const
 {
-    unsigned count = 0;
+    unsigned total = 0;
+
+    // Add constraint check
+    if ( _plConstraints.empty() )
+    {
+        return total;
+    }
+
+    // Safe loop through constraints
     for ( const auto &constraint : _plConstraints )
     {
         if ( constraint->phaseFixed() )
         {
-            count++;
+            total += 1;
         }
     }
-    printf( "Phase fixed: %d\n", count );
-    return count;
+
+    return total;
 }
 
 double Engine::calculateTotalBoundReduction() const
 {
     double totalReduction = 0.0;
 
-    for ( unsigned i = 0; i < _tableau->getN(); i++ )
+    // Add bounds check
+    unsigned n = _tableau->getN();
+    if ( n == 0 )
     {
-        double currentLower = _boundManager.getLowerBound( i );
-        double currentUpper = _boundManager.getUpperBound( i );
-
-        double groundLower = getGroundBound( i, false );
-        double groundUpper = getGroundBound( i, true );
-        double groundWidth = groundUpper - groundLower;
-
-        double currentWidth = currentUpper - currentLower;
-
-        totalReduction += ( groundWidth - currentWidth );
+        return totalReduction;
     }
 
-    printf( "Total bound reduction: %.3lf\n", totalReduction );
+    // Safe loop with bounds check
+    for ( unsigned i = 0; i < n; i++ )
+    {
+        // Add bounds checks before accessing
+        if ( _tableau->getLowerBound( i ) < _tableau->getUpperBound( i ) )
+        {
+            totalReduction += _tableau->getUpperBound( i ) - _tableau->getLowerBound( i );
+        }
+    }
 
     return totalReduction;
 }
@@ -2144,17 +2152,15 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
         ( **_UNSATCertificateCurrentPointer ).setVisited();
 
     // Count phase fixes
-    unsigned newPhaseFixed = countPhaseFixed();
-    _numPhaseFixed = newPhaseFixed;
+    unsigned totalPhaseFixed = countPhaseFixed();
 
     // Calculate total bound reduction
     double boundReduction = calculateTotalBoundReduction();
 
     // Update statistics
-    _statistics.setDoubleAttribute(
-        Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT,
-        _statistics.getDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT ) +
-            boundReduction );
+    _statistics.setDoubleAttribute( Statistics::TOTAL_BOUND_REDUCTION_PER_SPLIT, boundReduction );
+
+    _statistics.setUnsignedAttribute( Statistics::NUM_PHASE_FIXES_PER_SPLIT, totalPhaseFixed );
 
     DEBUG( _tableau->verifyInvariants() );
     ENGINE_LOG( "Done with split\n" );
@@ -2597,7 +2603,6 @@ void Engine::reset()
     resetSmtCore();
     resetBoundTighteners();
     resetExitCode();
-    _numPhaseFixed = 0;
 }
 
 void Engine::resetStatistics()

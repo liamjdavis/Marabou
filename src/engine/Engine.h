@@ -909,8 +909,6 @@ private:
     /*
       Phase Fixes
     */
-    unsigned _numPhaseFixed;
-
     unsigned countPhaseFixed() const;
 
     /*
