@@ -55,6 +55,7 @@ void Options::initializeDefaultValues()
     _boolOptions[DEBUG_ASSIGNMENT] = false;
     _boolOptions[PRODUCE_PROOFS] = false;
     _boolOptions[DO_NOT_MERGE_CONSECUTIVE_WEIGHTED_SUM_LAYERS] = false;
+    _boolOptions[FORCE_SPLIT] = false;
 
     /*
       Int options
@@ -71,6 +72,7 @@ void Options::initializeDefaultValues()
     _intOptions[SEED] = 1;
     _intOptions[NUM_BLAS_THREADS] = 1;
     _intOptions[NUM_CONSTRAINTS_TO_REFINE_INC_LIN] = 30;
+    _intOptions[FORCE_SPLIT_INDEX] = 0;
 
     /*
       Float options

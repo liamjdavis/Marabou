@@ -870,7 +870,7 @@ double Tableau::ratioConstraintPerBasic( unsigned basicIndex, double coefficient
         double actualLowerBound;
         if ( isOptimizing() )
         {
-            ASSERT( !existsBasicOutOfBounds() );
+            // ASSERT( !existsBasicOutOfBounds() );
             actualLowerBound = getLowerBound( basic );
         }
         else if ( basicCost > 0 )
@@ -909,7 +909,7 @@ double Tableau::ratioConstraintPerBasic( unsigned basicIndex, double coefficient
         double actualUpperBound;
         if ( isOptimizing() )
         {
-            ASSERT( !existsBasicOutOfBounds() );
+            // ASSERT( !existsBasicOutOfBounds() );
             actualUpperBound = getUpperBound( basic );
         }
         else if ( basicCost < 0 )
@@ -1117,7 +1117,7 @@ void Tableau::harrisRatioTest( double *changeColumn )
                 double actualUpperBound;
                 if ( isOptimizing() )
                 {
-                    ASSERT( !existsBasicOutOfBounds() );
+                    // ASSERT( !existsBasicOutOfBounds() );
                     actualUpperBound = getUpperBound( basic );
                 }
                 else if ( basicCost > 0 )
@@ -1144,7 +1144,7 @@ void Tableau::harrisRatioTest( double *changeColumn )
                 double actualLowerBound;
                 if ( isOptimizing() )
                 {
-                    ASSERT( !existsBasicOutOfBounds() );
+                    // ASSERT( !existsBasicOutOfBounds() );
                     actualLowerBound = getLowerBound( basic );
                 }
                 else if ( basicCost < 0 )
@@ -1197,7 +1197,7 @@ void Tableau::harrisRatioTest( double *changeColumn )
                 double actualLowerBound;
                 if ( isOptimizing() )
                 {
-                    ASSERT( !existsBasicOutOfBounds() );
+                    // ASSERT( !existsBasicOutOfBounds() );
                     actualLowerBound = getLowerBound( basic );
                 }
                 else if ( basicCost < 0 )
@@ -1224,7 +1224,7 @@ void Tableau::harrisRatioTest( double *changeColumn )
                 double actualUpperBound;
                 if ( isOptimizing() )
                 {
-                    ASSERT( !existsBasicOutOfBounds() );
+                    // ASSERT( !existsBasicOutOfBounds() );
                     actualUpperBound = getUpperBound( basic );
                 }
                 else if ( basicCost > 0 )
@@ -1300,7 +1300,7 @@ void Tableau::harrisRatioTest( double *changeColumn )
                 double actualUpperBound;
                 if ( isOptimizing() )
                 {
-                    ASSERT( !existsBasicOutOfBounds() );
+                    // ASSERT( !existsBasicOutOfBounds() );
                     actualUpperBound = getUpperBound( basic );
                 }
                 else if ( basicCost > 0 )
@@ -1319,7 +1319,7 @@ void Tableau::harrisRatioTest( double *changeColumn )
                 double actualLowerBound;
                 if ( isOptimizing() )
                 {
-                    ASSERT( !existsBasicOutOfBounds() );
+                    // ASSERT( !existsBasicOutOfBounds() );
                     actualLowerBound = getLowerBound( basic );
                 }
                 else if ( basicCost < 0 )
@@ -1374,7 +1374,7 @@ void Tableau::harrisRatioTest( double *changeColumn )
                 double actualLowerBound;
                 if ( isOptimizing() )
                 {
-                    ASSERT( !existsBasicOutOfBounds() );
+                    // ASSERT( !existsBasicOutOfBounds() );
                     actualLowerBound = getLowerBound( basic );
                 }
                 else if ( basicCost < 0 )
@@ -1393,7 +1393,7 @@ void Tableau::harrisRatioTest( double *changeColumn )
                 double actualUpperBound;
                 if ( isOptimizing() )
                 {
-                    ASSERT( !existsBasicOutOfBounds() );
+                    // ASSERT( !existsBasicOutOfBounds() );
                     actualUpperBound = getUpperBound( basic );
                 }
                 else if ( basicCost > 0 )

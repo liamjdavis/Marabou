@@ -167,6 +167,11 @@ public:
     void applySplit( const PiecewiseLinearCaseSplit &split );
 
     /*
+      Force split on a specific constraint
+    */
+    void forceSplitOnConstraint( unsigned index );
+
+    /*
       Hooks invoked before/after context push/pop to store/restore/update context independent data.
     */
     void postContextPopHook();
@@ -415,6 +420,11 @@ private:
       Is the initial state stored?
     */
     bool _initialStateStored;
+
+    /*
+      Has performed forced split
+    */
+    bool _hasPerformedForcedSplit;
 
     /*
       Work memory (of size m)

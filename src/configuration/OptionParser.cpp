@@ -147,6 +147,14 @@ void OptionParser::initialize()
             &( ( *_stringOptions )[Options::SYMBOLIC_BOUND_TIGHTENING_TYPE] ) )
             ->default_value( ( *_stringOptions )[Options::SYMBOLIC_BOUND_TIGHTENING_TYPE] ),
         "type of bound tightening technique to use: sbt/deeppoly/none." )(
+        "force-split",
+        boost::program_options::bool_switch( &( ( *_boolOptions )[Options::FORCE_SPLIT] ) )
+            ->default_value( ( *_boolOptions )[Options::FORCE_SPLIT] ),
+        "Force split on a constraint." )(
+        "force-split-index",
+        boost::program_options::value<int>( &( ( *_intOptions )[Options::FORCE_SPLIT_INDEX] ) )
+            ->default_value( ( *_intOptions )[Options::FORCE_SPLIT_INDEX] ),
+        "Force split on a specific constraint." )(
         "branch",
         boost::program_options::value<std::string>(
             &( ( *_stringOptions )[Options::SPLITTING_STRATEGY] ) )

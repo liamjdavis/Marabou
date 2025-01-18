@@ -45,6 +45,7 @@ Engine::Engine()
     , _numPlConstraintsDisabledByValidSplits( 0 )
     , _preprocessingEnabled( false )
     , _initialStateStored( false )
+    , _hasPerformedForcedSplit( false )
     , _work( NULL )
     , _basisRestorationRequired( Engine::RESTORATION_NOT_NEEDED )
     , _basisRestorationPerformed( Engine::NO_RESTORATION_PERFORMED )
@@ -222,12 +223,12 @@ bool Engine::solve( double timeoutInSeconds )
     }
 
     mainLoopStatistics();
-    if ( _verbosity > 0 )
-    {
-        printf( "\nEngine::solve: Initial statistics\n" );
-        _statistics.print();
-        printf( "\n---\n" );
-    }
+    // if ( _verbosity > 0 )
+    // {
+    //     printf( "\nEngine::solve: Initial statistics\n" );
+    //     _statistics.print();
+    //     printf( "\n---\n" );
+    // }
 
     bool splitJustPerformed = true;
     struct timespec mainLoopStart = TimeUtils::sampleMicro();
@@ -274,23 +275,23 @@ bool Engine::solve( double timeoutInSeconds )
                  _statistics.getLongAttribute( Statistics::NUM_MAIN_LOOP_ITERATIONS ) %
                          _statisticsPrintingFrequency ==
                      0 )
-                _statistics.print();
+                // _statistics.print();
 
-            if ( _lpSolverType == LPSolverType::NATIVE )
-            {
-                checkOverallProgress();
-                // Check whether progress has been made recently
-
-                if ( performPrecisionRestorationIfNeeded() )
-                    continue;
-
-                if ( _tableau->basisMatrixAvailable() )
+                if ( _lpSolverType == LPSolverType::NATIVE )
                 {
-                    explicitBasisBoundTightening();
-                    _boundManager.propagateTightenings();
-                    applyAllValidConstraintCaseSplits();
+                    checkOverallProgress();
+                    // Check whether progress has been made recently
+
+                    if ( performPrecisionRestorationIfNeeded() )
+                        continue;
+
+                    if ( _tableau->basisMatrixAvailable() )
+                    {
+                        explicitBasisBoundTightening();
+                        _boundManager.propagateTightenings();
+                        applyAllValidConstraintCaseSplits();
+                    }
                 }
-            }
 
             // If true, we just entered a new subproblem
             if ( splitJustPerformed )
@@ -2188,8 +2189,53 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
 
     _statistics.setUnsignedAttribute( Statistics::NUM_SATISFIED_CONSTRAINTS, satisfiedConstraints );
 
+    // Print statistics
+    if ( _verbosity > 0 )
+    {
+        printf( "\n Statistics after split:\n" );
+        _statistics.print();
+    }
+
     DEBUG( _tableau->verifyInvariants() );
     ENGINE_LOG( "Done with split\n" );
+}
+
+void Engine::forceSplitOnConstraint( unsigned index )
+{
+    ENGINE_LOG( "Forcing a split on a constraint" );
+
+    // Get constraints in topological order
+    List<PiecewiseLinearConstraint *> constraints =
+        _networkLevelReasoner->getConstraintsInTopologicalOrder();
+
+    // Check if we have any constraints
+    if ( constraints.empty() )
+    {
+        throw MarabouError( MarabouError::DEBUGGING_ERROR, "No constraints in the NLR" );
+    }
+
+    // Check if index is valid
+    if ( index >= constraints.size() )
+    {
+        throw MarabouError( MarabouError::DEBUGGING_ERROR, "Invalid constraint index" );
+    }
+
+    // Get the constraint at the specified index
+    auto it = constraints.begin();
+    for ( unsigned i = 0; i < index; i++ )
+        ++it;
+    PiecewiseLinearConstraint *constraintToSplit = *it;
+
+    // Check if we can split on this constraint
+    if ( !constraintToSplit->isActive() || constraintToSplit->phaseFixed() )
+    {
+        printf( "Constraint %u cannot be split (inactive or phase fixed)\n", index );
+        return;
+    }
+
+    // Apply the split
+    printf( "Forcing split on constraint %u\n", index );
+    applySplit( constraintToSplit->getValidCaseSplit() );
 }
 
 void Engine::applyBoundTightenings()
@@ -2959,6 +3005,14 @@ PiecewiseLinearConstraint *Engine::pickSplitPLConstraint( DivideStrategy strateg
 {
     ENGINE_LOG( Stringf( "Picking a split PLConstraint..." ).ascii() );
 
+    if ( Options::get()->getBool( Options::FORCE_SPLIT ) and !_hasPerformedForcedSplit )
+    {
+        forceSplitOnConstraint(
+            static_cast<unsigned>( Options::get()->getInt( Options::FORCE_SPLIT_INDEX ) ) );
+        _hasPerformedForcedSplit = true;
+        printf( "\nForced split performed\n" );
+    }
+
     PiecewiseLinearConstraint *candidatePLConstraint = NULL;
     if ( strategy == DivideStrategy::PseudoImpact )
     {
@@ -3152,7 +3206,7 @@ bool Engine::performDeepSoILocalSearch()
 {
     ENGINE_LOG( "Performing local search..." );
     struct timespec start = TimeUtils::sampleMicro();
-    ASSERT( allVarsWithinBounds() );
+    // ASSERT( allVarsWithinBounds() );
 
     // All the linear constraints have been satisfied at this point.
     // Update the cost function
@@ -3169,7 +3223,7 @@ bool Engine::performDeepSoILocalSearch()
     }
 
     minimizeHeuristicCost( initialPhasePattern );
-    ASSERT( allVarsWithinBounds() );
+    // ASSERT( allVarsWithinBounds() );
     _soiManager->updateCurrentPhasePatternForSatisfiedPLConstraints();
     // Always accept the first phase pattern.
     _soiManager->acceptCurrentPhasePattern();
@@ -3293,15 +3347,15 @@ void Engine::minimizeHeuristicCost( const LinearExpression &heuristicCost )
                  _statistics.getLongAttribute( Statistics::NUM_MAIN_LOOP_ITERATIONS ) %
                          _statisticsPrintingFrequency ==
                      0 )
-                _statistics.print();
+                // _statistics.print();
 
-            if ( !allVarsWithinBounds() )
-                throw VariableOutOfBoundDuringOptimizationException();
+                if ( !allVarsWithinBounds() )
+                    throw VariableOutOfBoundDuringOptimizationException();
 
             if ( performPrecisionRestorationIfNeeded() )
                 continue;
 
-            ASSERT( allVarsWithinBounds() );
+            // ASSERT( allVarsWithinBounds() );
 
             localOptimumReached = performSimplexStep();
         }

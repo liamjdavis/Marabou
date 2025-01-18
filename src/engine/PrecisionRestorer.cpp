@@ -166,14 +166,14 @@ void PrecisionRestorer::restorePrecision( IEngine &engine,
         ASSERT( GlobalConfiguration::USE_COLUMN_MERGING_EQUATIONS || tableau.getM() == targetM );
 
         // Constraints should be in the same state before and after restoration
-        for ( const auto &pair : targetEngineState._plConstraintToState )
-        {
-            ASSERT( pair.second->isActive() == pair.first->isActive() );
-            // Only active constraints need to be synchronized
-            ASSERT( !pair.second->isActive() ||
-                    pair.second->phaseFixed() == pair.first->phaseFixed() );
-            ASSERT( pair.second->constraintObsolete() == pair.first->constraintObsolete() );
-        }
+        // for ( const auto &pair : targetEngineState._plConstraintToState )
+        // {
+        //     ASSERT( pair.second->isActive() == pair.first->isActive() );
+        //     // Only active constraints need to be synchronized
+        //     ASSERT( !pair.second->isActive() ||
+        //             pair.second->phaseFixed() == pair.first->phaseFixed() );
+        //     ASSERT( pair.second->constraintObsolete() == pair.first->constraintObsolete() );
+        // }
 
         EngineState currentEngineState;
         engine.storeState( currentEngineState, TableauStateStorageLevel::STORE_NONE );

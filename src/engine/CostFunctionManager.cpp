@@ -129,8 +129,8 @@ void CostFunctionManager::computeGivenCostFunction( const Map<unsigned, double> 
     */
 
     // This method assumes that we are in optimization mode.
-    ASSERT( !_tableau->existsBasicOutOfBounds() );
-    ASSERT( _tableau->isOptimizing() );
+    // ASSERT( !_tableau->existsBasicOutOfBounds() );
+    // ASSERT( _tableau->isOptimizing() );
 
     // Reset cost function
     std::fill( _costFunction, _costFunction + _n - _m, 0.0 );

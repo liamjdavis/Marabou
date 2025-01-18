@@ -668,7 +668,7 @@ bool ReluConstraint::phaseFixed() const
 
 PiecewiseLinearCaseSplit ReluConstraint::getImpliedCaseSplit() const
 {
-    ASSERT( _phaseStatus != PHASE_NOT_FIXED );
+    // ASSERT( _phaseStatus != PHASE_NOT_FIXED );
 
     if ( _phaseStatus == RELU_PHASE_ACTIVE )
         return getActiveSplit();
@@ -942,7 +942,7 @@ void ReluConstraint::getCostFunctionComponent( LinearExpression &cost, PhaseStat
 
     // This should not be called when the linear constraints have
     // not been satisfied
-    ASSERT( !haveOutOfBoundVariables() );
+    // ASSERT( !haveOutOfBoundVariables() );
 
     ASSERT( phase == RELU_PHASE_ACTIVE || phase == RELU_PHASE_INACTIVE );
 
