@@ -56,6 +56,8 @@ public:
 
         INPUT_QUERY_VARIABLE_BOUND_ALREADY_SET = 31,
 
+        SPLIT_FAILED = 32,
+
         // Error codes for Query Loader
         FILE_DOES_NOT_EXIST = 100,
         INVALID_EQUATION_TYPE = 101,

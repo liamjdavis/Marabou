@@ -53,6 +53,32 @@ public:
     void reset();
 
     /*
+      Getter for context
+    */
+    const Context &getContext() const
+    {
+        return _context;
+    }
+
+    /*
+      Getter for _constraintForSplitting
+    */
+    inline PiecewiseLinearConstraint *constraintForSplitting() const
+    {
+        return _constraintForSplitting;
+    }
+
+    /*
+      Setter for _needToSplit
+    */
+    inline void setNeedToSplit( bool needToSplit,
+                                PiecewiseLinearConstraint *constraintForSplitting )
+    {
+        _needToSplit = needToSplit;
+        _constraintForSplitting = constraintForSplitting;
+    }
+
+    /*
       Initialize the score tracker with the given list of pl constraints.
     */
     void initializeScoreTrackerIfNeeded( const List<PiecewiseLinearConstraint *> &plConstraints );
@@ -155,6 +181,11 @@ public:
     inline void setBranchingHeuristics( DivideStrategy strategy )
     {
         _branchingHeuristic = strategy;
+    }
+
+    DivideStrategy getBranchingHeuristics() const
+    {
+        return _branchingHeuristic;
     }
 
     /*

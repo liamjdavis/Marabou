@@ -668,7 +668,16 @@ bool ReluConstraint::phaseFixed() const
 
 PiecewiseLinearCaseSplit ReluConstraint::getImpliedCaseSplit() const
 {
-    ASSERT( _phaseStatus != PHASE_NOT_FIXED );
+    // If phase isn't fixed, determine it based on current bounds
+    if ( _phaseStatus == PHASE_NOT_FIXED )
+    {
+        if ( existsLowerBound( _b ) && !FloatUtils::isNegative( getLowerBound( _b ) ) )
+            return getActiveSplit();
+        if ( existsUpperBound( _f ) && !FloatUtils::isPositive( getUpperBound( _f ) ) )
+            return getInactiveSplit();
+        // Default to active split if we can't determine phase
+        return getActiveSplit();
+    }
 
     if ( _phaseStatus == RELU_PHASE_ACTIVE )
         return getActiveSplit();

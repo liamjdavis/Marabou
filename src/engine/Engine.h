@@ -752,6 +752,11 @@ private:
     void decideBranchingHeuristics();
 
     /*
+      Use lookahead branching.
+    */
+    void branchWithLookahead();
+
+    /*
       Pick the ReLU with the highest BaBSR heuristic score.
     */
     PiecewiseLinearConstraint *pickSplitPLConstraintBasedOnBaBsrHeuristic();

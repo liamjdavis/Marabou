@@ -228,6 +228,10 @@ public:
     };
     static const BasisFactorizationType BASIS_FACTORIZATION_TYPE;
 
+    /* Number of splits for lookahead
+     */
+    static const unsigned NUMBER_OF_LOOKAHEAD_SPLITS;
+
     /* In the BaBSR-based branching heuristics, only this many earliest nodes are considered to
        branch on.
     */

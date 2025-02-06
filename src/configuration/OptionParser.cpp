@@ -136,7 +136,12 @@ void OptionParser::initialize()
         "prove-unsat",
         boost::program_options::bool_switch( &( ( *_boolOptions )[Options::PRODUCE_PROOFS] ) )
             ->default_value( ( *_boolOptions )[Options::PRODUCE_PROOFS] ),
-        "Produce proofs of UNSAT and check them" )
+        "Produce proofs of UNSAT and check them" )(
+        "lookahead-branching",
+        boost::program_options::bool_switch(
+            &( ( *_boolOptions )[Options::USE_LOOKAHEAD_BRANCHING] ) )
+            ->default_value( ( *_boolOptions )[Options::USE_LOOKAHEAD_BRANCHING] ),
+        "Use lookahead branching to decide which branch to take first." )
 #ifdef ENABLE_GUROBI
 #endif // ENABLE_GUROBI
         ;
