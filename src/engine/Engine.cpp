@@ -2715,122 +2715,69 @@ void Engine::branchWithLookahead()
     if ( !_networkLevelReasoner )
         return;
 
+    // Get constraints from NLR
     List<PiecewiseLinearConstraint *> constraints =
         _networkLevelReasoner->getConstraintsInTopologicalOrder();
 
-    unsigned maxPhaseFixes = -1;
-    PiecewiseLinearConstraint *bestConstraint = nullptr;
+    // Keep track of max phase fixed
+    unsigned maxPhaseFixed = 0;
+    PiecewiseLinearConstraint *bestConstraint = NULL;
 
-    // Store initial state to restore after each trial
-    EngineState stateBeforeLookahead;
-    storeState( stateBeforeLookahead, TableauStateStorageLevel::STORE_BOUNDS_ONLY );
 
-    // Get constraints to branch on
+    // Iterate over constraints
     for ( auto &plConstraint : constraints )
     {
-        if ( !plConstraint->isActive() || plConstraint->phaseFixed() )
-            continue;
-
-        try
+        if ( plConstraint->isActive() && !plConstraint->phaseFixed() )
         {
-            // Try branching on this constraint
-            unsigned numPhaseFixed = 0;
+            // Set phase fixes to 0
+            unsigned phaseFixes = 0;
 
-            PiecewiseLinearCaseSplit split;
-            if ( plConstraint->phaseFixed() )
+            // Apply split on constraint
+            applySplit( plConstraint->getValidCaseSplit() );
+
+            // Run next k splits
+            for ( unsigned i = 0; i < GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS; ++i )
             {
-                split = plConstraint->getImpliedCaseSplit();
-            }
-            else
-            {
-                split = plConstraint->getValidCaseSplit();
-            }
+                // Apply split on constraint
+                PiecewiseLinearConstraint *splitConstraint =
+                    pickSplitPLConstraint( _smtCore.getBranchingHeuristics() );
 
-            if ( !split.getBoundTightenings().empty() )
-            {
-                applySplit( split );
-
-                // Try additional splits
-                for ( unsigned i = 0; i < GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS; ++i )
-                {
-                    PiecewiseLinearConstraint *branchingConstraint =
-                        pickSplitPLConstraint( _smtCore.getBranchingHeuristics() );
-
-                    if ( branchingConstraint )
-                    {
-                        PiecewiseLinearCaseSplit nextSplit;
-                        if ( branchingConstraint->phaseFixed() )
-                        {
-                            nextSplit = branchingConstraint->getImpliedCaseSplit();
-                        }
-                        else
-                        {
-                            nextSplit = branchingConstraint->getValidCaseSplit();
-                        }
-
-                        if ( !nextSplit.getBoundTightenings().empty() )
-                        {
-                            applySplit( nextSplit );
-                        }
-                    }
-                }
-
-                // Count phase fixes
-                for ( auto &constraint : constraints )
-                {
-                    if ( constraint->isActive() && constraint->phaseFixed() )
-                        ++numPhaseFixed;
-                }
-
-                if ( numPhaseFixed > maxPhaseFixes )
-                {
-                    maxPhaseFixes = numPhaseFixed;
-                    bestConstraint = plConstraint;
-                }
+                if ( splitConstraint )
+                    applySplit( splitConstraint->getValidCaseSplit() );
             }
 
-            // Reset state before trying next constraint
-            _smtCore.setNeedToSplit( false, nullptr );
-            restoreState( stateBeforeLookahead );
-        }
-        catch ( const MarabouError & )
-        {
-            // Clean up on error
-            _smtCore.setNeedToSplit( false, nullptr );
-            restoreState( stateBeforeLookahead );
-            continue;
+            phaseFixes += countPhaseFixed();
+            printf( "Phase fixes: %u\n", phaseFixes );
+
+            // Compare to maxPhaseFixed
+            if ( phaseFixes > maxPhaseFixed )
+            {
+                maxPhaseFixed = phaseFixes;
+                bestConstraint = plConstraint;
+            }
         }
     }
 
-    // Apply the best split found
-    if ( bestConstraint && bestConstraint->isActive() )
+
+    // Apply best constraint
+    if ( bestConstraint )
+        applySplit( bestConstraint->getValidCaseSplit() );
+}
+
+unsigned Engine::countPhaseFixed() const
+{
+    unsigned total = 0;
+
+    List<PiecewiseLinearConstraint *> constraints =
+        _networkLevelReasoner->getConstraintsInTopologicalOrder();
+
+    for ( auto &plConstraint : constraints )
     {
-        try
-        {
-            // Set up SMT state for the final chosen split
-            _smtCore.setNeedToSplit( true, bestConstraint );
-
-            PiecewiseLinearCaseSplit split;
-            if ( bestConstraint->phaseFixed() )
-            {
-                split = bestConstraint->getImpliedCaseSplit();
-            }
-            else
-            {
-                split = bestConstraint->getValidCaseSplit();
-            }
-
-            if ( !split.getBoundTightenings().empty() )
-            {
-                applySplit( split );
-            }
-        }
-        catch ( const MarabouError & )
-        {
-            _smtCore.setNeedToSplit( false, nullptr );
-            throw MarabouError( MarabouError::SPLIT_FAILED );
-        }
+        if ( plConstraint->phaseFixed() )
+            ++total;
     }
+
+    return total;
 }
 
 PiecewiseLinearConstraint *Engine::pickSplitPLConstraintBasedOnBaBsrHeuristic()

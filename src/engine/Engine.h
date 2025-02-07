@@ -210,6 +210,11 @@ public:
     PiecewiseLinearConstraint *pickSplitPLConstraint( DivideStrategy strategy );
 
     /*
+      Use lookahead branching.
+    */
+    void branchWithLookahead();
+
+    /*
       Call-back from QueryDividers
       Pick the piecewise linear constraint for splitting
     */
@@ -752,11 +757,6 @@ private:
     void decideBranchingHeuristics();
 
     /*
-      Use lookahead branching.
-    */
-    void branchWithLookahead();
-
-    /*
       Pick the ReLU with the highest BaBSR heuristic score.
     */
     PiecewiseLinearConstraint *pickSplitPLConstraintBasedOnBaBsrHeuristic();
@@ -910,6 +910,11 @@ private:
       Writes the details of a contradiction to the UNSAT certificate node
     */
     void writeContradictionToCertificate( unsigned infeasibleVar ) const;
+
+    /*
+      Phase Fixes
+    */
+    unsigned countPhaseFixed() const;
 };
 
 #endif // __Engine_h__
