@@ -157,6 +157,27 @@ public:
         _branchingHeuristic = strategy;
     }
 
+    inline void setConstraintForSplitting( PiecewiseLinearConstraint *constraint )
+    {
+        _constraintForSplitting = constraint;
+    }
+
+    inline PiecewiseLinearConstraint *getConstraintForSplitting() const
+    {
+        return _constraintForSplitting;
+    }
+
+    void setNeedToSplit( bool needToSplit )
+    {
+        _needToSplit = needToSplit;
+    }
+
+    /*
+      Functions for handling lookahead branching
+    */
+    void storeStateForLookahead( SmtStackEntry *entry );
+    void cleanupLookahead();
+
     DivideStrategy getBranchingHeuristics() const
     {
         return _branchingHeuristic;
@@ -259,6 +280,11 @@ private:
       current search state.
     */
     unsigned _numRejectedPhasePatternProposal;
+
+    /*
+      Track if in lookahead mode
+    */
+    bool _inLookahead;
 };
 
 #endif // __SmtCore_h__

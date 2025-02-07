@@ -72,6 +72,7 @@ Engine::Engine()
     , _produceUNSATProofs( Options::get()->getBool( Options::PRODUCE_PROOFS ) )
     , _groundBoundManager( _context )
     , _UNSATCertificate( NULL )
+    , _completedLookahead( false )
 {
     _smtCore.setStatistics( &_statistics );
     _tableau->setStatistics( &_statistics );
@@ -297,8 +298,8 @@ bool Engine::solve( double timeoutInSeconds )
                 splitJustPerformed = false;
             }
 
-            // Perform any SmtCore-initiated case splits
-            if ( _smtCore.needToSplit() )
+            Perform any SmtCore -
+                initiated case splits if ( _smtCore.needToSplit() && !_completedLookahead )
             {
                 // Perform lookahead branching if necessary
                 if ( Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) )
@@ -306,8 +307,14 @@ bool Engine::solve( double timeoutInSeconds )
                     branchWithLookahead();
                 }
 
-                _smtCore.performSplit();
-                splitJustPerformed = true;
+                if ( _smtCore.needToSplit() )
+                {
+                    printf( "Branching with lookahead... \n" );
+                    _smtCore.performSplit();
+                    splitJustPerformed = true;
+                }
+
+                _completedLookahead = true;
                 continue;
             }
 
@@ -2715,53 +2722,115 @@ void Engine::branchWithLookahead()
     if ( !_networkLevelReasoner )
         return;
 
-    // Get constraints from NLR
+    // Store initial state before lookahead
+    EngineState initialState;
+    storeState( initialState, TableauStateStorageLevel::STORE_BOUNDS_ONLY );
+
+    // Get constraints in topological order
     List<PiecewiseLinearConstraint *> constraints =
         _networkLevelReasoner->getConstraintsInTopologicalOrder();
 
-    // Keep track of max phase fixed
+    // Track best candidate
+    PiecewiseLinearConstraint *bestCandidate = nullptr;
     unsigned maxPhaseFixed = 0;
-    PiecewiseLinearConstraint *bestConstraint = NULL;
 
-
-    // Iterate over constraints
+    // Try each candidate constraint
     for ( auto &plConstraint : constraints )
     {
         if ( plConstraint->isActive() && !plConstraint->phaseFixed() )
         {
-            // Set phase fixes to 0
-            unsigned phaseFixes = 0;
+            // Restore initial state before testing this constraint
+            restoreState( initialState );
 
-            // Apply split on constraint
-            applySplit( plConstraint->getValidCaseSplit() );
-
-            // Run next k splits
-            for ( unsigned i = 0; i < GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS; ++i )
+            try
             {
-                // Apply split on constraint
-                PiecewiseLinearConstraint *splitConstraint =
-                    pickSplitPLConstraint( _smtCore.getBranchingHeuristics() );
+                // Track phase fixes for this split
+                unsigned phaseFixes = 0;
 
-                if ( splitConstraint )
-                    applySplit( splitConstraint->getValidCaseSplit() );
+                // Create the splits for this constraint
+                List<PiecewiseLinearCaseSplit> splits = plConstraint->getCaseSplits();
+
+                // Create a stack entry for lookahead
+                SmtStackEntry *entry = new SmtStackEntry();
+                auto splitIter = splits.begin();
+                entry->_activeSplit = *splitIter;
+                ++splitIter;
+
+                while ( splitIter != splits.end() )
+                {
+                    entry->_alternativeSplits.append( *splitIter );
+                    ++splitIter;
+                }
+
+                // Apply split using SmtCore interface
+                _smtCore.storeStateForLookahead( entry );
+                applySplit( entry->_activeSplit );
+                _boundManager.propagateTightenings();
+                performSymbolicBoundTightening();
+                while ( applyAllValidConstraintCaseSplits() )
+                {
+                    performSymbolicBoundTightening();
+                }
+
+                // Do k more splits to look ahead
+                for ( unsigned i = 0; i < GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS; ++i )
+                {
+                    if ( _smtCore.pickSplitPLConstraint() )
+                    {
+                        PiecewiseLinearConstraint *nextConstraint =
+                            _smtCore.getConstraintForSplitting();
+                        if ( nextConstraint )
+                        {
+                            splits = nextConstraint->getCaseSplits();
+                            SmtStackEntry *nextEntry = new SmtStackEntry();
+                            nextEntry->_activeSplit = *splits.begin();
+
+                            _smtCore.storeStateForLookahead( nextEntry );
+                            applySplit( nextEntry->_activeSplit );
+                            _boundManager.propagateTightenings();
+                            performSymbolicBoundTightening();
+                            while ( applyAllValidConstraintCaseSplits() )
+                            {
+                                performSymbolicBoundTightening();
+                            }
+                        }
+                    }
+                }
+
+                phaseFixes = countPhaseFixed();
+                printf( "Phase fixes: %u\n", phaseFixes );
+
+                // Store best candidate if this scored higher
+                if ( phaseFixes > maxPhaseFixed )
+                {
+                    maxPhaseFixed = phaseFixes;
+                    bestCandidate = plConstraint;
+                }
+            }
+            catch ( ... )
+            {
+                // Ignore exceptions during lookahead
             }
 
-            phaseFixes += countPhaseFixed();
-            printf( "Phase fixes: %u\n", phaseFixes );
-
-            // Compare to maxPhaseFixed
-            if ( phaseFixes > maxPhaseFixed )
-            {
-                maxPhaseFixed = phaseFixes;
-                bestConstraint = plConstraint;
-            }
+            // Clean up contexts using SmtCore interface
+            printf( "Cleaning up lookahead contexts...\n" );
+            _smtCore.cleanupLookahead();
         }
     }
 
+    printf( "max phase fixed: %u\n", maxPhaseFixed );
 
-    // Apply best constraint
-    if ( bestConstraint )
-        applySplit( bestConstraint->getValidCaseSplit() );
+    // Make sure we're back to initial state before setting best candidate
+    printf( "Restoring initial state...\n" );
+    restoreState( initialState );
+
+    // Set best constraint for actual splitting
+    if ( bestCandidate )
+    {
+        printf( "Performing best candidate split...\n" );
+        _smtCore.setNeedToSplit( true );
+        _smtCore.setConstraintForSplitting( bestCandidate );
+    }
 }
 
 unsigned Engine::countPhaseFixed() const

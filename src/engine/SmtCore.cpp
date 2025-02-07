@@ -225,6 +225,32 @@ void SmtCore::performSplit()
     _constraintForSplitting = NULL;
 }
 
+void SmtCore::storeStateForLookahead( SmtStackEntry *entry )
+{
+    _inLookahead = true;
+    _engine->preContextPushHook();
+    pushContext();
+    _stack.append( entry );
+}
+
+void SmtCore::cleanupLookahead()
+{
+    while ( _inLookahead && !_stack.empty() )
+    {
+        SmtStackEntry *entry = _stack.back();
+        _stack.popBack();
+        // Don't delete the EngineState for lookahead entries
+        // Only delete the stack entry itself
+        if ( entry->_engineState )
+            delete entry->_engineState;
+        entry->_engineState = nullptr;
+        delete entry;
+        popContext();
+        _engine->postContextPopHook();
+    }
+    _inLookahead = false;
+}
+
 unsigned SmtCore::getStackDepth() const
 {
     ASSERT(

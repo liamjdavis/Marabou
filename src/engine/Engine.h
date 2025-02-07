@@ -915,6 +915,11 @@ private:
       Phase Fixes
     */
     unsigned countPhaseFixed() const;
+
+    /*
+      Has completed lookahead
+    */
+    bool _completedLookahead;
 };
 
 #endif // __Engine_h__
