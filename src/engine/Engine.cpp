@@ -298,23 +298,20 @@ bool Engine::solve( double timeoutInSeconds )
                 splitJustPerformed = false;
             }
 
-            // Perform any SMT Core initiated case splits
-            if ( _smtCore.needToSplit() && !_completedLookahead )
+            // Do lookahead if needed
+            if ( !_completedLookahead &&
+                 Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) )
             {
-                // Perform lookahead branching if necessary
-                if ( Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) )
-                {
-                    branchWithLookahead();
-                }
-
-                if ( _smtCore.needToSplit() )
-                {
-                    printf( "Branching with lookahead... \n" );
-                    _smtCore.performSplit();
-                    splitJustPerformed = true;
-                }
-
+                branchWithLookahead();
                 _completedLookahead = true;
+                continue;
+            }
+
+            // Perform any SmtCore-initiated case splits
+            if ( _smtCore.needToSplit() )
+            {
+                _smtCore.performSplit();
+                splitJustPerformed = true;
                 continue;
             }
 
@@ -2109,6 +2106,9 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
         }
     }
 
+    unsigned phaseFixes = countPhaseFixed();
+    printf( "Phase fixes after applySplit(): %u\n", phaseFixes );
+
     if ( _produceUNSATProofs && _UNSATCertificateCurrentPointer )
         ( **_UNSATCertificateCurrentPointer ).setVisited();
 
@@ -2734,102 +2734,90 @@ void Engine::branchWithLookahead()
     PiecewiseLinearConstraint *bestCandidate = nullptr;
     unsigned maxPhaseFixed = 0;
 
+    printf( "Starting lookahead evaluation...\n" );
+
     // Try each candidate constraint
     for ( auto &plConstraint : constraints )
     {
         if ( plConstraint->isActive() && !plConstraint->phaseFixed() )
         {
-            // Restore initial state before testing this constraint
+            // First restore to initial state before evaluating this candidate
             restoreState( initialState );
+            _smtCore.cleanupLookahead();
 
-            try
+            // Create the splits for this constraint
+            List<PiecewiseLinearCaseSplit> splits = plConstraint->getCaseSplits();
+            if ( splits.empty() )
+                continue;
+
+            // Apply first split
+            applySplit( splits.front() );
+
+            // Propagate effects
+            _boundManager.propagateTightenings();
+            performSymbolicBoundTightening();
+            applyAllBoundTightenings();
+
+            // Keep propagating while new valid splits are found
+            while ( applyAllValidConstraintCaseSplits() )
             {
-                // Track phase fixes for this split
-                unsigned phaseFixes = 0;
-
-                // Create the splits for this constraint
-                List<PiecewiseLinearCaseSplit> splits = plConstraint->getCaseSplits();
-
-                // Create a stack entry for lookahead
-                SmtStackEntry *entry = new SmtStackEntry();
-                auto splitIter = splits.begin();
-                entry->_activeSplit = *splitIter;
-                ++splitIter;
-
-                while ( splitIter != splits.end() )
-                {
-                    entry->_alternativeSplits.append( *splitIter );
-                    ++splitIter;
-                }
-
-                // Apply split using SmtCore interface
-                _smtCore.storeStateForLookahead( entry );
-                applySplit( entry->_activeSplit );
                 _boundManager.propagateTightenings();
                 performSymbolicBoundTightening();
-                while ( applyAllValidConstraintCaseSplits() )
-                {
-                    performSymbolicBoundTightening();
-                }
+                applyAllBoundTightenings();
+            }
 
-                // Do k more splits to look ahead
-                for ( unsigned i = 0; i < GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS; ++i )
+            // Do k more forced splits
+            for ( unsigned i = 0; i < GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS; ++i )
+            {
+                // Pick next split using normal branching heuristic
+                PiecewiseLinearConstraint *nextConstraint =
+                    pickSplitPLConstraint( _smtCore.getBranchingHeuristics() );
+
+                if ( nextConstraint )
                 {
-                    if ( _smtCore.pickSplitPLConstraint() )
+                    List<PiecewiseLinearCaseSplit> nextSplits = nextConstraint->getCaseSplits();
+                    if ( !nextSplits.empty() )
                     {
-                        PiecewiseLinearConstraint *nextConstraint =
-                            _smtCore.getConstraintForSplitting();
-                        if ( nextConstraint )
-                        {
-                            splits = nextConstraint->getCaseSplits();
-                            SmtStackEntry *nextEntry = new SmtStackEntry();
-                            nextEntry->_activeSplit = *splits.begin();
+                        applySplit( nextSplits.front() );
+                        _boundManager.propagateTightenings();
+                        performSymbolicBoundTightening();
+                        applyAllBoundTightenings();
 
-                            _smtCore.storeStateForLookahead( nextEntry );
-                            applySplit( nextEntry->_activeSplit );
+                        while ( applyAllValidConstraintCaseSplits() )
+                        {
                             _boundManager.propagateTightenings();
                             performSymbolicBoundTightening();
-                            while ( applyAllValidConstraintCaseSplits() )
-                            {
-                                performSymbolicBoundTightening();
-                            }
+                            applyAllBoundTightenings();
                         }
                     }
                 }
-
-                phaseFixes = countPhaseFixed();
-                printf( "Phase fixes: %u\n", phaseFixes );
-
-                // Store best candidate if this scored higher
-                if ( phaseFixes > maxPhaseFixed )
-                {
-                    maxPhaseFixed = phaseFixes;
-                    bestCandidate = plConstraint;
-                }
             }
-            catch ( ... )
+
+            // Count how many phases got fixed
+            unsigned phaseFixes = countPhaseFixed();
+            printf( "Candidate constraint led to %u phase fixes\n", phaseFixes );
+
+            // Update best candidate if this one fixed more phases
+            if ( phaseFixes > maxPhaseFixed )
             {
-                // Ignore exceptions during lookahead
+                maxPhaseFixed = phaseFixes;
+                bestCandidate = plConstraint;
             }
-
-            // Clean up contexts using SmtCore interface
-            printf( "Cleaning up lookahead contexts...\n" );
-            _smtCore.cleanupLookahead();
         }
     }
 
-    printf( "max phase fixed: %u\n", maxPhaseFixed );
-
-    // Make sure we're back to initial state before setting best candidate
-    printf( "Restoring initial state...\n" );
+    // Restore to initial state after lookahead
     restoreState( initialState );
+    _smtCore.cleanupLookahead();
+
+    printf( "Lookahead complete. Max phase fixes: %u\n", maxPhaseFixed );
 
     // Set best constraint for actual splitting
     if ( bestCandidate )
     {
-        printf( "Performing best candidate split...\n" );
         _smtCore.setNeedToSplit( true );
         _smtCore.setConstraintForSplitting( bestCandidate );
+        printf( "Selected best branching candidate with %u phase fixes\n", maxPhaseFixed );
     }
 }
 
@@ -2837,8 +2825,7 @@ unsigned Engine::countPhaseFixed() const
 {
     unsigned total = 0;
 
-    List<PiecewiseLinearConstraint *> constraints =
-        _networkLevelReasoner->getConstraintsInTopologicalOrder();
+    List<PiecewiseLinearConstraint *> constraints = _plConstraints;
 
     for ( auto &plConstraint : constraints )
     {

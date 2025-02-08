@@ -284,7 +284,9 @@ private:
     /*
       Track if in lookahead mode
     */
-    bool _inLookahead;
+    Stack<SmtStackEntry *> _lookaheadStack;
+    bool _inLookaheadMode;
+    unsigned _lookaheadLevel;
 };
 
 #endif // __SmtCore_h__
