@@ -298,8 +298,8 @@ bool Engine::solve( double timeoutInSeconds )
                 splitJustPerformed = false;
             }
 
-            Perform any SmtCore -
-                initiated case splits if ( _smtCore.needToSplit() && !_completedLookahead )
+            // Perform any SMT Core initiated case splits
+            if ( _smtCore.needToSplit() && !_completedLookahead )
             {
                 // Perform lookahead branching if necessary
                 if ( Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) )
