@@ -2106,8 +2106,8 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
         }
     }
 
-    unsigned phaseFixes = countPhaseFixed();
-    printf( "Phase fixes after applySplit(): %u\n", phaseFixes );
+    // unsigned phaseFixes = countPhaseFixed();
+    // printf( "Phase fixes after applySplit(): %u\n", phaseFixes );
 
     if ( _produceUNSATProofs && _UNSATCertificateCurrentPointer )
         ( **_UNSATCertificateCurrentPointer ).setVisited();
@@ -2722,6 +2722,8 @@ void Engine::branchWithLookahead()
     if ( !_networkLevelReasoner )
         return;
 
+    _smtCore.setLookaheadMode( true );
+
     // Store initial state before lookahead
     EngineState initialState;
     storeState( initialState, TableauStateStorageLevel::STORE_BOUNDS_ONLY );
@@ -2734,7 +2736,7 @@ void Engine::branchWithLookahead()
     PiecewiseLinearConstraint *bestCandidate = nullptr;
     unsigned maxPhaseFixed = 0;
 
-    printf( "Starting lookahead evaluation...\n" );
+    // printf( "Starting lookahead evaluation...\n" );
 
     // Try each candidate constraint
     for ( auto &plConstraint : constraints )
@@ -2797,7 +2799,7 @@ void Engine::branchWithLookahead()
 
             // Count how many phases got fixed
             unsigned phaseFixes = countPhaseFixed();
-            printf( "Candidate constraint led to %u phase fixes\n", phaseFixes );
+            // printf( "Candidate constraint led to %u phase fixes\n", phaseFixes );
 
             // Update best candidate if this one fixed more phases
             if ( phaseFixes > maxPhaseFixed )
@@ -2817,15 +2819,34 @@ void Engine::branchWithLookahead()
     // restoreState( initialState );
     //_smtCore.cleanupLookahead();
 
-    printf( "Lookahead complete. Max phase fixes: %u\n", maxPhaseFixed );
+    // printf( "Lookahead complete. Max phase fixes: %u\n", maxPhaseFixed );
 
     // Set best constraint for actual splitting
     if ( bestCandidate )
     {
-        _smtCore.setNeedToSplit( true );
-        _smtCore.setConstraintForSplitting( bestCandidate );
-        printf( "Selected best branching candidate with %u phase fixes\n", maxPhaseFixed );
+        // Create the splits for this constraint
+        List<PiecewiseLinearCaseSplit> splits = bestCandidate->getCaseSplits();
+
+        // Apply first split
+        applySplit( splits.front() );
+
+        // Propagate effects
+        _boundManager.propagateTightenings();
+        performSymbolicBoundTightening();
+        applyAllBoundTightenings();
+
+        // Keep propagating while new valid splits are found
+        while ( applyAllValidConstraintCaseSplits() )
+        {
+            _boundManager.propagateTightenings();
+            performSymbolicBoundTightening();
+            applyAllBoundTightenings();
+        }
+
+        // printf( "Selected best branching candidate with %u phase fixes\n", maxPhaseFixed );
     }
+
+    _smtCore.setLookaheadMode( false );
 }
 
 unsigned Engine::countPhaseFixed() const

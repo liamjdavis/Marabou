@@ -64,7 +64,6 @@ void SmtCore::freeMemory()
 
 void SmtCore::reset()
 {
-    cleanupLookahead();
     _context.popto( 0 );
     _engine->postContextPopHook();
     freeMemory();
@@ -228,62 +227,10 @@ void SmtCore::performSplit()
     _constraintForSplitting = NULL;
 }
 
-void SmtCore::storeStateForLookahead( SmtStackEntry *entry )
-{
-    ASSERT( !_inLookaheadMode || _lookaheadLevel > 0 );
-
-    if ( !_inLookaheadMode )
-    {
-        _inLookaheadMode = true;
-        _lookaheadLevel = 0;
-    }
-
-    _lookaheadLevel++;
-
-    // Store context and state
-    _engine->preContextPushHook();
-    pushContext();
-
-    // Add to both stacks to track hierarchy
-    _stack.append( entry );
-    _lookaheadStack.push( entry ); // Changed from append to push
-}
-
-void SmtCore::cleanupLookahead()
-{
-    if ( !_inLookaheadMode )
-        return;
-
-    // Restore all lookahead states in reverse order
-    while ( !_lookaheadStack.empty() )
-    {
-        SmtStackEntry *entry = _lookaheadStack.top(); // Changed from back to top
-        _lookaheadStack.pop();                        // Changed from popBack to pop
-
-        // Remove from main stack too
-        ASSERT( _stack.back() == entry );
-        _stack.popBack();
-
-        // Clean up entry
-        if ( entry->_engineState )
-            delete entry->_engineState;
-        entry->_engineState = nullptr;
-        delete entry;
-
-        // Restore context
-        popContext();
-        _engine->postContextPopHook();
-    }
-
-    // Reset lookahead tracking
-    _inLookaheadMode = false;
-    _lookaheadLevel = 0;
-}
-
 unsigned SmtCore::getStackDepth() const
 {
-    ASSERT(
-        ( _engine->inSnCMode() || _stack.size() == static_cast<unsigned>( _context.getLevel() ) ) );
+    ASSERT( ( _engine->inSnCMode() || _inLookaheadMode ||
+              _stack.size() == static_cast<unsigned>( _context.getLevel() ) ) );
     return _stack.size();
 }
 

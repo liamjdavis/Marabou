@@ -167,16 +167,10 @@ public:
         return _constraintForSplitting;
     }
 
-    void setNeedToSplit( bool needToSplit )
+    void setLookaheadMode( bool inLookaheadMode )
     {
-        _needToSplit = needToSplit;
+        _inLookaheadMode = inLookaheadMode;
     }
-
-    /*
-      Functions for handling lookahead branching
-    */
-    void storeStateForLookahead( SmtStackEntry *entry );
-    void cleanupLookahead();
 
     DivideStrategy getBranchingHeuristics() const
     {
