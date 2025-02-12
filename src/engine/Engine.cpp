@@ -2742,12 +2742,14 @@ void Engine::branchWithLookahead()
         if ( plConstraint->isActive() && !plConstraint->phaseFixed() )
         {
             // First restore to initial state before evaluating this candidate
-            restoreState( initialState );
-            _smtCore.cleanupLookahead();
+            // restoreState( initialState );
+            //_smtCore.cleanupLookahead();
+            _boundManager.storeLocalBounds();
+            _context.push();
 
             // Create the splits for this constraint
             List<PiecewiseLinearCaseSplit> splits = plConstraint->getCaseSplits();
-            if ( splits.empty() )
+            if ( splits.empty() ) // Thrown an error
                 continue;
 
             // Apply first split
@@ -2803,12 +2805,17 @@ void Engine::branchWithLookahead()
                 maxPhaseFixed = phaseFixes;
                 bestCandidate = plConstraint;
             }
+
+            _context.pop();
+            _boundManager.restoreLocalBounds();
+            _tableau->postContextPopHook();
+            restoreState( initialState );
         }
     }
 
     // Restore to initial state after lookahead
-    restoreState( initialState );
-    _smtCore.cleanupLookahead();
+    // restoreState( initialState );
+    //_smtCore.cleanupLookahead();
 
     printf( "Lookahead complete. Max phase fixes: %u\n", maxPhaseFixed );
 
