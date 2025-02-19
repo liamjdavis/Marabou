@@ -232,6 +232,10 @@ public:
      */
     static const unsigned NUMBER_OF_LOOKAHEAD_SPLITS;
 
+    /* Ratio of pre-select for lookahead
+     */
+    static const double LOOKAHEAD_PRESELECT_RATIO;
+
     /* In the BaBSR-based branching heuristics, only this many earliest nodes are considered to
        branch on.
     */

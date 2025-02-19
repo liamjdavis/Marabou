@@ -2726,26 +2726,48 @@ void Engine::branchWithLookahead()
 
     // Store initial state before lookahead
     EngineState initialState;
-    storeState( initialState, TableauStateStorageLevel::STORE_BOUNDS_ONLY );
+    storeState( initialState, TableauStateStorageLevel::STORE_ENTIRE_TABLEAU_STATE );
 
     // Get constraints in topological order
     List<PiecewiseLinearConstraint *> constraints =
         _networkLevelReasoner->getConstraintsInTopologicalOrder();
 
+    // Pre-allocate vector for constraint magnitudes
+    Vector<std::pair<double, PiecewiseLinearConstraint *>> constraintMagnitudes;
+    // No need for reserve since Vector handles memory management
+
+    // Collect pre-activation magnitudes in a single pass
+    for ( auto &constraint : constraints )
+    {
+        if ( ReluConstraint *reluConstraint = dynamic_cast<ReluConstraint *>( constraint ) )
+        {
+            double preActivation = std::fabs( _tableau->getValue( reluConstraint->getB() ) );
+            constraintMagnitudes.append( { preActivation, constraint } );
+        }
+    }
+
+    // Use nth_element to get top constraints by magnitude
+    size_t numToKeep = constraintMagnitudes.size() / 3; // Keep top 33%
+    if ( numToKeep > 0 )
+    {
+        std::nth_element( constraintMagnitudes.begin(),
+                          constraintMagnitudes.begin() + numToKeep,
+                          constraintMagnitudes.end(),
+                          []( const auto &a, const auto &b ) { return a.first > b.first; } );
+    }
+
     // Track best candidate
     PiecewiseLinearConstraint *bestCandidate = nullptr;
     unsigned maxPhaseFixed = 0;
 
-    // printf( "Starting lookahead evaluation...\n" );
-
     // Try each candidate constraint
-    for ( auto &plConstraint : constraints )
+    for ( size_t i = 0; i < numToKeep; ++i )
     {
+        auto plConstraint = constraintMagnitudes[i].second;
+
         if ( plConstraint->isActive() && !plConstraint->phaseFixed() )
         {
             // First restore to initial state before evaluating this candidate
-            // restoreState( initialState );
-            //_smtCore.cleanupLookahead();
             _boundManager.storeLocalBounds();
             _context.push();
 
@@ -2815,11 +2837,7 @@ void Engine::branchWithLookahead()
         }
     }
 
-    // Restore to initial state after lookahead
-    // restoreState( initialState );
-    //_smtCore.cleanupLookahead();
-
-    // printf( "Lookahead complete. Max phase fixes: %u\n", maxPhaseFixed );
+    printf( "Lookahead complete. Max phase fixes: %u\n", maxPhaseFixed );
 
     // Set best constraint for actual splitting
     if ( bestCandidate )

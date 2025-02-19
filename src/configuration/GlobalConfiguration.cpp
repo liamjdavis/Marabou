@@ -107,6 +107,8 @@ const GlobalConfiguration::BasisFactorizationType GlobalConfiguration::BASIS_FAC
     GlobalConfiguration::SPARSE_FORREST_TOMLIN_FACTORIZATION;
 
 const unsigned GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS = 20;
+const double GlobalConfiguration::LOOKAHEAD_PRESELECT_RATIO = 0.33;
+
 const unsigned GlobalConfiguration::BABSR_CANDIDATES_THRESHOLD = 5;
 const unsigned GlobalConfiguration::POLARITY_CANDIDATES_THRESHOLD = 5;
 
