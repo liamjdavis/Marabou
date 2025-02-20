@@ -2726,7 +2726,7 @@ void Engine::branchWithLookahead()
 
     // Store initial state before lookahead
     EngineState initialState;
-    storeState( initialState, TableauStateStorageLevel::STORE_ENTIRE_TABLEAU_STATE );
+    storeState( initialState, TableauStateStorageLevel::STORE_BOUNDS_ONLY );
 
     // Get constraints in topological order
     List<PiecewiseLinearConstraint *> constraints =
