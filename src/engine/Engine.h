@@ -214,6 +214,12 @@ public:
     */
     void branchWithLookahead();
 
+    void applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
+                              unsigned &phaseFixedSum,
+                              unsigned &phaseFixedProduct,
+                              const EngineState &initialState,
+                              unsigned depth = 0 );
+
     /*
       Call-back from QueryDividers
       Pick the piecewise linear constraint for splitting
