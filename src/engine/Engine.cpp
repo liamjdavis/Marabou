@@ -2819,8 +2819,11 @@ void Engine::applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
         applyAllBoundTightenings();
     }
 
+    // Define discount factor (between 0 and 1)
+    const double GAMMA = 0.9;
+
     // If we haven't reached max depth, try next level of branching
-    if ( depth < 1 ) // Try 1 more level beyond the first
+    if ( depth < GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS )
     {
         // Pick next split using normal branching heuristic
         PiecewiseLinearConstraint *nextConstraint =
@@ -2831,11 +2834,34 @@ void Engine::applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
             List<PiecewiseLinearCaseSplit> nextSplits = nextConstraint->getCaseSplits();
             if ( !nextSplits.empty() )
             {
-                // Try each split at the next level
+                // Store phase fixes at this level
+                unsigned levelPhaseFixes = countPhaseFixed();
+                phaseFixedSum += levelPhaseFixes;
+                phaseFixedProduct *= ( levelPhaseFixes + 1 );
+
+                // Try each split at the next level with discounted rewards
                 for ( const auto &nextSplit : nextSplits )
                 {
-                    applyLookaheadSplit(
-                        nextSplit, phaseFixedSum, phaseFixedProduct, initialState, depth + 1 );
+                    unsigned nextPhaseFixedSum = 0;
+                    unsigned nextPhaseFixedProduct = 1;
+
+                    applyLookaheadSplit( nextSplit,
+                                         nextPhaseFixedSum,
+                                         nextPhaseFixedProduct,
+                                         initialState,
+                                         depth + 1 );
+
+                    // Add discounted rewards from next level
+                    phaseFixedSum += (unsigned)( nextPhaseFixedSum * pow( GAMMA, depth + 1 ) );
+
+                    // For product, take geometric mean and apply discount
+                    if ( nextPhaseFixedProduct > 1 )
+                    {
+                        double geometricMean =
+                            pow( nextPhaseFixedProduct, 1.0 / nextSplits.size() );
+                        phaseFixedProduct *=
+                            (unsigned)( geometricMean * pow( GAMMA, depth + 1 ) ) + 1;
+                    }
                 }
             }
         }
