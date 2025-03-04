@@ -2734,41 +2734,99 @@ void Engine::branchWithLookahead()
 
     // Track best candidate
     PiecewiseLinearConstraint *bestCandidate = nullptr;
-    double maxScore = 0.0;
+    unsigned maxPhaseFixes = 0;
+
+    // Setup random number generator
+    std::mt19937 rng( 84 );
+    std::uniform_real_distribution<double> polarityDist( 0.0, 1.0 );
 
     // Try each candidate constraint
     for ( auto &plConstraint : constraints )
     {
         if ( plConstraint->isActive() && !plConstraint->phaseFixed() )
         {
-            // Get splits for both polarities
+            // Store initial context
+            _boundManager.storeLocalBounds();
+            _context.push();
+
+            // Get splits for this constraint
             List<PiecewiseLinearCaseSplit> splits = plConstraint->getCaseSplits();
             if ( splits.empty() )
                 continue;
 
-            unsigned phaseFixedSum = 0;
-            unsigned phaseFixedProduct = 1;
+            // Apply first split
+            applySplit( splits.front() );
 
-            // Try each polarity
-            for ( const auto &split : splits )
+            // Propagate effects
+            _boundManager.propagateTightenings();
+            performSymbolicBoundTightening();
+            applyAllBoundTightenings();
+
+            // Keep propagating while new valid splits are found
+            while ( applyAllValidConstraintCaseSplits() )
             {
-                applyLookaheadSplit( split, phaseFixedSum, phaseFixedProduct, initialState );
+                _boundManager.propagateTightenings();
+                performSymbolicBoundTightening();
+                applyAllBoundTightenings();
             }
 
-            // Calculate score as geometric mean of phase fixes
-            double score = (double)phaseFixedProduct / (double)phaseFixedSum;
-            // printf("Constraint scored %f\n", score);
-
-            // Update best candidate if this one has higher score
-            if ( score > maxScore )
+            // Do k MCMC sampling iterations
+            for ( unsigned i = 0; i < GlobalConfiguration::NUMBER_OF_LOOKAHEAD_SPLITS; ++i )
             {
-                maxScore = score;
-                bestCandidate = plConstraint;
+                // For each unfixed constraint, randomly choose polarity
+                for ( auto &nextConstraint : constraints )
+                {
+                    if ( nextConstraint->isActive() && !nextConstraint->phaseFixed() )
+                    {
+                        // Randomly choose polarity between active/inactive
+                        double randomValue = polarityDist( rng );
+
+                        // Get appropriate split based on random polarity
+                        PiecewiseLinearCaseSplit split;
+                        if ( randomValue < 0.5 )
+                            split = nextConstraint->getCaseSplit( RELU_PHASE_INACTIVE );
+                        else
+                            split = nextConstraint->getCaseSplit( RELU_PHASE_ACTIVE );
+
+                        // Apply the split
+                        applySplit( split );
+
+                        // Propagate effects
+                        _boundManager.propagateTightenings();
+                        performSymbolicBoundTightening();
+                        applyAllBoundTightenings();
+
+                        while ( applyAllValidConstraintCaseSplits() )
+                        {
+                            _boundManager.propagateTightenings();
+                            performSymbolicBoundTightening();
+                            applyAllBoundTightenings();
+                        }
+
+                        break; // Move to next MCMC iteration
+                    }
+                }
             }
         }
+
+        // Count phase fixes
+        unsigned phaseFixes = countPhaseFixed();
+        printf( "Candidate constraint led to %u phase fixes\n", phaseFixes );
+
+        if ( phaseFixes > maxPhaseFixes )
+        {
+            maxPhaseFixes = phaseFixes;
+            bestCandidate = plConstraint;
+        }
+
+        // Restore initial state
+        _context.pop();
+        _boundManager.restoreLocalBounds();
+        _tableau->postContextPopHook();
+        restoreState( initialState );
     }
 
-    // printf("Branching off candidate with score of %f\n", maxScore);
+    printf( "Branching off candidate with score of %u\n", maxPhaseFixes );
 
     // Apply best constraint's first split if found
     if ( bestCandidate )
@@ -2791,68 +2849,6 @@ void Engine::branchWithLookahead()
     }
 
     _smtCore.setLookaheadMode( false );
-}
-
-void Engine::applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
-                                  unsigned &phaseFixedSum,
-                                  unsigned &phaseFixedProduct,
-                                  const EngineState &initialState,
-                                  unsigned depth )
-{
-    // Store state before trying this polarity
-    _boundManager.storeLocalBounds();
-    _context.push();
-
-    // Apply split
-    applySplit( split );
-
-    // Propagate effects
-    _boundManager.propagateTightenings();
-    performSymbolicBoundTightening();
-    applyAllBoundTightenings();
-
-    // Keep propagating while new valid splits are found
-    while ( applyAllValidConstraintCaseSplits() )
-    {
-        _boundManager.propagateTightenings();
-        performSymbolicBoundTightening();
-        applyAllBoundTightenings();
-    }
-
-    // If we haven't reached max depth, try next level of branching
-    if ( depth < 1 ) // Try 1 more level beyond the first
-    {
-        // Pick next split using normal branching heuristic
-        PiecewiseLinearConstraint *nextConstraint =
-            pickSplitPLConstraint( _smtCore.getBranchingHeuristics() );
-
-        if ( nextConstraint )
-        {
-            List<PiecewiseLinearCaseSplit> nextSplits = nextConstraint->getCaseSplits();
-            if ( !nextSplits.empty() )
-            {
-                // Try each split at the next level
-                for ( const auto &nextSplit : nextSplits )
-                {
-                    applyLookaheadSplit(
-                        nextSplit, phaseFixedSum, phaseFixedProduct, initialState, depth + 1 );
-                }
-            }
-        }
-    }
-    else
-    {
-        // At max depth, count phase fixes
-        unsigned phaseFixes = countPhaseFixed();
-        phaseFixedSum += phaseFixes;
-        phaseFixedProduct *= ( phaseFixes + 1 ); // Add 1 to avoid zeroing product
-    }
-
-    // Restore state after trying this split and its children
-    _context.pop();
-    _boundManager.restoreLocalBounds();
-    _tableau->postContextPopHook();
-    restoreState( initialState );
 }
 
 unsigned Engine::countPhaseFixed() const
