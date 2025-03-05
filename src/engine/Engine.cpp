@@ -2719,6 +2719,7 @@ void Engine::decideBranchingHeuristics()
 
 void Engine::branchWithLookahead()
 {
+    // Early exit if no network level reasoner
     if ( !_networkLevelReasoner )
         return;
 
@@ -2732,6 +2733,10 @@ void Engine::branchWithLookahead()
     List<PiecewiseLinearConstraint *> constraints =
         _networkLevelReasoner->getConstraintsInTopologicalOrder();
 
+    // Exit if no constraints
+    if ( constraints.empty() )
+        return;
+
     // Track best candidate
     PiecewiseLinearConstraint *bestCandidate = nullptr;
     unsigned maxPhaseFixes = 0;
@@ -2743,17 +2748,25 @@ void Engine::branchWithLookahead()
     // Try each candidate constraint
     for ( auto &plConstraint : constraints )
     {
-        if ( plConstraint->isActive() && !plConstraint->phaseFixed() )
+        // Skip null or invalid constraints
+        if ( !plConstraint || !plConstraint->isActive() || plConstraint->phaseFixed() )
+            continue;
+
+        // Store initial context
+        _boundManager.storeLocalBounds();
+        _context.push();
+
+        // Get splits for this constraint
+        List<PiecewiseLinearCaseSplit> splits = plConstraint->getCaseSplits();
+        if ( splits.empty() )
         {
-            // Store initial context
-            _boundManager.storeLocalBounds();
-            _context.push();
+            _context.pop();
+            _boundManager.restoreLocalBounds();
+            continue;
+        }
 
-            // Get splits for this constraint
-            List<PiecewiseLinearCaseSplit> splits = plConstraint->getCaseSplits();
-            if ( splits.empty() )
-                continue;
-
+        try
+        {
             // Apply first split
             applySplit( splits.front() );
 
@@ -2776,42 +2789,52 @@ void Engine::branchWithLookahead()
                 // For each unfixed constraint, randomly choose polarity
                 for ( auto &nextConstraint : constraints )
                 {
-                    if ( nextConstraint->isActive() && !nextConstraint->phaseFixed() )
+                    if ( !nextConstraint || !nextConstraint->isActive() ||
+                         nextConstraint->phaseFixed() )
+                        continue;
+
+                    // Randomly choose polarity between active/inactive
+                    double randomValue = polarityDist( rng );
+
+                    // Get appropriate split based on random polarity
+                    PiecewiseLinearCaseSplit split;
+                    if ( randomValue < 0.5 )
+                        split = nextConstraint->getCaseSplit( RELU_PHASE_INACTIVE );
+                    else
+                        split = nextConstraint->getCaseSplit( RELU_PHASE_ACTIVE );
+
+                    // Apply the split
+                    applySplit( split );
+
+                    // Propagate effects
+                    _boundManager.propagateTightenings();
+                    performSymbolicBoundTightening();
+                    applyAllBoundTightenings();
+
+                    while ( applyAllValidConstraintCaseSplits() )
                     {
-                        // Randomly choose polarity between active/inactive
-                        double randomValue = polarityDist( rng );
-
-                        // Get appropriate split based on random polarity
-                        PiecewiseLinearCaseSplit split;
-                        if ( randomValue < 0.5 )
-                            split = nextConstraint->getCaseSplit( RELU_PHASE_INACTIVE );
-                        else
-                            split = nextConstraint->getCaseSplit( RELU_PHASE_ACTIVE );
-
-                        // Apply the split
-                        applySplit( split );
-
-                        // Propagate effects
                         _boundManager.propagateTightenings();
                         performSymbolicBoundTightening();
                         applyAllBoundTightenings();
-
-                        while ( applyAllValidConstraintCaseSplits() )
-                        {
-                            _boundManager.propagateTightenings();
-                            performSymbolicBoundTightening();
-                            applyAllBoundTightenings();
-                        }
-
-                        break; // Move to next MCMC iteration
                     }
+
+                    break; // Move to next MCMC iteration
                 }
             }
+        }
+        catch ( ... )
+        {
+            // Restore state on any exception
+            _context.pop();
+            _boundManager.restoreLocalBounds();
+            _tableau->postContextPopHook();
+            restoreState( initialState );
+            continue;
         }
 
         // Count phase fixes
         unsigned phaseFixes = countPhaseFixed();
-        printf( "Candidate constraint led to %u phase fixes\n", phaseFixes );
+        // printf( "Candidate constraint led to %u phase fixes\n", phaseFixes );
 
         if ( phaseFixes > maxPhaseFixes )
         {
@@ -2826,25 +2849,28 @@ void Engine::branchWithLookahead()
         restoreState( initialState );
     }
 
-    printf( "Branching off candidate with score of %u\n", maxPhaseFixes );
+    // printf( "Branching off candidate with score of %u\n", maxPhaseFixes );
 
     // Apply best constraint's first split if found
     if ( bestCandidate )
     {
         List<PiecewiseLinearCaseSplit> splits = bestCandidate->getCaseSplits();
-        applySplit( splits.front() );
-
-        // Propagate effects
-        _boundManager.propagateTightenings();
-        performSymbolicBoundTightening();
-        applyAllBoundTightenings();
-
-        // Keep propagating while new valid splits are found
-        while ( applyAllValidConstraintCaseSplits() )
+        if ( !splits.empty() )
         {
+            applySplit( splits.front() );
+
+            // Propagate effects
             _boundManager.propagateTightenings();
             performSymbolicBoundTightening();
             applyAllBoundTightenings();
+
+            // Keep propagating while new valid splits are found
+            while ( applyAllValidConstraintCaseSplits() )
+            {
+                _boundManager.propagateTightenings();
+                performSymbolicBoundTightening();
+                applyAllBoundTightenings();
+            }
         }
     }
 
