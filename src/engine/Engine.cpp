@@ -2737,6 +2737,55 @@ void Engine::branchWithLookahead()
     if ( constraints.empty() )
         return;
 
+    // Preselect ReLUsbased on bound uncertainty
+    List<PiecewiseLinearConstraint *> preselectedConstraints;
+    Map<double, PiecewiseLinearConstraint *> uncertaintyScores;
+
+    // Fix for lines around 2747-2751
+    for ( auto &plConstraint : constraints )
+    {
+        if ( !plConstraint || !plConstraint->isActive() || plConstraint->phaseFixed() )
+            continue;
+
+        // Check if ReLU Constraint
+        ReluConstraint *reluConstraint = dynamic_cast<ReluConstraint *>( plConstraint );
+
+        if ( !reluConstraint )
+            continue;
+
+        // Get the variables
+        unsigned b = reluConstraint->getB();
+
+        // Calculate bound uncertainty for the B variable
+        double lowerB = _tableau->getLowerBound( b );
+        double upperB = _tableau->getUpperBound( b );
+
+        // Skip if already phase-fixed by bounds
+        if ( !FloatUtils::isNegative( lowerB ) || !FloatUtils::isPositive( upperB ) )
+            continue;
+
+        // Calculate uncertainty as the overlap of B across zero
+        double uncertainty = upperB - lowerB;
+
+        // Add to map (using negative so higher uncertainty comes first)
+        uncertaintyScores[-uncertainty] = plConstraint;
+    }
+
+    // Select top candidates
+    unsigned numToSelect = std::min( (unsigned)100, (unsigned)uncertaintyScores.size() );
+    unsigned selected = 0;
+
+    for ( const auto &pair : uncertaintyScores )
+    {
+        if ( selected >= numToSelect )
+            break;
+
+        preselectedConstraints.append( pair.second );
+        ++selected;
+    }
+
+    // printf( "Selected %u constraints for lookahead\n", preselectedConstraints.size() );
+
     // Track best candidate
     PiecewiseLinearConstraint *bestCandidate = nullptr;
     unsigned maxPhaseFixes = 0;
@@ -2746,7 +2795,7 @@ void Engine::branchWithLookahead()
     std::uniform_real_distribution<double> polarityDist( 0.0, 1.0 );
 
     // Try each candidate constraint
-    for ( auto &plConstraint : constraints )
+    for ( auto &plConstraint : preselectedConstraints )
     {
         // Skip null or invalid constraints
         if ( !plConstraint || !plConstraint->isActive() || plConstraint->phaseFixed() )
