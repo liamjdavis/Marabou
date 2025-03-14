@@ -118,6 +118,9 @@ public:
 
         // Maximal number of constraints to refine in incremental linearization
         NUM_CONSTRAINTS_TO_REFINE_INC_LIN,
+
+        // Lookahead Interval
+        LOOKAHEAD_INTERVAL,
     };
 
     enum FloatOptions {

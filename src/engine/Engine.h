@@ -413,6 +413,11 @@ private:
     DegradationChecker _degradationChecker;
 
     /*
+      Previous stack depth in main loop to determine if lookahead branch is necessary.
+    */
+    unsigned _lastStackDepth;
+
+    /*
       Query preprocessor.
     */
     Preprocessor _preprocessor;

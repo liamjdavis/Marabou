@@ -299,11 +299,15 @@ bool Engine::solve( double timeoutInSeconds )
             }
 
             // Do lookahead if needed
-            if ( !_completedLookahead &&
-                 Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) )
+            if ( Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) &&
+                 _smtCore.getStackDepth() % Options::get()->getInt( Options::LOOKAHEAD_INTERVAL ) ==
+                     0 &&
+                 _smtCore.getStackDepth() > _lastStackDepth )
             {
+                _lastStackDepth = _smtCore.getStackDepth();
+                printf( "Stack depth: %u, Executing Lookahead Branch \n",
+                        _smtCore.getStackDepth() );
                 branchWithLookahead();
-                _completedLookahead = true;
                 continue;
             }
 
