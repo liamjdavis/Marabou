@@ -2794,7 +2794,9 @@ void Engine::branchWithLookahead()
     }
 
     // Select top candidates
-    unsigned numToSelect = std::min( (unsigned)20, (unsigned)uncertaintyScores.size() );
+    unsigned numToSelect = std::min(
+        static_cast<unsigned>( Options::get()->getInt( Options::LOOKAHEAD_PRESELECT_SIZE ) ),
+        uncertaintyScores.size() );
     for ( const auto &pair : uncertaintyScores )
     {
         if ( preselectedConstraints.size() >= numToSelect )

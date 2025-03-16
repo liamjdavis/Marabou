@@ -121,6 +121,9 @@ public:
 
         // Lookahead Interval
         LOOKAHEAD_INTERVAL,
+
+        // Lookahead Preselect Size
+        LOOKAHEAD_PRESELECT_SIZE,
     };
 
     enum FloatOptions {
