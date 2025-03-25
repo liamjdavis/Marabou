@@ -121,6 +121,9 @@ public:
 
         // Number of lookahead branches at the beginning
         NUM_LOOKAHEAD_BRANCHES,
+
+        // Lookahead branch interval
+        LOOKAHEAD_BRANCH_INTERVAL
     };
 
     enum FloatOptions {

@@ -298,18 +298,29 @@ bool Engine::solve( double timeoutInSeconds )
                 splitJustPerformed = false;
             }
 
-            // Do lookahead if needed - but only at new stack depths
+            // Do lookahead if needed - based on stack depth conditions
             if ( Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) )
             {
                 unsigned currentDepth = _smtCore.getStackDepth();
-                if ( !_lookaheadCompletedAtDepths.exists( currentDepth ) &&
-                     _lookaheadCompletedAtDepths.size() <
-                         static_cast<unsigned>(
-                             Options::get()->getInt( Options::NUM_LOOKAHEAD_BRANCHES ) ) )
+                unsigned numLookaheadBranches = static_cast<unsigned>(
+                    Options::get()->getInt( Options::NUM_LOOKAHEAD_BRANCHES ) );
+                unsigned lookaheadInterval = static_cast<unsigned>(
+                    Options::get()->getInt( Options::LOOKAHEAD_BRANCH_INTERVAL ) );
+
+                // Do lookahead for first N depths (where N is NUM_LOOKAHEAD_BRANCHES)
+                bool shouldDoLookaheadAtFirstDepths =
+                    currentDepth < numLookaheadBranches &&
+                    !_lookaheadCompletedAtDepths.exists( currentDepth );
+
+                // Do lookahead every X depths after that (where X is LOOKAHEAD_BRANCH_INTERVAL)
+                bool shouldDoLookaheadAtInterval =
+                    currentDepth >= numLookaheadBranches && currentDepth % lookaheadInterval == 0 &&
+                    !_lookaheadCompletedAtDepths.exists( currentDepth );
+
+                if ( shouldDoLookaheadAtFirstDepths || shouldDoLookaheadAtInterval )
                 {
-                    if ( _verbosity > 0 )
-                        printf( "Engine::solve: performing lookahead branching at depth %u\n",
-                                currentDepth );
+                    // printf( "Engine::solve: performing lookahead branching at depth %u\n",
+                    //         currentDepth );
                     branchWithLookahead();
                     _lookaheadCompletedAtDepths.insert( currentDepth );
                     continue;

@@ -73,6 +73,7 @@ void Options::initializeDefaultValues()
     _intOptions[NUM_BLAS_THREADS] = 1;
     _intOptions[NUM_CONSTRAINTS_TO_REFINE_INC_LIN] = 30;
     _intOptions[NUM_LOOKAHEAD_BRANCHES] = 5;
+    _intOptions[LOOKAHEAD_BRANCH_INTERVAL] = 25;
 
     /*
       Float options
