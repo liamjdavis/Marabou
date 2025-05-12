@@ -172,6 +172,12 @@ public:
         _inLookaheadMode = inLookaheadMode;
     }
 
+    bool inLookaheadMode()
+    {
+        return _inLookaheadMode;
+    }
+
+
     DivideStrategy getBranchingHeuristics() const
     {
         return _branchingHeuristic;

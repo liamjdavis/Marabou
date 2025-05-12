@@ -212,12 +212,13 @@ public:
     /*
       Use lookahead branching.
     */
-    void branchWithLookahead();
+    PiecewiseLinearConstraint *branchWithLookahead();
 
     void applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
                               unsigned &phaseFixedSum,
                               unsigned &phaseFixedProduct,
                               const EngineState &initialState,
+                              Vector<Map<PiecewiseLinearConstraint *, PhaseStatus>> &sharedFixes,
                               unsigned depth = 0 );
 
     /*
@@ -920,7 +921,7 @@ private:
     /*
       Phase Fixes
     */
-    unsigned countPhaseFixed() const;
+    unsigned countPhaseFixed( Map<PiecewiseLinearConstraint *, PhaseStatus> &fixed ) const;
 
     /*
       Has completed lookahead branching

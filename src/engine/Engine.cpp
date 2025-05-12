@@ -298,24 +298,6 @@ bool Engine::solve( double timeoutInSeconds )
                 splitJustPerformed = false;
             }
 
-            // Do lookahead if needed - but only at new stack depths
-            if ( Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) )
-            {
-                unsigned currentDepth = _smtCore.getStackDepth();
-                if ( !_lookaheadCompletedAtDepths.exists( currentDepth ) &&
-                     _lookaheadCompletedAtDepths.size() <
-                         static_cast<unsigned>(
-                             Options::get()->getInt( Options::NUM_LOOKAHEAD_BRANCHES ) ) )
-                {
-                    if ( _verbosity > 0 )
-                        printf( "Engine::solve: performing lookahead branching at depth %u\n",
-                                currentDepth );
-                    branchWithLookahead();
-                    _lookaheadCompletedAtDepths.insert( currentDepth );
-                    continue;
-                }
-            }
-
             // Perform any SmtCore-initiated case splits
             if ( _smtCore.needToSplit() )
             {
@@ -2726,11 +2708,11 @@ void Engine::decideBranchingHeuristics()
     _smtCore.initializeScoreTrackerIfNeeded( _plConstraints );
 }
 
-void Engine::branchWithLookahead()
+PiecewiseLinearConstraint *Engine::branchWithLookahead()
 {
     // Early exit if no network level reasoner
     if ( !_networkLevelReasoner )
-        return;
+        return nullptr;
 
     _smtCore.setLookaheadMode( true );
 
@@ -2744,77 +2726,40 @@ void Engine::branchWithLookahead()
 
     // Exit if no constraints
     if ( constraints.empty() )
-        return;
+        return nullptr;
 
     // Preselect ReLUs based on bound uncertainty
-    List<PiecewiseLinearConstraint *> preselectedConstraints;
-    Map<double, PiecewiseLinearConstraint *> uncertaintyScores;
-
-    // Calculate uncertainty scores for each constraint
+    Map<double, PiecewiseLinearConstraint *> scoreToConstraint;
     for ( auto &plConstraint : constraints )
     {
-        // Skip invalid, inactive or fixed constraints
-        if ( !plConstraint || !plConstraint->isActive() || plConstraint->phaseFixed() )
-            continue;
-
-        // Check if it's a ReLU constraint
-        ReluConstraint *reluConstraint = dynamic_cast<ReluConstraint *>( plConstraint );
-        if ( !reluConstraint )
-            continue;
-
-        // Get the variables
-        unsigned b = reluConstraint->getB();
-
-        // Calculate bound uncertainty for the B variable
-        double lowerB = _tableau->getLowerBound( b );
-        double upperB = _tableau->getUpperBound( b );
-
-        // Skip if already phase-fixed by bounds
-        if ( !FloatUtils::isNegative( lowerB ) || !FloatUtils::isPositive( upperB ) )
-            continue;
-
-        // Calculate uncertainty score
-        double uncertainty;
-
-        // Handle special cases to avoid division by zero or negative numbers
-        if ( FloatUtils::isZero( lowerB ) )
+        if ( plConstraint->supportPolarity() && plConstraint->isActive() &&
+             !plConstraint->phaseFixed() )
         {
-            // When lowerB is zero, we're maximally uncertain (use a large value)
-            uncertainty = FloatUtils::infinity();
+            plConstraint->updateScoreBasedOnPolarity();
+            scoreToConstraint[plConstraint->getScore()] = plConstraint;
+            if ( scoreToConstraint.size() >= 20 )
+                break;
         }
-        else if ( FloatUtils::isZero( upperB ) )
-        {
-            // When upperB is zero, we're maximally uncertain (use a large value)
-            uncertainty = FloatUtils::infinity();
-            ;
-        }
-        else
-        {
-            // Normal case: both bounds have same sign
-            uncertainty = FloatUtils::max( upperB / lowerB, lowerB / upperB );
-        }
-
-        // Add to map (lower abs(uncertainty) comes first)
-        uncertaintyScores[uncertainty] = plConstraint;
     }
+    List<PiecewiseLinearConstraint *> preselectedConstraints;
 
     // Select top candidates
-    unsigned numToSelect = std::min( (unsigned)20, (unsigned)uncertaintyScores.size() );
-    for ( const auto &pair : uncertaintyScores )
+    unsigned numToSelect = std::min( (unsigned)10, (unsigned)scoreToConstraint.size() );
+    for ( const auto &pair : scoreToConstraint )
     {
-        if ( preselectedConstraints.size() >= numToSelect )
+        if ( numToSelect == preselectedConstraints.size() )
             break;
-
         preselectedConstraints.append( pair.second );
     }
 
     if ( preselectedConstraints.empty() )
-        return;
+        return nullptr;
 
     // Track best candidate
     PiecewiseLinearConstraint *bestCandidate = nullptr;
     double maxScore = 0.0;
 
+    Map<PiecewiseLinearConstraint *, PhaseStatus> commonFixes;
     // Try each preselected candidate constraint
     for ( auto &plConstraint : preselectedConstraints )
     {
@@ -2829,9 +2774,29 @@ void Engine::branchWithLookahead()
             unsigned phaseFixedProduct = 1;
 
             // Try each polarity
+            Vector<Map<PiecewiseLinearConstraint *, PhaseStatus>> sharedFixes;
             for ( const auto &split : splits )
+                applyLookaheadSplit(
+                    split, phaseFixedSum, phaseFixedProduct, initialState, sharedFixes );
+
+            if ( sharedFixes.size() != 4 )
+                std::cout << "shared fixes list has length not equal to 4, double check!"
+                          << std::endl;
+
+            for ( const auto &fix : sharedFixes[0] )
             {
-                applyLookaheadSplit( split, phaseFixedSum, phaseFixedProduct, initialState );
+                bool found = true;
+                for ( unsigned i = 1; i < sharedFixes.size(); ++i )
+                {
+                    if ( !( sharedFixes[i].exists( fix.first ) &&
+                            sharedFixes[i][fix.first] == fix.second ) )
+                    {
+                        found = false;
+                        break;
+                    }
+                }
+                if ( found )
+                    commonFixes[fix.first] = fix.second;
             }
 
             // Calculate score as geometric mean of phase fixes
@@ -2847,36 +2812,44 @@ void Engine::branchWithLookahead()
         }
     }
 
-    // printf("Branching off candidate with score of %f\n", maxScore);
+    printf( "Branching off candidate with score of %f\n", maxScore );
 
     // Apply best constraint's first split if found
-    if ( bestCandidate )
-    {
-        List<PiecewiseLinearCaseSplit> splits = bestCandidate->getCaseSplits();
-        applySplit( splits.front() );
-
-        // Propagate effects
-        _boundManager.propagateTightenings();
-        performSymbolicBoundTightening();
-        applyAllBoundTightenings();
-
-        // Keep propagating while new valid splits are found
-        while ( applyAllValidConstraintCaseSplits() )
-        {
-            _boundManager.propagateTightenings();
-            performSymbolicBoundTightening();
-            applyAllBoundTightenings();
-        }
-    }
 
     _smtCore.setLookaheadMode( false );
+    unsigned fixes = 0;
+    unsigned alreadyFixes = 0;
+    for ( const auto &pair : commonFixes )
+    {
+        if ( !pair.first->phaseFixed() )
+        {
+            applySplit( pair.first->getCaseSplit( pair.second ) );
+            ++fixes;
+        }
+        else
+        {
+            alreadyFixes++;
+        }
+    }
+    std::cout << "Fixed before lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
+    do
+    {
+        _boundManager.propagateTightenings();
+        applyAllBoundTightenings();
+    }
+    while ( applyAllValidConstraintCaseSplits() );
+    std::cout << "Fixed after lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
+
+    return bestCandidate;
 }
 
-void Engine::applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
-                                  unsigned &phaseFixedSum,
-                                  unsigned &phaseFixedProduct,
-                                  const EngineState &initialState,
-                                  unsigned depth )
+void Engine::applyLookaheadSplit(
+    const PiecewiseLinearCaseSplit &split,
+    unsigned &phaseFixedSum,
+    unsigned &phaseFixedProduct,
+    const EngineState &initialState,
+    Vector<Map<PiecewiseLinearConstraint *, PhaseStatus>> &sharedFixes,
+    unsigned depth )
 {
     // Store state before trying this polarity
     _boundManager.storeLocalBounds();
@@ -2897,7 +2870,6 @@ void Engine::applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
         performSymbolicBoundTightening();
         applyAllBoundTightenings();
     }
-
     // If we haven't reached max depth, try next level of branching
     if ( depth < 1 ) // Try 1 more level beyond the first
     {
@@ -2913,8 +2885,12 @@ void Engine::applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
                 // Try each split at the next level
                 for ( const auto &nextSplit : nextSplits )
                 {
-                    applyLookaheadSplit(
-                        nextSplit, phaseFixedSum, phaseFixedProduct, initialState, depth + 1 );
+                    applyLookaheadSplit( nextSplit,
+                                         phaseFixedSum,
+                                         phaseFixedProduct,
+                                         initialState,
+                                         sharedFixes,
+                                         depth + 1 );
                 }
             }
         }
@@ -2922,9 +2898,11 @@ void Engine::applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
     else
     {
         // At max depth, count phase fixes
-        unsigned phaseFixes = countPhaseFixed();
+        Map<PiecewiseLinearConstraint *, PhaseStatus> fixes;
+        unsigned phaseFixes = countPhaseFixed( fixes );
         phaseFixedSum += phaseFixes;
         phaseFixedProduct *= ( phaseFixes + 1 ); // Add 1 to avoid zeroing product
+        sharedFixes.append( fixes );
     }
 
     // Restore state after trying this split and its children
@@ -2934,7 +2912,7 @@ void Engine::applyLookaheadSplit( const PiecewiseLinearCaseSplit &split,
     restoreState( initialState );
 }
 
-unsigned Engine::countPhaseFixed() const
+unsigned Engine::countPhaseFixed( Map<PiecewiseLinearConstraint *, PhaseStatus> &fixed ) const
 {
     unsigned total = 0;
 
@@ -2943,7 +2921,10 @@ unsigned Engine::countPhaseFixed() const
     for ( auto &plConstraint : constraints )
     {
         if ( plConstraint->phaseFixed() )
+        {
             ++total;
+            fixed[plConstraint] = plConstraint->getPhaseStatus();
+        }
     }
 
     return total;
@@ -3116,6 +3097,23 @@ PiecewiseLinearConstraint *Engine::pickSplitPLConstraint( DivideStrategy strateg
     ENGINE_LOG( Stringf( "Picking a split PLConstraint..." ).ascii() );
 
     PiecewiseLinearConstraint *candidatePLConstraint = NULL;
+    // Do lookahead if needed - but only at new stack depths
+    if ( ( !_smtCore.inLookaheadMode() ) &&
+         Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) &&
+         _smtCore.getStackDepth() < 5 )
+    {
+        printf( "Engine::solve: performing lookahead branching at depth %u, need to split %u\n",
+                _smtCore.getStackDepth(),
+                _smtCore.needToSplit() );
+        PiecewiseLinearConstraint *candidatePLConstraint = branchWithLookahead();
+        if ( candidatePLConstraint )
+        {
+            printf( "Engine::solve: picked lookahead branching\n" );
+            ENGINE_LOG( Stringf( "Picked a split PLConstraint using lookahead..." ).ascii() );
+            return candidatePLConstraint;
+        }
+    }
+
     if ( strategy == DivideStrategy::PseudoImpact )
     {
         if ( _smtCore.getStackDepth() > 3 )
