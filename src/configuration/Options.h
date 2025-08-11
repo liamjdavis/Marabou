@@ -121,6 +121,9 @@ public:
 
         // Number of lookahead branches at the beginning
         NUM_LOOKAHEAD_BRANCHES,
+
+        // Maximum lookahead depth
+        MAX_LOOKAHEAD_DEPTH,
     };
 
     enum FloatOptions {

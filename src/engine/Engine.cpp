@@ -2779,9 +2779,12 @@ PiecewiseLinearConstraint *Engine::branchWithLookahead()
                 applyLookaheadSplit(
                     split, phaseFixedSum, phaseFixedProduct, initialState, sharedFixes );
 
-            if ( sharedFixes.size() != 4 )
-                std::cout << "shared fixes list has length not equal to 4, double check!"
-                          << std::endl;
+            if ( sharedFixes.size() !=
+                 std::pow( 2, Options::get()->getInt( Options::MAX_LOOKAHEAD_DEPTH ) + 1 ) )
+                std::cout << "shared fixes list has length not equal to "
+                          << std::pow( 2,
+                                       Options::get()->getInt( Options::MAX_LOOKAHEAD_DEPTH ) + 1 )
+                          << ", double check!" << std::endl;
 
             for ( const auto &fix : sharedFixes[0] )
             {
@@ -2849,7 +2852,7 @@ void Engine::applyLookaheadSplit(
     unsigned &phaseFixedProduct,
     const EngineState &initialState,
     Vector<Map<PiecewiseLinearConstraint *, PhaseStatus>> &sharedFixes,
-    unsigned depth )
+    int depth )
 {
     // Store state before trying this polarity
     _boundManager.storeLocalBounds();
@@ -2871,7 +2874,7 @@ void Engine::applyLookaheadSplit(
         applyAllBoundTightenings();
     }
     // If we haven't reached max depth, try next level of branching
-    if ( depth < 1 ) // Try 1 more level beyond the first
+    if ( depth < Options::get()->getInt( Options::MAX_LOOKAHEAD_DEPTH ) )
     {
         // Pick next split using normal branching heuristic
         PiecewiseLinearConstraint *nextConstraint =

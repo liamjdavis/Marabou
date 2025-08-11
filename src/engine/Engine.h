@@ -219,7 +219,7 @@ public:
                               unsigned &phaseFixedProduct,
                               const EngineState &initialState,
                               Vector<Map<PiecewiseLinearConstraint *, PhaseStatus>> &sharedFixes,
-                              unsigned depth = 0 );
+                              int depth = 0 );
 
     /*
       Call-back from QueryDividers
