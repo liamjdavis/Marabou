@@ -376,8 +376,23 @@ bool Engine::solve( double timeoutInSeconds )
             }
 
             // We have out-of-bounds variables.
-            if ( _lpSolverType == LPSolverType::NATIVE )
+            if ( GlobalConfiguration::DISABLE_SIMPLEX )
+            {
+                ENGINE_LOG( "Simplex is disabled - forcing constraint processing and branching" );
+                // std::cout << "Simplex is disabled - forcing constraint processing and branching"
+                // << std::endl; When simplex is disabled, we can't solve the LP to get feasible
+                // assignments Instead, we force the engine to process constraint violations and
+                // branch.
+                if ( !adjustAssignmentToSatisfyNonLinearConstraints() )
+                {
+                    continue;
+                }
+            }
+            else if ( _lpSolverType == LPSolverType::NATIVE )
+            {
                 performSimplexStep();
+                continue;
+            }
             else
             {
                 ENGINE_LOG( "Checking LP feasibility with Gurobi..." );
@@ -385,8 +400,8 @@ bool Engine::solve( double timeoutInSeconds )
                 ASSERT( _lpSolverType == LPSolverType::GUROBI );
                 LinearExpression dontCare;
                 minimizeCostWithGurobi( dontCare );
+                continue;
             }
-            continue;
         }
         catch ( const MalformedBasisException & )
         {
@@ -1661,6 +1676,12 @@ void Engine::performMILPSolverBoundedTighteningForSingleLayer( unsigned targetIn
 {
     if ( _produceUNSATProofs )
         return;
+
+    if ( GlobalConfiguration::DISABLE_SIMPLEX )
+    {
+        // Skip MILP-based bound tightening when simplex is disabled
+        return;
+    }
 
     if ( _networkLevelReasoner && _isGurobyEnabled && _performLpTighteningAfterSplit &&
          _milpSolverBoundTighteningType != MILPSolverBoundTighteningType::NONE )
@@ -3425,7 +3446,12 @@ void Engine::minimizeHeuristicCost( const LinearExpression &heuristicCost )
 {
     ENGINE_LOG( "Optimizing w.r.t. the current heuristic cost..." );
 
-    if ( _lpSolverType == LPSolverType::GUROBI )
+    if ( GlobalConfiguration::DISABLE_SIMPLEX )
+    {
+        ENGINE_LOG( "Simplex is disabled - skipping heuristic cost optimization" );
+        // std::cout << "Simplex is disabled - skipping heuristic cost optimization" << std::endl;
+    }
+    else if ( _lpSolverType == LPSolverType::GUROBI )
     {
         minimizeCostWithGurobi( heuristicCost );
 
