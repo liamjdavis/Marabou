@@ -147,9 +147,6 @@ const bool GlobalConfiguration::CEGAR_LOGGING = false;
 const bool GlobalConfiguration::USE_SMART_FIX = false;
 const bool GlobalConfiguration::USE_LEAST_FIX = false;
 
-// Set to true to completely disable simplex steps (useful for BaB-only mode)
-const bool GlobalConfiguration::DISABLE_SIMPLEX = true;
-
 void GlobalConfiguration::print()
 {
     printf( "****************************\n" );

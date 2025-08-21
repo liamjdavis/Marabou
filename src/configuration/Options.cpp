@@ -74,6 +74,7 @@ void Options::initializeDefaultValues()
     _intOptions[NUM_CONSTRAINTS_TO_REFINE_INC_LIN] = 30;
     _intOptions[NUM_LOOKAHEAD_BRANCHES] = 5;
     _intOptions[MAX_LOOKAHEAD_DEPTH] = 2;
+    _intOptions[NUM_SIMPLEX_ROUNDS] = -1;
 
     /*
       Float options

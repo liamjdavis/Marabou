@@ -73,6 +73,8 @@ Engine::Engine()
     , _groundBoundManager( _context )
     , _UNSATCertificate( NULL )
     , _completedLookahead( false )
+    , _disableSimplex( false )
+    , _babRounds( 0 )
 {
     _smtCore.setStatistics( &_statistics );
     _tableau->setStatistics( &_statistics );
@@ -376,13 +378,11 @@ bool Engine::solve( double timeoutInSeconds )
             }
 
             // We have out-of-bounds variables.
-            if ( GlobalConfiguration::DISABLE_SIMPLEX )
+            if ( _disableSimplex )
             {
                 ENGINE_LOG( "Simplex is disabled - forcing constraint processing and branching" );
                 // std::cout << "Simplex is disabled - forcing constraint processing and branching"
-                // << std::endl; When simplex is disabled, we can't solve the LP to get feasible
-                // assignments Instead, we force the engine to process constraint violations and
-                // branch.
+                // << std::endl;
                 if ( !adjustAssignmentToSatisfyNonLinearConstraints() )
                 {
                     continue;
@@ -1677,7 +1677,7 @@ void Engine::performMILPSolverBoundedTighteningForSingleLayer( unsigned targetIn
     if ( _produceUNSATProofs )
         return;
 
-    if ( GlobalConfiguration::DISABLE_SIMPLEX )
+    if ( _disableSimplex )
     {
         // Skip MILP-based bound tightening when simplex is disabled
         return;
@@ -2802,26 +2802,27 @@ PiecewiseLinearConstraint *Engine::branchWithLookahead()
 
             if ( sharedFixes.size() !=
                  std::pow( 2, Options::get()->getInt( Options::MAX_LOOKAHEAD_DEPTH ) + 1 ) )
-                std::cout << "shared fixes list has length not equal to "
-                          << std::pow( 2,
-                                       Options::get()->getInt( Options::MAX_LOOKAHEAD_DEPTH ) + 1 )
-                          << ", double check!" << std::endl;
+                // std::cout << "shared fixes list has length not equal to "
+                //           << std::pow( 2,
+                //                        Options::get()->getInt( Options::MAX_LOOKAHEAD_DEPTH ) + 1
+                //                        )
+                //           << ", double check!" << std::endl;
 
-            for ( const auto &fix : sharedFixes[0] )
-            {
-                bool found = true;
-                for ( unsigned i = 1; i < sharedFixes.size(); ++i )
+                for ( const auto &fix : sharedFixes[0] )
                 {
-                    if ( !( sharedFixes[i].exists( fix.first ) &&
-                            sharedFixes[i][fix.first] == fix.second ) )
+                    bool found = true;
+                    for ( unsigned i = 1; i < sharedFixes.size(); ++i )
                     {
-                        found = false;
-                        break;
+                        if ( !( sharedFixes[i].exists( fix.first ) &&
+                                sharedFixes[i][fix.first] == fix.second ) )
+                        {
+                            found = false;
+                            break;
+                        }
                     }
+                    if ( found )
+                        commonFixes[fix.first] = fix.second;
                 }
-                if ( found )
-                    commonFixes[fix.first] = fix.second;
-            }
 
             // Calculate score as geometric mean of phase fixes
             double score = (double)phaseFixedProduct / (double)phaseFixedSum;
@@ -2855,14 +2856,14 @@ PiecewiseLinearConstraint *Engine::branchWithLookahead()
             alreadyFixes++;
         }
     }
-    std::cout << "Fixed before lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
+    // std::cout << "Fixed before lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
     do
     {
         _boundManager.propagateTightenings();
         applyAllBoundTightenings();
     }
     while ( applyAllValidConstraintCaseSplits() );
-    std::cout << "Fixed after lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
+    // std::cout << "Fixed after lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
 
     return bestCandidate;
 }
@@ -3171,6 +3172,18 @@ PiecewiseLinearConstraint *Engine::pickSplitPLConstraint( DivideStrategy strateg
         Stringf( ( candidatePLConstraint ? "Picked..."
                                          : "Unable to pick using the current strategy..." ) )
             .ascii() );
+
+    ++_babRounds;
+
+    // If NUM_SIMPLEX_ROUNDS set and BaB rounds exceeds simplex rounds, set disable simplex to true
+    int simplexRounds = Options::get()->getInt( Options::NUM_SIMPLEX_ROUNDS );
+
+    if ( simplexRounds > 0 && _babRounds >= simplexRounds && !_disableSimplex )
+    {
+        std::cout << "Disabling Simplex after " << _babRounds << " rounds" << std::endl;
+        _disableSimplex = true;
+    }
+
     return candidatePLConstraint;
 }
 
@@ -3446,7 +3459,7 @@ void Engine::minimizeHeuristicCost( const LinearExpression &heuristicCost )
 {
     ENGINE_LOG( "Optimizing w.r.t. the current heuristic cost..." );
 
-    if ( GlobalConfiguration::DISABLE_SIMPLEX )
+    if ( _disableSimplex )
     {
         ENGINE_LOG( "Simplex is disabled - skipping heuristic cost optimization" );
         // std::cout << "Simplex is disabled - skipping heuristic cost optimization" << std::endl;

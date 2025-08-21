@@ -932,6 +932,16 @@ private:
       Previous stack depths for lookahead branching
     */
     Set<unsigned> _lookaheadCompletedAtDepths;
+
+    /*
+      Disable simplex
+    */
+    bool _disableSimplex;
+
+    /*
+      BaB rounds counter
+    */
+    int _babRounds;
 };
 
 #endif // __Engine_h__

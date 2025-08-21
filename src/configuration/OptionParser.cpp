@@ -141,7 +141,11 @@ void OptionParser::initialize()
         boost::program_options::bool_switch(
             &( ( *_boolOptions )[Options::USE_LOOKAHEAD_BRANCHING] ) )
             ->default_value( ( *_boolOptions )[Options::USE_LOOKAHEAD_BRANCHING] ),
-        "Use lookahead branching to decide which branch to take first." )
+        "Use lookahead branching to decide which branch to take first." )(
+        "simplex-rounds",
+        boost::program_options::value<int>( &( ( *_intOptions )[Options::NUM_SIMPLEX_ROUNDS] ) )
+            ->default_value( ( *_intOptions )[Options::NUM_SIMPLEX_ROUNDS] ),
+        "The number of simplex rounds to perform." )
 #ifdef ENABLE_GUROBI
 #endif // ENABLE_GUROBI
         ;

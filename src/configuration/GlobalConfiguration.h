@@ -118,9 +118,6 @@ public:
     // attempt to pick another element.
     static const double ACCEPTABLE_SIMPLEX_PIVOT_THRESHOLD;
 
-    // Toggle to completely disable simplex steps (useful for BaB-only mode)
-    static const bool DISABLE_SIMPLEX;
-
     // If true, column-merging equations are given special treatment and cause columns in the
     // tableau to be merged (instead of a new row added).
     static const bool USE_COLUMN_MERGING_EQUATIONS;

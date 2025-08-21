@@ -124,6 +124,9 @@ public:
 
         // Maximum lookahead depth
         MAX_LOOKAHEAD_DEPTH,
+
+        // Simplex rounds
+        NUM_SIMPLEX_ROUNDS,
     };
 
     enum FloatOptions {
