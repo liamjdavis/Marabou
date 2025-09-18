@@ -2815,7 +2815,7 @@ PiecewiseLinearConstraint *Engine::branchWithLookahead()
         }
     }
 
-    printf( "Branching off candidate with score of %f\n", maxScore );
+    // printf( "Branching off candidate with score of %f\n", maxScore );
 
     // Apply best constraint's first split if found
 
