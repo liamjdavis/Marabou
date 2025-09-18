@@ -2834,14 +2834,14 @@ PiecewiseLinearConstraint *Engine::branchWithLookahead()
             alreadyFixes++;
         }
     }
-    std::cout << "Fixed before lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
+    // std::cout << "Fixed before lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
     do
     {
         _boundManager.propagateTightenings();
         applyAllBoundTightenings();
     }
     while ( applyAllValidConstraintCaseSplits() );
-    std::cout << "Fixed after lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
+    // std::cout << "Fixed after lookahead: " << countPhaseFixed( commonFixes ) << std::endl;
 
     return bestCandidate;
 }
@@ -2867,12 +2867,16 @@ void Engine::applyLookaheadSplit(
     applyAllBoundTightenings();
 
     // Keep propagating while new valid splits are found
+    // OPTIMIZATION: Comment out applyAllValidConstraintCaseSplits during lookahead -
+    // it's expensive and doesn't provide useful information for lookahead decisions
+    /*
     while ( applyAllValidConstraintCaseSplits() )
     {
         _boundManager.propagateTightenings();
         performSymbolicBoundTightening();
         applyAllBoundTightenings();
     }
+    */
     // If we haven't reached max depth, try next level of branching
     if ( depth < Options::get()->getInt( Options::MAX_LOOKAHEAD_DEPTH ) )
     {
@@ -3105,13 +3109,13 @@ PiecewiseLinearConstraint *Engine::pickSplitPLConstraint( DivideStrategy strateg
          Options::get()->getBool( Options::USE_LOOKAHEAD_BRANCHING ) &&
          _smtCore.getStackDepth() < 5 )
     {
-        printf( "Engine::solve: performing lookahead branching at depth %u, need to split %u\n",
-                _smtCore.getStackDepth(),
-                _smtCore.needToSplit() );
+        // printf( "Engine::solve: performing lookahead branching at depth %u, need to split %u\n",
+        //         _smtCore.getStackDepth(),
+        //         _smtCore.needToSplit() );
         PiecewiseLinearConstraint *candidatePLConstraint = branchWithLookahead();
         if ( candidatePLConstraint )
         {
-            printf( "Engine::solve: picked lookahead branching\n" );
+            // printf( "Engine::solve: picked lookahead branching\n" );
             ENGINE_LOG( Stringf( "Picked a split PLConstraint using lookahead..." ).ascii() );
             return candidatePLConstraint;
         }
