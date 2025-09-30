@@ -36,6 +36,7 @@
 #include "MILPEncoder.h"
 #include "Map.h"
 #include "Options.h"
+#include "PhaseFixTrie.h"
 #include "PrecisionRestorer.h"
 #include "Preprocessor.h"
 #include "Query.h"
@@ -66,6 +67,8 @@ class String;
 
 
 using CVC4::context::Context;
+
+using PhaseFix = std::pair<unsigned, bool>; // <variable index, phase>
 
 class Engine
     : public IEngine
@@ -352,6 +355,11 @@ private:
       The existing piecewise-linear constraints.
     */
     List<PiecewiseLinearConstraint *> _plConstraints;
+
+    /*
+      Map from PLConstraint ID to constraint pointer.
+    */
+    Map<unsigned, PiecewiseLinearConstraint *> _idToPlConstraint;
 
     /*
       The existing nonlinear constraints.
@@ -905,6 +913,16 @@ private:
       Writes the details of a contradiction to the UNSAT certificate node
     */
     void writeContradictionToCertificate( unsigned infeasibleVar ) const;
+
+    /*
+      Trie to store UNSAT subproblem phase fix prefixes.
+    */
+    PhaseFixTrie *_phaseFixTrie;
+
+    /*
+      Helper function to get current phase fixes.
+    */
+    std::vector<PhaseFix> getCurrentPhaseFixes() const;
 };
 
 #endif // __Engine_h__

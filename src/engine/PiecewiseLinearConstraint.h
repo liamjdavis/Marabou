@@ -118,6 +118,11 @@ public:
         cdoCleanup();
     }
 
+    unsigned getId() const
+    {
+        return _id;
+    }
+
     bool operator<( const PiecewiseLinearConstraint &other ) const
     {
         return _score < other._score;
@@ -499,7 +504,17 @@ public:
         return _tableauAuxVars;
     }
 
+    /*
+      Get the fixed phase of the constraint, if phase is fixed.
+    */
+    virtual PhaseStatus getPhaseFix() const
+    {
+        return getPhaseStatus();
+    }
+
 protected:
+    static unsigned _nextId;
+    unsigned _id;
     unsigned _numCases; // Number of possible cases/phases for this constraint
                         // (e.g. 2 for ReLU, ABS, SIGN; >=2 for Max and Disjunction )
     bool _constraintActive;
