@@ -1,5 +1,5 @@
 /*********************                                                        */
-/*! \file test_Test_BaBsrSplitting.h
+/*! \file Test_BaBsrSplitting.h
  ** \verbatim
  ** Top contributors (to current version):
  **   Liam Davis

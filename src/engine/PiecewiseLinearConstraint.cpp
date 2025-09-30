@@ -17,8 +17,11 @@
 
 #include "Statistics.h"
 
+unsigned PiecewiseLinearConstraint::_nextId = 0;
+
 PiecewiseLinearConstraint::PiecewiseLinearConstraint()
-    : _numCases( 0 )
+    : _id( _nextId++ )
+    , _numCases( 0 )
     , _constraintActive( true )
     , _phaseStatus( PHASE_NOT_FIXED )
     , _boundManager( nullptr )
@@ -35,7 +38,8 @@ PiecewiseLinearConstraint::PiecewiseLinearConstraint()
 }
 
 PiecewiseLinearConstraint::PiecewiseLinearConstraint( unsigned numCases )
-    : _numCases( numCases )
+    : _id( _nextId++ )
+    , _numCases( numCases )
     , _constraintActive( true )
     , _phaseStatus( PHASE_NOT_FIXED )
     , _boundManager( nullptr )

@@ -72,6 +72,7 @@ Engine::Engine()
     , _produceUNSATProofs( Options::get()->getBool( Options::PRODUCE_PROOFS ) )
     , _groundBoundManager( _context )
     , _UNSATCertificate( NULL )
+    , _phaseFixTrie( new PhaseFixTrie() )
 {
     _smtCore.setStatistics( &_statistics );
     _tableau->setStatistics( &_statistics );
@@ -111,6 +112,12 @@ Engine::~Engine()
 
     if ( _produceUNSATProofs && _UNSATCertificateCurrentPointer )
         _UNSATCertificateCurrentPointer->deleteSelf();
+
+    if ( _phaseFixTrie )
+    {
+        delete _phaseFixTrie;
+        _phaseFixTrie = NULL;
+    }
 }
 
 void Engine::setVerbosity( unsigned verbosity )
@@ -244,6 +251,7 @@ bool Engine::solve( double timeoutInSeconds )
                 _statistics.print();
             }
 
+            _phaseFixTrie->dumpUnsatPrefixes();
             _exitCode = Engine::TIMEOUT;
             _statistics.timeout();
             return false;
@@ -344,6 +352,7 @@ bool Engine::solve( double timeoutInSeconds )
                             ASSERT( _UNSATCertificateCurrentPointer );
                             ( **_UNSATCertificateCurrentPointer ).setSATSolutionFlag();
                         }
+                        _phaseFixTrie->dumpUnsatPrefixes();
                         _exitCode = Engine::SAT;
                         return true;
                     }
@@ -408,6 +417,9 @@ bool Engine::solve( double timeoutInSeconds )
             // If we're at level 0, the whole query is unsat.
             if ( _produceUNSATProofs )
                 explainSimplexFailure();
+
+            // Collect phase fixes that led to unsat problem
+            _phaseFixTrie->insertUnsatPrefix( getCurrentPhaseFixes() );
 
             if ( !_smtCore.popSplit() )
             {
@@ -1359,8 +1371,12 @@ void Engine::initializeTableau( const double *constraintMatrix, const List<unsig
 void Engine::initializeBoundsAndConstraintWatchersInTableau( unsigned numberOfVariables )
 {
     _plConstraints = _preprocessedQuery->getPiecewiseLinearConstraints();
+    _idToPlConstraint.clear();
     for ( const auto &constraint : _plConstraints )
     {
+        // Map the constraint's ID to the constraint itself
+        _idToPlConstraint[constraint->getId()] = constraint;
+
         constraint->registerAsWatcher( _tableau );
         constraint->setStatistics( &_statistics );
 
@@ -2971,6 +2987,9 @@ bool Engine::restoreSmtState( SmtState &smtState )
         if ( _produceUNSATProofs )
             explainSimplexFailure();
 
+        // Collect phase fixes that led to unsat problem
+        _phaseFixTrie->insertUnsatPrefix( getCurrentPhaseFixes() );
+
         if ( !_smtCore.popSplit() )
         {
             if ( _verbosity > 0 )
@@ -2979,8 +2998,6 @@ bool Engine::restoreSmtState( SmtState &smtState )
                 _statistics.print();
             }
             _exitCode = Engine::UNSAT;
-            for ( PiecewiseLinearConstraint *p : _plConstraints )
-                p->setActiveConstraint( true );
             return false;
         }
     }
@@ -3033,6 +3050,7 @@ bool Engine::solveWithMILPEncoding( double timeoutInSeconds )
     {
         if ( allNonlinearConstraintsHold() )
         {
+            _phaseFixTrie->dumpUnsatPrefixes();
             _exitCode = IEngine::SAT;
             return true;
         }
@@ -3045,7 +3063,10 @@ bool Engine::solveWithMILPEncoding( double timeoutInSeconds )
     else if ( _gurobi->infeasible() )
         _exitCode = IEngine::UNSAT;
     else if ( _gurobi->timeout() )
+    {
+        _phaseFixTrie->dumpUnsatPrefixes();
         _exitCode = IEngine::TIMEOUT;
+    }
     else
         throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_GUROBI );
     return false;
@@ -3879,4 +3900,15 @@ void Engine::addPLCLemma( std::shared_ptr<PLCLemma> &explanation )
     ASSERT( explanation && _UNSATCertificate && _UNSATCertificateCurrentPointer )
     _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS );
     _UNSATCertificateCurrentPointer->get()->addPLCLemma( explanation );
+}
+
+std::vector<PhaseFix> Engine::getCurrentPhaseFixes() const
+{
+    std::vector<PhaseFix> phaseFixes;
+    for ( const auto &plConstraint : _plConstraints )
+    {
+        if ( plConstraint->phaseFixed() )
+            phaseFixes.emplace_back( plConstraint->getId(), plConstraint->getPhaseFix() );
+    }
+    return phaseFixes;
 }
