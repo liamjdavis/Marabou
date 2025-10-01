@@ -243,4 +243,103 @@ public:
         std::vector<PhaseFix> sorted_prefix = { { 1, true }, { 2, false }, { 3, true } };
         TS_ASSERT_EQUALS( dumpedPrefixes[0], sorted_prefix );
     }
+
+    void test_subset_non_prefix_subsumption()
+    {
+        std::vector<PhaseFix> superset = { { 1, true }, { 2, true }, { 3, true }, { 4, true } };
+        std::vector<PhaseFix> subset = { { 1, true }, { 2, true }, { 4, true } };
+
+        TS_ASSERT( trie->insertUnsatPrefix( superset ) );
+        TS_ASSERT_EQUALS( trie->size(), 1 );
+
+        // Insert subset that is not a path prefix (skips 3)
+        TS_ASSERT( trie->insertUnsatPrefix( subset ) );
+        TS_ASSERT_EQUALS( trie->size(), 1 );
+
+        auto dumped = trie->dumpUnsatPrefixes();
+        TS_ASSERT_EQUALS( dumped.size(), 1 );
+        TS_ASSERT( dumped[0] == subset );
+    }
+
+    void test_multiple_incomparable_prefixes()
+    {
+        // Three pairwise incomparable (no subset relation) minimal UNSAT sets
+        std::vector<PhaseFix> a = { { 1, true }, { 4, false } };
+        std::vector<PhaseFix> b = { { 2, false }, { 5, true } };
+        std::vector<PhaseFix> c = { { 3, true }, { 6, false } };
+
+        TS_ASSERT( trie->insertUnsatPrefix( a ) );
+        TS_ASSERT( trie->insertUnsatPrefix( b ) );
+        TS_ASSERT( trie->insertUnsatPrefix( c ) );
+
+        TS_ASSERT_EQUALS( trie->size(), 3 );
+
+        auto dumped = trie->dumpUnsatPrefixes();
+        TS_ASSERT_EQUALS( dumped.size(), 3 );
+
+        auto contains = [&]( const std::vector<PhaseFix> &t ) {
+            for ( const auto &d : dumped )
+                if ( d == t )
+                    return true;
+            return false;
+        };
+
+        TS_ASSERT( contains( a ) );
+        TS_ASSERT( contains( b ) );
+        TS_ASSERT( contains( c ) );
+    }
+
+    void test_subsumption_retains_other_minimals()
+    {
+        // Start with two incomparable larger sets
+        std::vector<PhaseFix> s1 = { { 1, true }, { 2, true }, { 10, false } };
+        std::vector<PhaseFix> s2 = { { 3, false }, { 4, true }, { 11, true } };
+
+        TS_ASSERT( trie->insertUnsatPrefix( s1 ) );
+        TS_ASSERT( trie->insertUnsatPrefix( s2 ) );
+        TS_ASSERT_EQUALS( trie->size(), 2 );
+
+        // Insert subset of s1 only
+        std::vector<PhaseFix> s1_min = { { 1, true }, { 2, true } };
+        TS_ASSERT( trie->insertUnsatPrefix( s1_min ) );
+
+        // Now s1 should be removed, s1_min + s2 remain
+        TS_ASSERT_EQUALS( trie->size(), 2 );
+
+        auto dumped = trie->dumpUnsatPrefixes();
+        TS_ASSERT_EQUALS( dumped.size(), 2 );
+
+        auto contains = [&]( const std::vector<PhaseFix> &t ) {
+            for ( const auto &d : dumped )
+                if ( d == t )
+                    return true;
+            return false;
+        };
+
+        TS_ASSERT( contains( s1_min ) );
+        TS_ASSERT( contains( s2 ) );
+        TS_ASSERT( !contains( s1 ) );
+    }
+
+    void test_chain_of_subsumptions()
+    {
+        // Insert a long set first
+        std::vector<PhaseFix> L3 = { { 1, true }, { 2, false }, { 3, true } };
+        TS_ASSERT( trie->insertUnsatPrefix( L3 ) );
+        TS_ASSERT_EQUALS( trie->size(), 1 );
+
+        // Insert a middle subset
+        std::vector<PhaseFix> L2 = { { 1, true }, { 3, true } };
+        TS_ASSERT( trie->insertUnsatPrefix( L2 ) );
+        TS_ASSERT_EQUALS( trie->size(), 1 );
+
+        // Insert the smallest subset
+        std::vector<PhaseFix> L1 = { { 1, true } };
+        TS_ASSERT( trie->insertUnsatPrefix( L1 ) );
+        TS_ASSERT_EQUALS( trie->size(), 1 );
+
+        auto dumped = trie->dumpUnsatPrefixes();
+        TS_ASSERT_EQUALS( dumped.size(), 1 );
+        TS_ASSERT( dumped[0] == L1 );
+    }
 };

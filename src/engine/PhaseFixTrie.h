@@ -13,6 +13,7 @@
 
  **/
 #include <algorithm>
+#include <iostream>
 #include <map>
 #include <utility>
 #include <vector>
@@ -70,61 +71,54 @@ public:
     */
     bool insertUnsatPrefix( const std::vector<PhaseFix> &prefix )
     {
-        // Create a sorted copy to enforce canonical order
+        // Canonicalize (sort + dedup in case caller passes duplicates)
         std::vector<PhaseFix> sortedPrefix = prefix;
         std::sort( sortedPrefix.begin(), sortedPrefix.end() );
+        sortedPrefix.erase( std::unique( sortedPrefix.begin(), sortedPrefix.end() ),
+                            sortedPrefix.end() );
 
         TrieNode *curr = _root;
 
-        // Check if empty prefix and root is already marked
+        // Empty set handling (global UNSAT)
         if ( sortedPrefix.empty() )
         {
             if ( !curr->isUnsatRoot )
             {
                 curr->isUnsatRoot = true;
-
-                // An empty prefix subsumes all others. Clear children.
-                for ( auto const &[key, val] : curr->children )
-                    delete val;
+                for ( auto const &[k, v] : curr->children )
+                    delete v;
                 curr->children.clear();
-
                 return true;
             }
             return false;
         }
 
-        for ( const auto &phaseFix : sortedPrefix )
-        {
-            if ( curr->isUnsatRoot )
-            {
-                // This prefix is already covered by an existing UNSAT subtree
+        // If root already UNSAT → everything subsumed
+        if ( _root->isUnsatRoot )
+            return false;
+
+        // 1. Gather existing minimal UNSAT sets
+        std::vector<std::vector<PhaseFix>> existing = gatherUnsatPrefixes();
+
+        // 2. If any existing set is subset of new → redundant
+        for ( const auto &e : existing )
+            if ( isSubset( e, sortedPrefix ) )
                 return false;
-            }
 
-            // Find or create the next node
-            if ( curr->children.find( phaseFix ) == curr->children.end() )
-            {
-                curr->children[phaseFix] = new TrieNode();
-            }
-
-            curr = curr->children[phaseFix];
-        }
-
-        // Reach the end, mark this node as an UNSAT root
-        if ( !curr->isUnsatRoot )
+        // 3. Remove supersets of the new one
+        std::vector<std::vector<PhaseFix>> filtered;
+        filtered.reserve( existing.size() + 1 );
+        for ( const auto &e : existing )
         {
-            curr->isUnsatRoot = true;
-
-            // This new prefix subsumes any of its extensions. Clear children.
-            for ( auto const &[key, val] : curr->children )
-                delete val;
-            curr->children.clear();
-
-            return true;
+            if ( !isSubset( sortedPrefix, e ) )
+                filtered.push_back( e );
         }
+        filtered.push_back( sortedPrefix );
 
-        // Return false
-        return false;
+        // 4. Rebuild trie from filtered list
+        rebuildFromList( filtered );
+
+        return true;
     }
 
     /*
@@ -203,6 +197,118 @@ private:
         }
 
         return count;
+    }
+
+    // Helper: check A ⊆ B (both sorted, no duplicates)
+    static bool isSubset( const std::vector<PhaseFix> &A, const std::vector<PhaseFix> &B )
+    {
+        // Two-pointer walk
+        size_t i = 0, j = 0;
+        while ( i < A.size() && j < B.size() )
+        {
+            if ( A[i] == B[j] )
+            {
+                ++i;
+                ++j;
+            }
+            else if ( A[i] < B[j] )
+            {
+                // A[i] not found in B
+                return false;
+            }
+            else
+            {
+                ++j; // Skip extra element in B
+            }
+        }
+        return i == A.size();
+    }
+
+    // Silent collection of current minimal UNSAT sets
+    std::vector<std::vector<PhaseFix>> gatherUnsatPrefixes() const
+    {
+        std::vector<std::vector<PhaseFix>> out;
+        std::vector<PhaseFix> curr;
+        gatherRec( _root, curr, out );
+        return out;
+    }
+
+    void gatherRec( TrieNode *node,
+                    std::vector<PhaseFix> &curr,
+                    std::vector<std::vector<PhaseFix>> &out ) const
+    {
+        if ( node->isUnsatRoot )
+        {
+            out.push_back( curr );
+            return;
+        }
+        for ( const auto &[pf, child] : node->children )
+        {
+            curr.push_back( pf );
+            gatherRec( child, curr, out );
+            curr.pop_back();
+        }
+    }
+
+    // Raw insertion (no subset checks). Assumes sorted unique vector.
+    void insertPath( const std::vector<PhaseFix> &path )
+    {
+        if ( path.empty() )
+        {
+            _root->isUnsatRoot = true;
+            // Clear children since empty set subsumes everything
+            for ( auto const &[k, v] : _root->children )
+                delete v;
+            _root->children.clear();
+            return;
+        }
+
+        TrieNode *curr = _root;
+        for ( const auto &pf : path )
+        {
+            auto it = curr->children.find( pf );
+            if ( it == curr->children.end() )
+            {
+                TrieNode *n = new TrieNode();
+                curr->children.emplace( pf, n );
+                curr = n;
+            }
+            else
+                curr = it->second;
+        }
+        curr->isUnsatRoot = true;
+        // Prune descendants (should be none in rebuild scenario, but safe)
+        for ( auto const &[k, v] : curr->children )
+            delete v;
+        curr->children.clear();
+    }
+
+    void clearTrie( TrieNode *node )
+    {
+        for ( auto const &[k, v] : node->children )
+            delete v;
+        node->children.clear();
+        node->isUnsatRoot = false;
+    }
+
+    void deleteTrie( TrieNode *node )
+    {
+        // Old (buggy):
+        // for ( auto const &[k, v] : node->children )
+        //     deleteTrie( v );
+        // delete node;
+
+        // Safe: rely on ~TrieNode() to recurse
+        delete node;
+    }
+
+    void rebuildFromList( const std::vector<std::vector<PhaseFix>> &sets )
+    {
+        deleteTrie( _root ); // Single delete; destructor recurses
+        _root = new TrieNode();
+
+        for ( const auto &s : sets )
+            insertPath( s );
     }
 };
 
