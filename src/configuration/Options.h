@@ -83,6 +83,9 @@ public:
         // logically-consecutive weighted sum layers into a single
         // weighted sum layer, to reduce the number of variables
         DO_NOT_MERGE_CONSECUTIVE_WEIGHTED_SUM_LAYERS,
+
+        // Use BICCOS for Inferred Cuts
+        BICCOS,
     };
 
     enum IntOptions {

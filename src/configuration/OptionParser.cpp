@@ -241,7 +241,11 @@ void OptionParser::initialize()
             &( *_boolOptions )[Options::DO_NOT_MERGE_CONSECUTIVE_WEIGHTED_SUM_LAYERS] )
             ->default_value(
                 ( *_boolOptions )[Options::DO_NOT_MERGE_CONSECUTIVE_WEIGHTED_SUM_LAYERS] ),
-        "Do no merge consecutive weighted-sum layers." )
+        "Do no merge consecutive weighted-sum layers." )(
+        "biccos",
+        boost::program_options::bool_switch( &( *_boolOptions )[Options::BICCOS] )
+            ->default_value( ( *_boolOptions )[Options::BICCOS] ),
+        "Use BICCOS for Inferred Cuts." )
 #ifdef ENABLE_GUROBI
         ( "lp-solver",
           boost::program_options::value<std::string>( &( ( *_stringOptions )[Options::LP_SOLVER] ) )
