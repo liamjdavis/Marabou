@@ -300,6 +300,21 @@ bool Engine::solve( double timeoutInSeconds )
             // If true, we just entered a new subproblem
             if ( splitJustPerformed )
             {
+                // Perform BICCOS pruning if enabled
+                if ( Options::get()->getBool( Options::BICCOS ) )
+                {
+                    std::vector<PhaseFix> currPhaseFixes = getCurrentPhaseFixes();
+
+                    if ( _phaseFixTrie->hasUnsatSubset( currPhaseFixes ) )
+                    {
+                        // Current phase fixes have an UNSAT subset, current subproblem is UNSAT
+                        ENGINE_LOG( "BICCOS pruning: current phase fixes have an UNSAT subset, "
+                                    "current subproblem is UNSAT" );
+
+                        throw InfeasibleQueryException();
+                    }
+                }
+
                 performBoundTighteningAfterCaseSplit();
                 informLPSolverOfBounds();
                 splitJustPerformed = false;
