@@ -122,9 +122,12 @@ public:
     }
 
     /*
-        Check if any subset of given phase fixes forms a complete UNSAT prefix in the trie.
+        Check if the given phase fixes are a superset of any stored UNSAT prefix.
+        Returns true if phaseFixes contains all elements of at least one UNSAT prefix in the trie.
+        This is the correct condition for BICCOS pruning: if current phase fixes contain
+        a complete UNSAT prefix, the current subproblem is guaranteed to be UNSAT.
     */
-    bool hasUnsatSubset( const std::vector<PhaseFix> &phaseFixes ) const
+    bool isSupersetOfUnsatPrefix( const std::vector<PhaseFix> &phaseFixes ) const
     {
         // Canonicalize input: sort and remove duplicates
         std::vector<PhaseFix> sortedFixes = phaseFixes;
@@ -250,7 +253,9 @@ private:
     }
 
     /*
-        Helper method for hasUnsatSubset to recursively search for a subset.
+        Helper method for isSupersetOfUnsatPrefix to recursively search.
+        Traverses the trie following paths that exist in phaseFixes, checking if we can
+        reach an isUnsatRoot node (meaning phaseFixes contains a complete UNSAT prefix).
     */
     bool findUnsatSubsetRec( TrieNode *node,
                              const std::vector<PhaseFix> &phaseFixes,

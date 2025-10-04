@@ -305,11 +305,14 @@ bool Engine::solve( double timeoutInSeconds )
                 {
                     std::vector<PhaseFix> currPhaseFixes = getCurrentPhaseFixes();
 
-                    if ( _phaseFixTrie->hasUnsatSubset( currPhaseFixes ) )
+                    if ( _phaseFixTrie->isSupersetOfUnsatPrefix( currPhaseFixes ) )
                     {
-                        // Current phase fixes have an UNSAT subset, current subproblem is UNSAT
-                        ENGINE_LOG( "BICCOS pruning: current phase fixes have an UNSAT subset, "
+                        // Current phase fixes are a superset of an UNSAT prefix, current subproblem
+                        // is UNSAT
+                        ENGINE_LOG( "BICCOS pruning: current phase fixes contain an UNSAT prefix, "
                                     "current subproblem is UNSAT" );
+
+                        std::cout << "BICCOS pruning: current subproblem is UNSAT" << std::endl;
 
                         throw InfeasibleQueryException();
                     }

@@ -343,7 +343,7 @@ public:
         TS_ASSERT( dumped[0] == L1 );
     }
 
-    void test_hasUnsatSubset_basic_same_trie()
+    void test_isSupersetOfUnsatPrefix_basic_same_trie()
     {
         // Insert some UNSAT prefixes
         std::vector<PhaseFix> prefix1 = { { 1, true }, { 2, false } };
@@ -355,21 +355,21 @@ public:
         trie->insertUnsatPrefix( prefix3 );
 
         // Test exact matches (basic subset - identical to stored prefixes)
-        TS_ASSERT( trie->hasUnsatSubset( prefix1 ) );
-        TS_ASSERT( trie->hasUnsatSubset( prefix2 ) );
-        TS_ASSERT( trie->hasUnsatSubset( prefix3 ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( prefix1 ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( prefix2 ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( prefix3 ) );
 
         // Test with additional elements (supersets should still match)
         std::vector<PhaseFix> superset1 = { { 1, true }, { 2, false }, { 6, true } };
         std::vector<PhaseFix> superset2 = { { 3, true }, { 4, false }, { 7, false }, { 8, true } };
         std::vector<PhaseFix> superset3 = { { 5, true }, { 9, false } };
 
-        TS_ASSERT( trie->hasUnsatSubset( superset1 ) );
-        TS_ASSERT( trie->hasUnsatSubset( superset2 ) );
-        TS_ASSERT( trie->hasUnsatSubset( superset3 ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( superset1 ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( superset2 ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( superset3 ) );
     }
 
-    void test_hasUnsatSubset_simple_sequential_subset()
+    void test_isSupersetOfUnsatPrefix_simple_sequential_subset()
     {
         // Insert UNSAT prefixes that are sequential paths in the trie
         std::vector<PhaseFix> path1 = { { 1, true }, { 2, false }, { 3, true } };
@@ -387,15 +387,15 @@ public:
         std::vector<PhaseFix> test1 = { { 1, true }, { 2, false }, { 3, true }, { 4, false } };
         std::vector<PhaseFix> test2 = { { 10, false }, { 11, true }, { 12, true } };
 
-        TS_ASSERT( trie->hasUnsatSubset( test1 ) );
-        TS_ASSERT( trie->hasUnsatSubset( test2 ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( test1 ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( test2 ) );
 
         // Test with mixed elements
         std::vector<PhaseFix> mixed1 = { { 1, true }, { 2, false }, { 3, true }, { 10, false } };
-        TS_ASSERT( trie->hasUnsatSubset( mixed1 ) ); // Contains path1
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( mixed1 ) ); // Contains path1
     }
 
-    void test_hasUnsatSubset_complex_non_sequential_subset()
+    void test_isSupersetOfUnsatPrefix_complex_non_sequential_subset()
     {
         // Insert UNSAT prefixes
         std::vector<PhaseFix> unsat1 = { { 1, true }, { 3, false }, { 5, true } };
@@ -409,28 +409,31 @@ public:
         // Test complex non-sequential subsets (scattered elements)
         std::vector<PhaseFix> scattered1 = { { 0, false }, { 1, true }, { 2, true }, { 3, false },
                                              { 4, false }, { 5, true }, { 6, true } };
-        TS_ASSERT( trie->hasUnsatSubset( scattered1 ) ); // Contains unsat1: {1,true}, {3,false},
-                                                         // {5,true}
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( scattered1 ) ); // Contains unsat1: {1,true},
+                                                                  // {3,false}, {5,true}
 
         std::vector<PhaseFix> scattered2 = {
             { 1, false }, { 2, false }, { 3, true }, { 4, true }, { 6, false }
         };
-        TS_ASSERT( trie->hasUnsatSubset( scattered2 ) ); // Contains unsat2: {2,false}, {4,true}
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( scattered2 ) ); // Contains unsat2: {2,false},
+                                                                  // {4,true}
 
         std::vector<PhaseFix> scattered3 = { { 5, false },  { 7, true },   { 8, false },
                                              { 9, false },  { 10, true },  { 11, true },
                                              { 12, false }, { 13, false }, { 14, true } };
-        TS_ASSERT( trie->hasUnsatSubset( scattered3 ) ); // Contains unsat3: {7,true}, {9,false},
-                                                         // {11,true}, {13,false}
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( scattered3 ) ); // Contains unsat3: {7,true},
+                                                                  // {9,false}, {11,true},
+                                                                  // {13,false}
 
         // Test with multiple possible matches - should return true if any subset matches
         std::vector<PhaseFix> multi_match = {
             { 1, true }, { 2, false }, { 3, false }, { 4, true }, { 5, true }
         };
-        TS_ASSERT( trie->hasUnsatSubset( multi_match ) ); // Contains both unsat1 and unsat2
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( multi_match ) ); // Contains both unsat1 and
+                                                                   // unsat2
     }
 
-    void test_hasUnsatSubset_no_subset()
+    void test_isSupersetOfUnsatPrefix_no_subset()
     {
         // Insert UNSAT prefixes
         std::vector<PhaseFix> unsat1 = { { 1, true }, { 2, false }, { 3, true } };
@@ -445,51 +448,51 @@ public:
 
         // Completely disjoint variables
         std::vector<PhaseFix> disjoint = { { 100, true }, { 101, false }, { 102, true } };
-        TS_ASSERT( !trie->hasUnsatSubset( disjoint ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( disjoint ) );
 
         // Partial matches but not complete subsets
         std::vector<PhaseFix> partial1 = { { 1, true }, { 2, false } }; // Missing {3,true} from
                                                                         // unsat1
-        TS_ASSERT( !trie->hasUnsatSubset( partial1 ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( partial1 ) );
 
         std::vector<PhaseFix> partial2 = { { 10, false } }; // Missing {11,true} from unsat2
-        TS_ASSERT( !trie->hasUnsatSubset( partial2 ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( partial2 ) );
 
         // Wrong phase values
         std::vector<PhaseFix> wrong_phase1 = { { 1, false }, { 2, false }, { 3, true } }; // Wrong
                                                                                           // phases
                                                                                           // for 1,2
-        TS_ASSERT( !trie->hasUnsatSubset( wrong_phase1 ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( wrong_phase1 ) );
 
         std::vector<PhaseFix> wrong_phase2 = { { 10, true }, { 11, true } }; // Wrong phase for 10
-        TS_ASSERT( !trie->hasUnsatSubset( wrong_phase2 ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( wrong_phase2 ) );
 
         // Mixed correct and incorrect elements
         std::vector<PhaseFix> mixed_wrong = {
             { 1, true }, { 2, false }, { 3, false }, { 10, false }, { 11, false }
         };
-        TS_ASSERT( !trie->hasUnsatSubset( mixed_wrong ) ); // Has partial matches but no complete
-                                                           // subset
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( mixed_wrong ) ); // Has partial matches but no
+                                                                    // complete subset
     }
 
-    void test_hasUnsatSubset_edge_cases()
+    void test_isSupersetOfUnsatPrefix_edge_cases()
     {
         // Test empty trie
         std::vector<PhaseFix> any_fixes = { { 1, true }, { 2, false } };
-        TS_ASSERT( !trie->hasUnsatSubset( any_fixes ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( any_fixes ) );
 
         // Insert empty prefix (global UNSAT)
         std::vector<PhaseFix> empty_prefix = {};
         trie->insertUnsatPrefix( empty_prefix );
 
         // Any input should return true when empty set is UNSAT
-        TS_ASSERT( trie->hasUnsatSubset( any_fixes ) );
-        TS_ASSERT( trie->hasUnsatSubset( {} ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( any_fixes ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( {} ) );
 
         std::vector<PhaseFix> large_input = {
             { 1, true }, { 2, false }, { 3, true }, { 4, false }, { 5, true }
         };
-        TS_ASSERT( trie->hasUnsatSubset( large_input ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( large_input ) );
 
         // Reset trie for next test
         delete trie;
@@ -499,26 +502,26 @@ public:
         std::vector<PhaseFix> single = { { 42, true } };
         trie->insertUnsatPrefix( single );
 
-        TS_ASSERT( trie->hasUnsatSubset( single ) );
-        TS_ASSERT( trie->hasUnsatSubset( { { 42, true }, { 43, false } } ) );
-        TS_ASSERT( !trie->hasUnsatSubset( { { 42, false } } ) );
-        TS_ASSERT( !trie->hasUnsatSubset( { { 43, true } } ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( single ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( { { 42, true }, { 43, false } } ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( { { 42, false } } ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( { { 43, true } } ) );
 
         // Test with empty input
-        TS_ASSERT( !trie->hasUnsatSubset( {} ) );
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( {} ) );
 
         // Test with duplicate elements in input (should be handled by canonicalization)
         std::vector<PhaseFix> with_duplicates = {
             { 42, true }, { 42, true }, { 43, false }, { 42, true }
         };
-        TS_ASSERT( trie->hasUnsatSubset( with_duplicates ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( with_duplicates ) );
 
         // Test with unsorted input (should be handled by canonicalization)
         std::vector<PhaseFix> unsorted = { { 50, false }, { 42, true }, { 45, true } };
-        TS_ASSERT( trie->hasUnsatSubset( unsorted ) );
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( unsorted ) );
     }
 
-    void test_hasUnsatSubset_complex_trie_structure()
+    void test_isSupersetOfUnsatPrefix_complex_trie_structure()
     {
         // Build a more complex trie with overlapping paths
         std::vector<PhaseFix> path1 = { { 1, true }, { 2, false }, { 3, true } };
@@ -534,25 +537,26 @@ public:
         // Test that finds the shortest matching path (path3 is shortest for {1,true})
         std::vector<PhaseFix> test_shortest = { { 1, true },  { 2, false }, { 3, true },
                                                 { 4, false }, { 5, true },  { 9, false } };
-        TS_ASSERT( trie->hasUnsatSubset( test_shortest ) ); // Should match path3: {1,true},
-                                                            // {5,true}
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( test_shortest ) ); // Should match path3:
+                                                                     // {1,true}, {5,true}
 
         // Test multiple potential matches
         std::vector<PhaseFix> multi_potential = { { 1, true },  { 2, false }, { 3, true },
                                                   { 6, false }, { 7, true },  { 8, false } };
-        TS_ASSERT( trie->hasUnsatSubset( multi_potential ) ); // Could match path1 or path4
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( multi_potential ) ); // Could match path1 or path4
 
         // Test that requires backtracking in search
         std::vector<PhaseFix> backtrack_test = {
             { 1, true }, { 2, false }, { 4, false }, { 6, false }, { 7, true }
         };
-        TS_ASSERT( trie->hasUnsatSubset( backtrack_test ) ); // Should find path2: {1,true},
-                                                             // {2,false}, {4,false}
+        TS_ASSERT( trie->isSupersetOfUnsatPrefix( backtrack_test ) ); // Should find path2:
+                                                                      // {1,true}, {2,false},
+                                                                      // {4,false}
 
         // Test case that should fail despite having many matching elements
         std::vector<PhaseFix> almost_match = {
             { 1, true }, { 2, false }, { 3, false }, { 4, true }, { 5, false }
         };
-        TS_ASSERT( !trie->hasUnsatSubset( almost_match ) ); // No complete path matches
+        TS_ASSERT( !trie->isSupersetOfUnsatPrefix( almost_match ) ); // No complete path matches
     }
 };
