@@ -300,6 +300,10 @@ bool Engine::solve( double timeoutInSeconds )
             // If true, we just entered a new subproblem
             if ( splitJustPerformed )
             {
+                // Propagate bounds
+                performBoundTighteningAfterCaseSplit();
+                informLPSolverOfBounds();
+
                 // Perform BICCOS pruning if enabled
                 if ( Options::get()->getBool( Options::BICCOS ) )
                 {
@@ -307,19 +311,24 @@ bool Engine::solve( double timeoutInSeconds )
 
                     if ( _phaseFixTrie->isSupersetOfUnsatPrefix( currPhaseFixes ) )
                     {
-                        // Current phase fixes are a superset of an UNSAT prefix, current subproblem
-                        // is UNSAT
-                        ENGINE_LOG( "BICCOS pruning: current phase fixes contain an UNSAT prefix, "
-                                    "current subproblem is UNSAT" );
+                        // Current phase fixes are a superset of an UNSAT prefix
+                        ENGINE_LOG( "BICCOS pruning: current phase fixes contain an UNSAT prefix" );
+                        std::cout << "Phase fix trie has superset" << std::endl;
 
-                        std::cout << "BICCOS pruning: current subproblem is UNSAT" << std::endl;
-
-                        throw InfeasibleQueryException();
+                        // Check if cutting planes are violated
+                        if ( checkCuttingPlaneViolations() )
+                        {
+                            ENGINE_LOG( "BICCOS: cutting plane violation detected - pruning" );
+                            std::cout << "BICCOS pruning: current subproblem is UNSAT" << std::endl;
+                            throw InfeasibleQueryException();
+                        }
+                        else
+                        {
+                            std::cout << "No cutting plane is violated" << std::endl;
+                        }
                     }
                 }
 
-                performBoundTighteningAfterCaseSplit();
-                informLPSolverOfBounds();
                 splitJustPerformed = false;
             }
 
@@ -438,6 +447,9 @@ bool Engine::solve( double timeoutInSeconds )
 
             // Collect phase fixes that led to unsat problem
             _phaseFixTrie->insertUnsatPrefix( getCurrentPhaseFixes() );
+
+            // Learn cutting plane
+            learnAndStoreCuttingPlane();
 
             if ( !_smtCore.popSplit() )
             {
@@ -3008,6 +3020,9 @@ bool Engine::restoreSmtState( SmtState &smtState )
         // Collect phase fixes that led to unsat problem
         _phaseFixTrie->insertUnsatPrefix( getCurrentPhaseFixes() );
 
+        // Learn cutting plane
+        learnAndStoreCuttingPlane();
+
         if ( !_smtCore.popSplit() )
         {
             if ( _verbosity > 0 )
@@ -3918,6 +3933,158 @@ void Engine::addPLCLemma( std::shared_ptr<PLCLemma> &explanation )
     ASSERT( explanation && _UNSATCertificate && _UNSATCertificateCurrentPointer )
     _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS );
     _UNSATCertificateCurrentPointer->get()->addPLCLemma( explanation );
+}
+
+void Engine::learnAndStoreCuttingPlane()
+{
+    std::vector<PhaseFix> currFixes = getCurrentPhaseFixes();
+
+    // Check if phase fixes is empty
+    if ( currFixes.empty() )
+    {
+        return;
+    }
+
+    // Sort for consistent map key
+    std::sort( currFixes.begin(), currFixes.end() );
+
+    // Don't create duplicate cuts
+    if ( _unsatPrefixToCuttingPlane.exists( currFixes ) )
+    {
+        return;
+    }
+
+    // Build cutting plane from curr phase fixes
+    CuttingPlane cut;
+
+    for ( const auto &fix : currFixes )
+    {
+        if ( fix.second )
+        {
+            cut.activeNeurons.push_back( fix );
+        }
+        else
+        {
+            cut.inactiveNeurons.push_back( fix );
+        }
+    }
+
+    // RHS = |Z+| - 1
+    cut.rhs = static_cast<int>( cut.activeNeurons.size() ) - 1;
+
+    // Store the cut
+    _unsatPrefixToCuttingPlane[currFixes] = cut;
+
+    ENGINE_LOG( Stringf( "Learned cutting plane with %u active and %u inactive neurons",
+                         cut.activeNeurons.size(),
+                         cut.inactiveNeurons.size() )
+                    .ascii() );
+}
+
+bool Engine::checkCuttingPlaneViolations()
+{
+    std::cout << "Checking cutting plane violations" << std::endl;
+    std::vector<PhaseFix> currFixes = getCurrentPhaseFixes();
+
+    // Check each stored cutting plane
+    for ( const auto &entry : _unsatPrefixToCuttingPlane )
+    {
+        const std::vector<PhaseFix> &unsatPrefix = entry.first;
+        const CuttingPlane &cut = entry.second;
+
+        // Only check cuts whose UNSAT prefix is a subset of current fixes
+        if ( !_phaseFixTrie->isSupersetOfUnsatPrefix( currFixes ) )
+        {
+            continue;
+        }
+
+        // Check if cut is violated
+        if ( isCutViolated( cut, currFixes ) )
+        {
+            ENGINE_LOG( "Cutting plane violation detected - pruning subproblem" );
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Engine::isCutViolated( const CuttingPlane &cut,
+                            const std::vector<PhaseFix> &currentFixes ) const
+{
+    // Build a map of current phase assignments
+    Map<unsigned, bool> varToPhase;
+    for ( const auto &fix : currentFixes )
+        varToPhase[fix.first] = fix.second;
+
+    // A cut is only applicable if ALL its neurons have been assigned phases
+    for ( const auto &activeFix : cut.activeNeurons )
+    {
+        if ( !varToPhase.exists( activeFix.first ) )
+            return false;
+    }
+
+    for ( const auto &inactiveFix : cut.inactiveNeurons )
+    {
+        if ( !varToPhase.exists( inactiveFix.first ) )
+            return false;
+    }
+
+    int lhs = 0;
+
+    // For active neurons, add 1 if active
+    for ( const auto &activeFix : cut.activeNeurons )
+    {
+        unsigned var = activeFix.first;
+        if ( varToPhase[var] ) // Currently active
+            lhs += 1;
+    }
+
+    // So subtract 1 when active, subtract 0 when inactive
+    for ( const auto &inactiveFix : cut.inactiveNeurons )
+    {
+        unsigned var = inactiveFix.first;
+        if ( varToPhase[var] )
+            lhs -= 1;
+    }
+
+    // Check violation or LHS > RHS
+    bool violated = lhs > cut.rhs;
+
+    if ( _verbosity > 0 )
+    {
+        printf( "\n=== Cut Violation Check ===\n" );
+        printf( "Cut has %zu active neurons, %zu inactive neurons\n",
+                cut.activeNeurons.size(),
+                cut.inactiveNeurons.size() );
+        printf( "Cut RHS: %d\n", cut.rhs );
+        printf( "Computed LHS: %d\n", lhs );
+        printf( "Violated: %s (LHS > RHS means violated)\n", violated ? "YES" : "NO" );
+
+        // Show detailed breakdown
+        printf( "\nActive neurons in cut:\n" );
+        for ( const auto &activeFix : cut.activeNeurons )
+        {
+            bool currentlyActive = varToPhase[activeFix.first];
+            printf( "  Neuron %u: currently %s (contributes %d)\n",
+                    activeFix.first,
+                    currentlyActive ? "ACTIVE" : "INACTIVE",
+                    currentlyActive ? 1 : 0 );
+        }
+
+        printf( "\nInactive neurons in cut:\n" );
+        for ( const auto &inactiveFix : cut.inactiveNeurons )
+        {
+            bool currentlyActive = varToPhase[inactiveFix.first];
+            printf( "  Neuron %u: currently %s (contributes %d)\n",
+                    inactiveFix.first,
+                    currentlyActive ? "ACTIVE" : "INACTIVE",
+                    currentlyActive ? -1 : 0 );
+        }
+        printf( "===========================\n\n" );
+    }
+
+    return violated;
 }
 
 std::vector<PhaseFix> Engine::getCurrentPhaseFixes() const
