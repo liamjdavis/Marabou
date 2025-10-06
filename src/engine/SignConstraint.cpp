@@ -190,6 +190,38 @@ List<PhaseStatus> SignConstraint::getAllCases() const
     return { SIGN_PHASE_NEGATIVE, SIGN_PHASE_POSITIVE };
 }
 
+bool SignConstraint::phaseFixed() const
+{
+    return _phaseStatus != PHASE_NOT_FIXED;
+}
+
+bool SignConstraint::phaseProven() const
+{
+    // If no phase is claimed, it's not proven
+    if ( getPhaseStatus() == PHASE_NOT_FIXED )
+        return false;
+
+    // Get bounds for the input variable
+    double bLowerBound = getLowerBound( _b );
+    double bUpperBound = getUpperBound( _b );
+
+    PhaseStatus phase = getPhaseStatus();
+
+    if ( phase == SIGN_PHASE_POSITIVE )
+    {
+        // Positive phase is proven if b's lower bound is non-negative
+        return !FloatUtils::isNegative( bLowerBound );
+    }
+    else if ( phase == SIGN_PHASE_NEGATIVE )
+    {
+        // Negative phase is proven if b's upper bound is negative
+        return FloatUtils::isNegative( bUpperBound );
+    }
+
+    // Should not reach here, but return false for safety
+    return false;
+}
+
 PiecewiseLinearCaseSplit SignConstraint::getCaseSplit( PhaseStatus phase ) const
 {
     if ( phase == SIGN_PHASE_NEGATIVE )
@@ -216,11 +248,6 @@ PiecewiseLinearCaseSplit SignConstraint::getPositiveSplit() const
     positivePhase.storeBoundTightening( Tightening( _b, 0.0, Tightening::LB ) );
     positivePhase.storeBoundTightening( Tightening( _f, 1.0, Tightening::LB ) );
     return positivePhase;
-}
-
-bool SignConstraint::phaseFixed() const
-{
-    return _phaseStatus != PHASE_NOT_FIXED;
 }
 
 void SignConstraint::addAuxiliaryEquationsAfterPreprocessing( Query &inputQuery )

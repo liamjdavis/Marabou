@@ -474,11 +474,6 @@ PiecewiseLinearCaseSplit AbsoluteValueConstraint::getPositiveSplit() const
     return positivePhase;
 }
 
-bool AbsoluteValueConstraint::phaseFixed() const
-{
-    return _phaseStatus != PhaseStatus::PHASE_NOT_FIXED;
-}
-
 PiecewiseLinearCaseSplit AbsoluteValueConstraint::getImpliedCaseSplit() const
 {
     ASSERT( _phaseStatus != PHASE_NOT_FIXED );
@@ -492,6 +487,25 @@ PiecewiseLinearCaseSplit AbsoluteValueConstraint::getImpliedCaseSplit() const
 PiecewiseLinearCaseSplit AbsoluteValueConstraint::getValidCaseSplit() const
 {
     return getImpliedCaseSplit();
+}
+
+bool AbsoluteValueConstraint::phaseFixed() const
+{
+    return _phaseStatus != PhaseStatus::PHASE_NOT_FIXED;
+}
+
+bool AbsoluteValueConstraint::phaseProven() const
+{
+    // Positive phase proven: b's lower bound is non-negative
+    if ( existsLowerBound( _b ) && getLowerBound( _b ) >= 0 )
+        return true;
+
+    // Negative phase proven: b's upper bound is non-positive
+    if ( existsUpperBound( _b ) && getUpperBound( _b ) <= 0 )
+        return true;
+
+    // Phase not proven - b can be either positive or negative
+    return false;
 }
 
 void AbsoluteValueConstraint::eliminateVariable( unsigned variable, double /* fixedValue */ )

@@ -207,6 +207,22 @@ public:
     virtual bool phaseFixed() const = 0;
 
     /*
+      Rigorous check for phase being proven by bounds alone.
+    */
+    virtual bool phaseProven() const
+    {
+        return false;
+    }
+
+    /*
+      Check if a phase has been claimed, may return true even if bounds don't yet prove the phase.
+    */
+    bool phaseClaimed() const
+    {
+        return getPhaseStatus() != PHASE_NOT_FIXED;
+    }
+
+    /*
       If the constraint's phase has been fixed, get the (valid) case split.
       Transitioning from Valid to Implied with integration of
       context-dependentSMTCore.

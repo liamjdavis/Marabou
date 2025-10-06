@@ -23,6 +23,7 @@
 #include "BlandsRule.h"
 #include "BoundManager.h"
 #include "Checker.h"
+#include "CuttingPlane.h"
 #include "DantzigsRule.h"
 #include "DegradationChecker.h"
 #include "DivideStrategy.h"
@@ -920,9 +921,34 @@ private:
     PhaseFixTrie *_phaseFixTrie;
 
     /*
+      Map from UNSAT phase fix prefix to cutting plane derived from it.
+    */
+    Map<std::vector<PhaseFix>, CuttingPlane> _unsatPrefixToCuttingPlane;
+
+    /*
+      Learn a cutting plane from current UNSAT prefix.
+    */
+    void learnAndStoreCuttingPlane();
+
+    /*
+      Check if any stored cutting planes are violated by current UNSAT prefix.
+    */
+    bool checkCuttingPlaneViolations();
+
+    /*
+      Helper function to check violation of single cutting plane.
+    */
+    bool isCutViolated( const CuttingPlane &cut, const std::vector<PhaseFix> &currentFixes ) const;
+
+    /*
       Helper function to get current phase fixes.
     */
     std::vector<PhaseFix> getCurrentPhaseFixes() const;
+
+    /*
+      Helper function to get current ReLU fixes.
+    */
+    std::vector<PhaseFix> getCurrentReluFixes() const;
 };
 
 #endif // __Engine_h__

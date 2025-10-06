@@ -135,6 +135,11 @@ public:
     bool phaseFixed() const override;
 
     /*
+      Check if constraint's phase has been rigorously proven with bounds.
+    */
+    bool phaseProven() const override;
+
+    /*
       Preprocessing related functions, to inform that a variable has
       been eliminated completely because it was fixed to some value,
       or that a variable's index has changed (e.g., x4 is now called
