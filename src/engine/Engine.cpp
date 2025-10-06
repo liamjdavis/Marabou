@@ -313,19 +313,20 @@ bool Engine::solve( double timeoutInSeconds )
                     {
                         // Current phase fixes are a superset of an UNSAT prefix
                         ENGINE_LOG( "BICCOS pruning: current phase fixes contain an UNSAT prefix" );
-                        std::cout << "Phase fix trie has superset" << std::endl;
+                        // std::cout << "Phase fix trie has superset" << std::endl;
 
                         // Check if cutting planes are violated
                         if ( checkCuttingPlaneViolations() )
                         {
                             ENGINE_LOG( "BICCOS: cutting plane violation detected - pruning" );
-                            std::cout << "BICCOS pruning: current subproblem is UNSAT" << std::endl;
+                            // std::cout << "BICCOS pruning: current subproblem is UNSAT" <<
+                            // std::endl;
                             throw InfeasibleQueryException();
                         }
-                        else
-                        {
-                            std::cout << "No cutting plane is violated" << std::endl;
-                        }
+                        // else
+                        // {
+                        //     std::cout << "No cutting plane is violated" << std::endl;
+                        // }
                     }
                 }
 
@@ -4051,38 +4052,38 @@ bool Engine::isCutViolated( const CuttingPlane &cut,
     // Check violation or LHS > RHS
     bool violated = lhs > cut.rhs;
 
-    if ( _verbosity > 0 )
-    {
-        printf( "\n=== Cut Violation Check ===\n" );
-        printf( "Cut has %zu active neurons, %zu inactive neurons\n",
-                cut.activeNeurons.size(),
-                cut.inactiveNeurons.size() );
-        printf( "Cut RHS: %d\n", cut.rhs );
-        printf( "Computed LHS: %d\n", lhs );
-        printf( "Violated: %s (LHS > RHS means violated)\n", violated ? "YES" : "NO" );
+    // if ( _verbosity > 0 )
+    // {
+    //     printf( "\n=== Cut Violation Check ===\n" );
+    //     printf( "Cut has %zu active neurons, %zu inactive neurons\n",
+    //             cut.activeNeurons.size(),
+    //             cut.inactiveNeurons.size() );
+    //     printf( "Cut RHS: %d\n", cut.rhs );
+    //     printf( "Computed LHS: %d\n", lhs );
+    //     printf( "Violated: %s (LHS > RHS means violated)\n", violated ? "YES" : "NO" );
 
-        // Show detailed breakdown
-        printf( "\nActive neurons in cut:\n" );
-        for ( const auto &activeFix : cut.activeNeurons )
-        {
-            bool currentlyActive = varToPhase[activeFix.first];
-            printf( "  Neuron %u: currently %s (contributes %d)\n",
-                    activeFix.first,
-                    currentlyActive ? "ACTIVE" : "INACTIVE",
-                    currentlyActive ? 1 : 0 );
-        }
+    //     // Show detailed breakdown
+    //     printf( "\nActive neurons in cut:\n" );
+    //     for ( const auto &activeFix : cut.activeNeurons )
+    //     {
+    //         bool currentlyActive = varToPhase[activeFix.first];
+    //         printf( "  Neuron %u: currently %s (contributes %d)\n",
+    //                 activeFix.first,
+    //                 currentlyActive ? "ACTIVE" : "INACTIVE",
+    //                 currentlyActive ? 1 : 0 );
+    //     }
 
-        printf( "\nInactive neurons in cut:\n" );
-        for ( const auto &inactiveFix : cut.inactiveNeurons )
-        {
-            bool currentlyActive = varToPhase[inactiveFix.first];
-            printf( "  Neuron %u: currently %s (contributes %d)\n",
-                    inactiveFix.first,
-                    currentlyActive ? "ACTIVE" : "INACTIVE",
-                    currentlyActive ? -1 : 0 );
-        }
-        printf( "===========================\n\n" );
-    }
+    //     printf( "\nInactive neurons in cut:\n" );
+    //     for ( const auto &inactiveFix : cut.inactiveNeurons )
+    //     {
+    //         bool currentlyActive = varToPhase[inactiveFix.first];
+    //         printf( "  Neuron %u: currently %s (contributes %d)\n",
+    //                 inactiveFix.first,
+    //                 currentlyActive ? "ACTIVE" : "INACTIVE",
+    //                 currentlyActive ? -1 : 0 );
+    //     }
+    //     printf( "===========================\n\n" );
+    // }
 
     return violated;
 }
