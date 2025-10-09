@@ -3984,7 +3984,7 @@ void Engine::learnAndStoreCuttingPlane()
 
 bool Engine::checkCuttingPlaneViolations()
 {
-    std::cout << "Checking cutting plane violations" << std::endl;
+    // std::cout << "Checking cutting plane violations" << std::endl;
     std::vector<PhaseFix> currFixes = getCurrentPhaseFixes();
 
     // Check each stored cutting plane
