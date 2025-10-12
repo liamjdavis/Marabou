@@ -4033,57 +4033,94 @@ bool Engine::isCutViolated( const CuttingPlane &cut,
 
     int lhs = 0;
 
-    // For active neurons, add 1 if active
+    // printf( "  Cut Evaluation Details:\n" );
+    // printf( "    Active neurons (%zu):\n", cut.activeNeurons.size() );
+
     for ( const auto &activeFix : cut.activeNeurons )
     {
         unsigned var = activeFix.first;
-        if ( varToPhase[var] ) // Currently active
-            lhs += 1;
+        double lb = _tableau->getLowerBound( var );
+        double ub = _tableau->getUpperBound( var );
+
+        // Check if bounds actually support the claimed phase
+        bool boundsDetermineActive = lb > 0;
+        bool boundsDetermineInactive = ub < 0;
+
+        // If bounds are undecided, the cut is not applicable yet
+        if ( !boundsDetermineActive && !boundsDetermineInactive )
+        {
+            // printf( "      x%u: bounds=[%.15lf, %.15lf] are UNDECIDED - cut not applicable\n",
+            //         var, lb, ub );
+            return false;
+        }
+
+        bool isActive = varToPhase[var];
+
+        // Verify phase matches what bounds determine
+        if ( isActive && !boundsDetermineActive )
+        {
+            // printf( "      WARNING: x%u phase=ACTIVE but bounds=[%.15lf, %.15lf] say INACTIVE - "
+            //         "cut not applicable\n", var, lb, ub );
+            return false;
+        }
+
+        int contribution = isActive ? 1 : 0;
+        lhs += contribution;
+
+        // printf( "      x%u: phase=%s, contrib=%d, bounds=[%.15lf, %.15lf], confirmed=%s\n",
+        //         var,
+        //         isActive ? "ACTIVE" : "INACTIVE",
+        //         contribution,
+        //         lb,
+        //         ub,
+        //         (isActive == boundsDetermineActive) ? "YES" : "NO" );
     }
 
-    // So subtract 1 when active, subtract 0 when inactive
+    // printf( "    Inactive neurons (%zu):\n", cut.inactiveNeurons.size() );
+
     for ( const auto &inactiveFix : cut.inactiveNeurons )
     {
         unsigned var = inactiveFix.first;
-        if ( varToPhase[var] )
-            lhs -= 1;
+        double lb = _tableau->getLowerBound( var );
+        double ub = _tableau->getUpperBound( var );
+
+        bool boundsDetermineActive = lb > 0;
+        bool boundsDetermineInactive = ub < 0;
+
+        if ( !boundsDetermineActive && !boundsDetermineInactive )
+        {
+            // printf( "      x%u: bounds=[%.15lf, %.15lf] are UNDECIDED - cut not applicable\n",
+            //         var, lb, ub );
+            return false;
+        }
+
+        bool isActive = varToPhase[var];
+
+        if ( !isActive && !boundsDetermineInactive )
+        {
+            // printf( "      WARNING: x%u phase=INACTIVE but bounds=[%.15lf, %.15lf] say ACTIVE - "
+            //         "cut not applicable\n", var, lb, ub );
+            return false;
+        }
+
+        int contribution = isActive ? -1 : 0;
+        lhs += contribution;
+
+        // printf( "      x%u: phase=%s, contrib=%d, bounds=[%.15lf, %.15lf], confirmed=%s\n",
+        //         var,
+        //         isActive ? "ACTIVE" : "INACTIVE",
+        //         contribution,
+        //         lb,
+        //         ub,
+        //         (!isActive == boundsDetermineInactive) ? "YES" : "NO" );
     }
 
-    // Check violation or LHS > RHS
     bool violated = lhs > cut.rhs;
 
-    // if ( _verbosity > 0 )
-    // {
-    //     printf( "\n=== Cut Violation Check ===\n" );
-    //     printf( "Cut has %zu active neurons, %zu inactive neurons\n",
-    //             cut.activeNeurons.size(),
-    //             cut.inactiveNeurons.size() );
-    //     printf( "Cut RHS: %d\n", cut.rhs );
-    //     printf( "Computed LHS: %d\n", lhs );
-    //     printf( "Violated: %s (LHS > RHS means violated)\n", violated ? "YES" : "NO" );
-
-    //     // Show detailed breakdown
-    //     printf( "\nActive neurons in cut:\n" );
-    //     for ( const auto &activeFix : cut.activeNeurons )
-    //     {
-    //         bool currentlyActive = varToPhase[activeFix.first];
-    //         printf( "  Neuron %u: currently %s (contributes %d)\n",
-    //                 activeFix.first,
-    //                 currentlyActive ? "ACTIVE" : "INACTIVE",
-    //                 currentlyActive ? 1 : 0 );
-    //     }
-
-    //     printf( "\nInactive neurons in cut:\n" );
-    //     for ( const auto &inactiveFix : cut.inactiveNeurons )
-    //     {
-    //         bool currentlyActive = varToPhase[inactiveFix.first];
-    //         printf( "  Neuron %u: currently %s (contributes %d)\n",
-    //                 inactiveFix.first,
-    //                 currentlyActive ? "ACTIVE" : "INACTIVE",
-    //                 currentlyActive ? -1 : 0 );
-    //     }
-    //     printf( "===========================\n\n" );
-    // }
+    // printf( "    LHS=%d, RHS=%d, Violated=%s\n",
+    //         lhs,
+    //         cut.rhs,
+    //         violated ? "YES" : "NO" );
 
     return violated;
 }
@@ -4091,10 +4128,50 @@ bool Engine::isCutViolated( const CuttingPlane &cut,
 std::vector<PhaseFix> Engine::getCurrentPhaseFixes() const
 {
     std::vector<PhaseFix> phaseFixes;
+
     for ( const auto &plConstraint : _plConstraints )
     {
         if ( plConstraint->phaseFixed() )
-            phaseFixes.emplace_back( plConstraint->getId(), plConstraint->getPhaseFix() );
+        {
+            unsigned neuronVar = plConstraint->getId();
+            bool phase = plConstraint->getPhaseFix();
+
+            // Verify phase is consistent with bounds
+            double lb = _tableau->getLowerBound( neuronVar );
+            double ub = _tableau->getUpperBound( neuronVar );
+
+            bool boundsDetermineActive = lb > 0;
+            bool boundsDetermineInactive = ub < 0;
+
+            // Only include phase fix if bounds actually support it
+            if ( phase && !boundsDetermineActive )
+            {
+                // Phase says ACTIVE but bounds allow INACTIVE
+                if ( _verbosity > 1 )
+                {
+                    // printf( "WARNING: Constraint %u claims phase ACTIVE but bounds [%.15lf,
+                    // %.15lf] "
+                    //         "don't support it - excluding from phase fixes\n",
+                    //         neuronVar, lb, ub );
+                }
+                continue;
+            }
+
+            if ( !phase && !boundsDetermineInactive )
+            {
+                // Phase says INACTIVE but bounds allow ACTIVE - skip this constraint
+                if ( _verbosity > 1 )
+                {
+                    // printf( "WARNING: Constraint %u claims phase INACTIVE but bounds [%.15lf,
+                    // %.15lf] "
+                    //         "don't support it - excluding from phase fixes\n",
+                    //         neuronVar, lb, ub );
+                }
+                continue;
+            }
+
+            phaseFixes.emplace_back( neuronVar, phase );
+        }
     }
     return phaseFixes;
 }
