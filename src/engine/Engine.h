@@ -944,6 +944,11 @@ private:
       Helper function to get current phase fixes.
     */
     std::vector<PhaseFix> getCurrentPhaseFixes() const;
+
+    /*
+      Helper function to get current ReLU fixes.
+    */
+    std::vector<PhaseFix> getCurrentReluFixes() const;
 };
 
 #endif // __Engine_h__

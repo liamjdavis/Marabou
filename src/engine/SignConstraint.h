@@ -132,6 +132,11 @@ public:
     bool phaseFixed() const override;
 
     /*
+      Check if the constraint's phase is proven by bounds.
+    */
+    bool phaseProven() const override;
+
+    /*
       If the phase is not fixed, add _f <= -2/lb_b * _b + 1
       and  _f >= 2/ub_b * _b - 1
       which becomes,

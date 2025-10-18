@@ -662,11 +662,6 @@ PiecewiseLinearCaseSplit ReluConstraint::getActiveSplit() const
     return activePhase;
 }
 
-bool ReluConstraint::phaseFixed() const
-{
-    return _phaseStatus != PHASE_NOT_FIXED;
-}
-
 PiecewiseLinearCaseSplit ReluConstraint::getImpliedCaseSplit() const
 {
     ASSERT( _phaseStatus != PHASE_NOT_FIXED );
@@ -709,6 +704,38 @@ void ReluConstraint::dump( String &output ) const
             existsLowerBound( _aux ) ? Stringf( "%lf", getLowerBound( _aux ) ).ascii() : "-inf",
             existsUpperBound( _aux ) ? Stringf( "%lf", getUpperBound( _aux ) ).ascii() : "inf" );
     }
+}
+
+bool ReluConstraint::phaseFixed() const
+{
+    return _phaseStatus != PHASE_NOT_FIXED;
+}
+
+bool ReluConstraint::phaseProven() const
+{
+    // If no phase is claimed, it's not proven
+    if ( getPhaseStatus() == PHASE_NOT_FIXED )
+        return false;
+
+    // Get bounds for the input variable
+    double bLowerBound = getLowerBound( _b );
+    double bUpperBound = getUpperBound( _b );
+
+    PhaseStatus phase = getPhaseStatus();
+
+    if ( phase == RELU_PHASE_ACTIVE )
+    {
+        // Active phase is proven if b's lower bound is non-negative
+        return !FloatUtils::isNegative( bLowerBound );
+    }
+    else if ( phase == RELU_PHASE_INACTIVE )
+    {
+        // Inactive phase is proven if b's upper bound is non-positive
+        return !FloatUtils::isPositive( bUpperBound );
+    }
+
+    // Should not reach here, but return false for safety
+    return false;
 }
 
 void ReluConstraint::updateVariableIndex( unsigned oldIndex, unsigned newIndex )
