@@ -2059,7 +2059,7 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
         }
 
         /*
-          In the general case, we just add the new equation to the tableau.
+          In the general case, we just add the new equation to the tableau
           However, we also support a very common case: equations of the form
           x1 = x2, which are common, e.g., with ReLUs. For these equations we
           may be able to merge two columns of the tableau.
@@ -2577,6 +2577,28 @@ void Engine::postContextPopHook()
     if ( _produceUNSATProofs )
         _groundBoundManager.restoreLocalBounds();
     _tableau->postContextPopHook();
+
+    // Clean up stale cutting planes
+    if ( Options::get()->getBool( Options::BICCOS ) )
+    {
+        unsigned newDepth = _smtCore.getStackDepth();
+        Vector<std::vector<PhaseFix>> keysToRemove;
+
+        for ( const auto &entry : _unsatPrefixToCuttingPlane )
+        {
+            if ( entry.second.learnedAtDepth > newDepth )
+                keysToRemove.append( entry.first );
+        }
+
+        for ( const auto &key : keysToRemove )
+            _unsatPrefixToCuttingPlane.erase( key );
+
+        if ( keysToRemove.size() > 0 )
+            ENGINE_LOG( Stringf( "Removed %u stale cutting planes after pop to depth %u",
+                                 keysToRemove.size(),
+                                 newDepth )
+                            .ascii() );
+    }
 
     struct timespec end = TimeUtils::sampleMicro();
     _statistics.incLongAttribute( Statistics::TIME_CONTEXT_POP_HOOK,
@@ -3940,43 +3962,29 @@ void Engine::learnAndStoreCuttingPlane()
 {
     std::vector<PhaseFix> currFixes = getCurrentReluFixes();
 
-    // Check if phase fixes is empty
     if ( currFixes.empty() )
-    {
         return;
-    }
 
-    // Sort for consistent map key
     std::sort( currFixes.begin(), currFixes.end() );
 
-    // Don't create duplicate cuts
     if ( _unsatPrefixToCuttingPlane.exists( currFixes ) )
-    {
         return;
-    }
 
-    // Build cutting plane from curr phase fixes
     CuttingPlane cut;
-
     for ( const auto &fix : currFixes )
     {
         if ( fix.second )
-        {
             cut.activeNeurons.push_back( fix );
-        }
         else
-        {
             cut.inactiveNeurons.push_back( fix );
-        }
     }
-
-    // RHS = |Z+| - 1
     cut.rhs = static_cast<int>( cut.activeNeurons.size() ) - 1;
+    cut.learnedAtDepth = _smtCore.getStackDepth(); // Add this line
 
-    // Store the cut
     _unsatPrefixToCuttingPlane[currFixes] = cut;
 
-    ENGINE_LOG( Stringf( "Learned cutting plane with %u active and %u inactive neurons",
+    ENGINE_LOG( Stringf( "Learned cutting plane at depth %u with %u active and %u inactive neurons",
+                         cut.learnedAtDepth,
                          cut.activeNeurons.size(),
                          cut.inactiveNeurons.size() )
                     .ascii() );
@@ -3984,22 +3992,21 @@ void Engine::learnAndStoreCuttingPlane()
 
 bool Engine::checkCuttingPlaneViolations()
 {
-    // std::cout << "Checking cutting plane violations" << std::endl;
     std::vector<PhaseFix> currFixes = getCurrentReluFixes();
+    unsigned currentDepth = _smtCore.getStackDepth();
 
-    // Check each stored cutting plane
     for ( const auto &entry : _unsatPrefixToCuttingPlane )
     {
         const std::vector<PhaseFix> &unsatPrefix = entry.first;
         const CuttingPlane &cut = entry.second;
 
-        // Only check cuts whose UNSAT prefix is a subset of current fixes
-        if ( !_phaseFixTrie->isSupersetOfUnsatPrefix( currFixes ) )
-        {
+        // Only check cuts learned at or before current depth
+        if ( cut.learnedAtDepth > currentDepth )
             continue;
-        }
 
-        // Check if cut is violated
+        if ( !_phaseFixTrie->isSupersetOfUnsatPrefix( currFixes ) )
+            continue;
+
         if ( isCutViolated( cut, currFixes ) )
         {
             ENGINE_LOG( "Cutting plane violation detected - pruning subproblem" );

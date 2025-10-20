@@ -30,8 +30,12 @@ struct CuttingPlane
     // Right hand side of the cut |Z+| - 1
     int rhs;
 
+    // Depth in which cut was learned
+    unsigned learnedAtDepth;
+
     CuttingPlane()
         : rhs( 0 )
+        , learnedAtDepth( 0 )
     {
     }
 };
