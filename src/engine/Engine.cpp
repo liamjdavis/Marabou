@@ -3997,7 +3997,6 @@ bool Engine::checkCuttingPlaneViolations()
 
     for ( const auto &entry : _unsatPrefixToCuttingPlane )
     {
-        const std::vector<PhaseFix> &unsatPrefix = entry.first;
         const CuttingPlane &cut = entry.second;
 
         // Only check cuts learned at or before current depth
