@@ -2578,28 +2578,6 @@ void Engine::postContextPopHook()
         _groundBoundManager.restoreLocalBounds();
     _tableau->postContextPopHook();
 
-    // Clean up stale cutting planes
-    if ( Options::get()->getBool( Options::BICCOS ) )
-    {
-        unsigned newDepth = _smtCore.getStackDepth();
-        Vector<std::vector<PhaseFix>> keysToRemove;
-
-        for ( const auto &entry : _unsatPrefixToCuttingPlane )
-        {
-            if ( entry.second.learnedAtDepth > newDepth )
-                keysToRemove.append( entry.first );
-        }
-
-        for ( const auto &key : keysToRemove )
-            _unsatPrefixToCuttingPlane.erase( key );
-
-        if ( keysToRemove.size() > 0 )
-            ENGINE_LOG( Stringf( "Removed %u stale cutting planes after pop to depth %u",
-                                 keysToRemove.size(),
-                                 newDepth )
-                            .ascii() );
-    }
-
     struct timespec end = TimeUtils::sampleMicro();
     _statistics.incLongAttribute( Statistics::TIME_CONTEXT_POP_HOOK,
                                   TimeUtils::timePassed( start, end ) );
