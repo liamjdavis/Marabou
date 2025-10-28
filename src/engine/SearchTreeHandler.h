@@ -25,7 +25,6 @@
 #include "SearchTreeState.h"
 #include "Stack.h"
 #include "Statistics.h"
-#include "TimeoutException.h"
 #include "context/cdhashmap.h"
 #include "context/cdhashset.h"
 #include "context/context.h"

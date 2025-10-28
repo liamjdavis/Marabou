@@ -149,8 +149,17 @@ void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
     _sncMode = true;
     _sncSplit = sncSplit;
     _queryId = queryId;
-    preContextPushHook();
-    _searchTreeHandler.pushContext();
+    if ( _solveWithCDCL )
+    {
+        int cdclLiteral = sncSplit.getCdclLiteral();
+        if ( cdclLiteral )
+            _cdclCore.phase( sncSplit.getCdclLiteral() );
+    }
+    else
+    {
+        preContextPushHook();
+        _searchTreeHandler.pushContext();
+    }
     applySplit( sncSplit );
     _boundManager.propagateTightenings();
 }
@@ -1606,8 +1615,8 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
 #ifdef BUILD_CADICAL
             constraint->registerCdclCore( &_cdclCore );
 #endif
-            if ( !Options::get()->getBool( Options::DNC_MODE ) )
-                constraint->initializeCDOs( &_context );
+            //            if ( !Options::get()->getBool( Options::DNC_MODE ) )
+            constraint->initializeCDOs( &_context );
         }
         for ( const auto &constraint : _nlConstraints )
             constraint->registerTableau( _tableau );
@@ -2712,6 +2721,8 @@ void Engine::reset()
     _sncMode = false;
     clearViolatedPLConstraints();
     resetSearchTreeHandler();
+    if ( _solveWithCDCL )
+        resetCdclCore();
     resetBoundTighteners();
 }
 
@@ -4604,5 +4615,10 @@ List<unsigned> Engine::getOutputVariables() const
 std::shared_ptr<Query> Engine::getInputQuery() const
 {
     return _preprocessedQuery;
+}
+
+void Engine::resetCdclCore()
+{
+    _cdclCore.reset();
 }
 #endif

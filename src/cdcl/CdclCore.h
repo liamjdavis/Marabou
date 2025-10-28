@@ -30,7 +30,7 @@
 
 #include <cadical.hpp>
 
-#define CDCL_LOG( x, ... ) LOG( GlobalConfiguration::CDCL_LOGGING, "CDCL: %s\n", x )
+#define CDCL_LOG( x, ... ) LOG( GlobalConfiguration::CDCL_LOGGING, "CDCL: %s\n" , x )
 
 using CVC4::context::Context;
 
@@ -162,7 +162,7 @@ public:
     /*
       Check if the solver should stop due to the requested timeout by the user
      */
-    void checkIfShouldExitDueToTimeout();
+    bool checkIfShouldExitDueToTimeout();
 
     /*
       Connected terminators are checked for termination regularly.  If the
@@ -209,6 +209,10 @@ public:
 
     bool isDecision( int lit );
 
+    void reset();
+
+    static std::atomic<unsigned> numCdclCores;
+
 private:
     /*
       The engine.
@@ -228,7 +232,7 @@ private:
     /*
       SAT solver object
     */
-    SatSolverWrapper *_satSolverWrapper;
+    SatSolverWrapper *_satSolver;
 
     /*
       Boolean abstraction map, from boolean variables to the PiecewiseLinearConstraint they
@@ -315,6 +319,8 @@ private:
                           unsigned int startIdx,
                           unsigned int endIdx,
                           int propagated_lit ) const;
+
+    unsigned int _index;
 };
 
 #endif

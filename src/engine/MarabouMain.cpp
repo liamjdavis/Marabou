@@ -91,12 +91,6 @@ int marabouMain( int argc, char **argv )
                 printf( "Please note that producing complete UNSAT proofs while --cdcl is on is "
                         "not yet supported.\n" );
             }
-
-            if ( options->getBool( Options::DNC_MODE ) )
-            {
-                options->setBool( Options::DNC_MODE, false );
-                printf( "CDCL is not yet supported with snc mode, turning --snc off.\n" );
-            }
         }
 #endif
 

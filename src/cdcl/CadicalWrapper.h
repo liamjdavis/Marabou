@@ -92,6 +92,10 @@ public:
 
     Set<int> addExternalNAPClause( const String &externalNAPClauseFilename ) override;
 
+    bool isSolving() const override;
+
+    void terminate() override;
+
 private:
     std::shared_ptr<CaDiCaL::Solver> _solver;
 };

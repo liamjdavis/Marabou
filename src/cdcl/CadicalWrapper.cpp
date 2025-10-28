@@ -32,6 +32,7 @@ CadicalWrapper::CadicalWrapper( CaDiCaL::ExternalPropagator *externalPropagator,
 
 CadicalWrapper::~CadicalWrapper()
 {
+    _solver->terminate();
     _solver->disconnect_fixed_listener();
     _solver->disconnect_terminator();
     _solver->disconnect_external_propagator();
@@ -116,4 +117,15 @@ Set<int> CadicalWrapper::addExternalNAPClause( const String &externalNAPClauseFi
 
     return clause;
 }
+
+bool CadicalWrapper::isSolving() const
+{
+    return _solver->state() == CaDiCaL::SOLVING || _solver->state() == CaDiCaL::READY;
+}
+
+void CadicalWrapper::terminate()
+{
+    _solver->terminate();
+}
+
 #endif

@@ -225,11 +225,12 @@ public:
     PiecewiseLinearConstraint *pickSplitPLConstraintSnC( SnCDivideStrategy strategy ) override;
 
     /*
-      PSA: The following two methods are for DnC only and should be used very
+      PSA: The following three methods are for DnC only and should be used very
       cautiously.
      */
     void resetSearchTreeHandler();
     void resetBoundTighteners();
+    void resetCdclCore();
 
     /*
        Register initial split when in SnC mode

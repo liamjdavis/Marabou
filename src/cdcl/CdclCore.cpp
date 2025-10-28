@@ -20,15 +20,19 @@
 #include "Options.h"
 #include "Query.h"
 #include "TimeUtils.h"
-#include "TimeoutException.h"
 
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <utility>
+
+std::atomic<unsigned> CdclCore::numCdclCores{ 0 };
 
 CdclCore::CdclCore( IEngine *engine )
     : _engine( engine )
     , _context( _engine->getContext() )
     , _statistics( nullptr )
-    , _satSolverWrapper( new CadicalWrapper( this, this, this ) )
+    , _satSolver( nullptr )
     , _cadicalVarToPlc()
     , _literalsToPropagate()
     , _assignedLiterals( &_context )
@@ -47,13 +51,14 @@ CdclCore::CdclCore( IEngine *engine )
     , _shouldRestart( false )
     , _initialClauses()
     , _scoreTracker( nullptr )
+    , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
     _cadicalVarToPlc.insert( 0, NULL );
 }
 
 CdclCore::~CdclCore()
 {
-    delete _satSolverWrapper;
+    delete _satSolver;
 }
 
 void CdclCore::initBooleanAbstraction( PiecewiseLinearConstraint *plc )
@@ -87,7 +92,8 @@ void CdclCore::notify_assignment( const std::vector<int> &lits )
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return;
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return;
 
     //    if ( !_externalClauseToAdd.empty() )
     //    {
@@ -97,13 +103,14 @@ void CdclCore::notify_assignment( const std::vector<int> &lits )
 
     struct timespec start = TimeUtils::sampleMicro();
 
-    CDCL_LOG( "Notifying assignments:" )
+    CDCL_LOG( Stringf( "%u Notifying assignments:", _index ).ascii() )
 
     for ( int lit : lits )
     {
-        CDCL_LOG( Stringf( "\tNotified assignment %d; is decision: %d",
+        CDCL_LOG( Stringf( "%u\tNotified assignment %d; is decision: %d",
+                           _index,
                            lit,
-                           _satSolverWrapper->isDecision( lit ) )
+                           _satSolver->isDecision( lit ) )
                       .ascii() )
 
         if ( !isLiteralAssigned( lit ) )
@@ -125,9 +132,11 @@ void CdclCore::notify_new_decision_level()
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return;
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return;
+
     struct timespec start = TimeUtils::sampleMicro();
-    CDCL_LOG( "Notified new decision level" )
+    CDCL_LOG( Stringf( "%u Notified new decision level", _index ).ascii() )
 
     _engine->preContextPushHook();
     pushContext();
@@ -157,9 +166,11 @@ void CdclCore::notify_backtrack( size_t new_level )
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return;
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return;
+
     struct timespec start = TimeUtils::sampleMicro();
-    CDCL_LOG( Stringf( "Backtracking to level %d", new_level ).ascii() )
+    CDCL_LOG( Stringf( "%u Backtracking to level %d", _index, new_level ).ascii() )
 
     //    struct timespec start = TimeUtils::sampleMicro();
     unsigned oldLevel = _context.getLevel();
@@ -221,11 +232,12 @@ bool CdclCore::cb_check_found_model( const std::vector<int> &model )
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return false;
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return false;
 
     if ( _statistics )
         _statistics->incUnsignedAttribute( Statistics::NUM_VISITED_TREE_STATES );
-    CDCL_LOG( "Checking model found by SAT solver" )
+    CDCL_LOG( Stringf( " %u Checking model found by SAT solver", _index ).ascii() )
     ASSERT( _externalClauseToAdd.empty() )
     notify_assignment( model );
 
@@ -248,7 +260,7 @@ bool CdclCore::cb_check_found_model( const std::vector<int> &model )
         if ( !result && _externalClauseToAdd.empty() )
             addDecisionBasedConflictClause();
 
-        CDCL_LOG( Stringf( "\tResult is %u", result ).ascii() )
+        CDCL_LOG( Stringf( "%u\tResult is %u", _index, result ).ascii() )
         result = result && _externalClauseToAdd.empty();
     }
     else
@@ -262,13 +274,15 @@ int CdclCore::cb_decide()
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return 0;
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return 0;
+
     struct timespec start = TimeUtils::sampleMicro();
-    CDCL_LOG( "Callback for decision:" )
+    CDCL_LOG( Stringf( "%u Callback for decision:", _index ).ascii() )
 
     if ( _shouldRestart )
     {
-        _satSolverWrapper->forceBacktrack( 0 );
+        _satSolver->forceBacktrack( 0 );
         return 0;
     }
 
@@ -285,15 +299,15 @@ int CdclCore::cb_decide()
     if ( decisionLiteral )
     {
         ASSERT( !isLiteralAssigned( -decisionLiteral ) && !isLiteralAssigned( decisionLiteral ) )
-        ASSERT( FloatUtils::abs( decisionLiteral ) <= _satSolverWrapper->vars() )
-        CDCL_LOG( Stringf( "Decided literal %d", decisionLiteral ).ascii() )
+        ASSERT( FloatUtils::abs( decisionLiteral ) <= _satSolver->vars() )
+        CDCL_LOG( Stringf( "%u Decided literal %d", _index, decisionLiteral ).ascii() )
 
         if ( _statistics )
             _statistics->incUnsignedAttribute( Statistics::NUM_MARABOU_DECISIONS );
     }
     else
     {
-        CDCL_LOG( "No decision made" )
+        CDCL_LOG( Stringf( "%u No decision made", _index ).ascii() )
         if ( _statistics )
             _statistics->incUnsignedAttribute( Statistics::NUM_SAT_SOLVER_DECISIONS );
     }
@@ -315,7 +329,8 @@ int CdclCore::cb_propagate()
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return 0;
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return 0;
 
     struct timespec start = {};
     struct timespec end = {};
@@ -471,8 +486,9 @@ int CdclCore::cb_propagate()
             _literalsToPropagate.append( Pair<int, int>( 0, _context.getLevel() ) );
         }
 
-    CDCL_LOG( Stringf( "Propagating literal %d", lit ).ascii() )
-    ASSERT( FloatUtils::abs( lit ) <= _satSolverWrapper->vars() )
+    CDCL_LOG( Stringf( "%u Propagating literal %d, num vars %d", _index, lit, _satSolver->vars() )
+                  .ascii() )
+    ASSERT( FloatUtils::abs( lit ) <= _satSolver->vars() )
 
     if ( _statistics )
     {
@@ -492,12 +508,13 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
         return 0;
     }
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return 0;
 
     ASSERT( _engine->getLpSolverType() == LPSolverType::NATIVE )
     struct timespec start = TimeUtils::sampleMicro();
     ASSERT( propagated_lit )
-    ASSERT( !_satSolverWrapper->isDecision( propagated_lit ) )
+    ASSERT( !_satSolver->isDecision( propagated_lit ) )
 
     if ( !_isReasonClauseInitialized )
     {
@@ -509,7 +526,8 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
             _literalToClauses.clear();
         }
 
-        CDCL_LOG( Stringf( "Adding reason clause for literal %d", propagated_lit ).ascii() )
+        CDCL_LOG(
+            Stringf( "%u Adding reason clause for literal %d", _index, propagated_lit ).ascii() )
 
         if ( !_fixedCadicalVars.exists( propagated_lit ) )
         {
@@ -583,8 +601,8 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
     if ( !_reasonClauseLiterals.empty() )
     {
         lit = _reasonClauseLiterals.pop();
-        ASSERT( FloatUtils::abs( lit ) <= _satSolverWrapper->vars() )
-        CDCL_LOG( Stringf( "\tAdding Literal %d for Reason Clause", lit ).ascii() )
+        ASSERT( FloatUtils::abs( lit ) <= _satSolver->vars() )
+        CDCL_LOG( Stringf( "%u\tAdding Literal %d for Reason Clause", _index, lit ).ascii() )
     }
     else
         _isReasonClauseInitialized = false;
@@ -607,8 +625,11 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return false;
 
-    checkIfShouldExitDueToTimeout();
-    CDCL_LOG( Stringf( "Checking if there is a Conflict Clause to add: %d",
+    if ( checkIfShouldExitDueToTimeout() )
+        return false;
+
+    CDCL_LOG( Stringf( "%u Checking if there is a Conflict Clause to add: %d",
+                       _index,
                        !_externalClauseToAdd.empty() )
                   .ascii() )
     return !_externalClauseToAdd.empty();
@@ -619,15 +640,17 @@ int CdclCore::cb_add_external_clause_lit()
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return 0;
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return 0;
+
     struct timespec start = TimeUtils::sampleMicro();
 
     ASSERT( !_externalClauseToAdd.empty() )
 
     // Add literal from the last conflict clause learned
     int lit = _externalClauseToAdd.pop();
-    ASSERT( FloatUtils::abs( lit ) <= _satSolverWrapper->vars() )
-    CDCL_LOG( Stringf( "\tAdding Literal %d to Conflict Clause", lit ).ascii() )
+    ASSERT( FloatUtils::abs( lit ) <= _satSolver->vars() )
+    CDCL_LOG( Stringf( "%u\tAdding Literal %d to Conflict Clause", _index, lit ).ascii() )
 
     if ( _statistics )
     {
@@ -644,7 +667,7 @@ int CdclCore::cb_add_external_clause_lit()
 
 void CdclCore::addExternalClause( Set<int> &clause )
 {
-    CDCL_LOG( "Add External Clause" )
+    CDCL_LOG( Stringf( "%u Add External Clause", _index ).ascii() )
     struct timespec start = TimeUtils::sampleMicro();
 
     ASSERT( !clause.exists( 0 ) )
@@ -706,96 +729,85 @@ const PiecewiseLinearConstraint *CdclCore::getConstraintFromLit( int lit ) const
 
 bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 {
-    try
-    {
-        _timeoutInSeconds = timeoutInSeconds;
+    _timeoutInSeconds = timeoutInSeconds;
 
-        // Maybe query detected as UNSAT in processInputQuery
-        if ( _engine->getExitCode() == ExitCode::UNSAT )
-            return false;
+    // Maybe query detected as UNSAT in processInputQuery
+    //        if ( _engine->getExitCode() == ExitCode::UNSAT )
+    //            return false;
 
-        if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
-             Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )
-            if ( _engine->solve( 0 ) )
-            {
-                _engine->setExitCode( ExitCode::SAT );
-                return true;
-            }
-
-        if ( _engine->getLpSolverType() == LPSolverType::NATIVE )
-            _engine->propagateBoundManagerTightenings();
-
-        // Add the zero literal at the end
-        if ( !_literalsToPropagate.empty() )
-            _literalsToPropagate.append( Pair<int, int>( 0, _context.getLevel() ) );
-
-        if ( !_externalClauseToAdd.empty() )
-        {
-            _engine->setExitCode( ExitCode::UNSAT );
-            return false;
-        }
-
-        for ( unsigned var : _cadicalVarToPlc.keys() )
-            if ( var != 0 )
-                _satSolverWrapper->addObservedVar( (int)var );
-
-        Set<int> externalClause;
-
-        externalClause = _satSolverWrapper->addExternalNAPClause(
-            Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) );
-        if ( !externalClause.empty() )
-            _initialClauses.append( externalClause );
-
-        externalClause = _satSolverWrapper->addExternalNAPClause(
-            Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) );
-        if ( !externalClause.empty() )
-            _initialClauses.append( externalClause );
-
-        int result = _satSolverWrapper->solve();
-
-        if ( _statistics && _engine->getVerbosity() )
-        {
-            printf( "\nCdclCore::Final statistics:\n" );
-            _statistics->print();
-        }
-
-        if ( result == 0 )
-        {
-            if ( _engine->getExitCode() == ExitCode::SAT )
-                return true;
-            else
-                return false;
-        }
-        else if ( result == 10 )
+    if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
+         Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )
+        if ( _engine->solve( 0 ) )
         {
             _engine->setExitCode( ExitCode::SAT );
             return true;
         }
-        else if ( result == 20 )
+
+    if ( _engine->getLpSolverType() == LPSolverType::NATIVE )
+        _engine->propagateBoundManagerTightenings();
+
+    if ( !_externalClauseToAdd.empty() )
+    {
+        _engine->setExitCode( ExitCode::UNSAT );
+        return false;
+    }
+
+    reset();
+
+    Set<int> externalClause;
+
+    externalClause = _satSolver->addExternalNAPClause(
+        Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) );
+    if ( !externalClause.empty() )
+        _initialClauses.append( externalClause );
+
+    externalClause = _satSolver->addExternalNAPClause(
+        Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) );
+    if ( !externalClause.empty() )
+        _initialClauses.append( externalClause );
+
+    int result = _satSolver->solve();
+
+    if ( _statistics && _engine->getVerbosity() )
+    {
+        printf( "\nCdclCore::Final statistics:\n" );
+        _statistics->print();
+    }
+
+    if ( result == 0 )
+    {
+        if ( _engine->getExitCode() == ExitCode::SAT )
+            return true;
+        else if ( checkIfShouldExitDueToTimeout() )
         {
-            _engine->setExitCode( ExitCode::UNSAT );
+            if ( _statistics )
+            {
+                if ( _engine->getVerbosity() > 0 )
+                {
+                    printf( "\n\nCdclCore: quitting due to timeout...\n\n" );
+                    printf( "Final statistics:\n" );
+                    _statistics->print();
+                }
+                _statistics->timeout();
+            }
+
+            _engine->setExitCode( ExitCode::TIMEOUT );
             return false;
         }
-        else
-        {
-            ASSERT( false )
-        }
     }
-    catch ( const TimeoutException & )
+    else if ( result == 10 )
     {
-        if ( _statistics )
-        {
-            if ( _engine->getVerbosity() > 0 )
-            {
-                printf( "\n\nCdclCore: quitting due to timeout...\n\n" );
-                printf( "Final statistics:\n" );
-                _statistics->print();
-            }
-            _statistics->timeout();
-        }
-
-        _engine->setExitCode( ExitCode::TIMEOUT );
+        _engine->setExitCode( ExitCode::SAT );
+        return true;
+    }
+    else if ( result == 20 )
+    {
+        _engine->setExitCode( ExitCode::UNSAT );
         return false;
+    }
+    else
+    {
+        ASSERT( false )
     }
 
     return false;
@@ -860,22 +872,28 @@ void CdclCore::removeLiteralFromPropagations( int literal )
 
 void CdclCore::phase( int literal )
 {
-    CDCL_LOG( Stringf( "Phasing literal %d", literal ).ascii() )
-    _satSolverWrapper->phase( literal );
+    CDCL_LOG( Stringf( "%u Phasing literal %d", _index, literal ).ascii() )
+    _satSolver->phase( literal );
     _fixedCadicalVars.insert( literal );
 }
 
-void CdclCore::checkIfShouldExitDueToTimeout()
+bool CdclCore::checkIfShouldExitDueToTimeout()
 {
     if ( _engine->shouldExitDueToTimeout( _timeoutInSeconds ) )
     {
-        throw TimeoutException();
+        if ( _satSolver->isSolving() )
+            _satSolver->terminate();
+        return true;
     }
+
+    return false;
 }
 
 bool CdclCore::terminate()
 {
-    CDCL_LOG( Stringf( "Callback for terminate: %d", _engine->getExitCode() != ExitCode::NOT_DONE )
+    CDCL_LOG( Stringf( "%u Callback for terminate: %d",
+                       _index,
+                       _engine->getExitCode() != ExitCode::NOT_DONE )
                   .ascii() )
     return _engine->getExitCode() != ExitCode::NOT_DONE;
 }
@@ -939,10 +957,12 @@ void CdclCore::notify_fixed_assignment( int lit )
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return;
 
-    checkIfShouldExitDueToTimeout();
+    if ( checkIfShouldExitDueToTimeout() )
+        return;
+
     struct timespec start = TimeUtils::sampleMicro();
 
-    CDCL_LOG( Stringf( "Notified fixed assignment: %d", lit ).ascii() )
+    CDCL_LOG( Stringf( "%u Notified fixed assignment: %d", _index, lit ).ascii() )
     if ( !isLiteralAssigned( lit ) )
         notifySingleAssignment( lit, true );
     else
@@ -1032,7 +1052,7 @@ void CdclCore::popContextTo( unsigned int level )
 
 void CdclCore::addLiteral( int lit )
 {
-    _satSolverWrapper->addLiteral( lit );
+    _satSolver->addLiteral( lit );
 }
 
 bool CdclCore::isSupported( const PiecewiseLinearConstraint *plc )
@@ -1136,7 +1156,7 @@ void CdclCore::initializeScoreTracker( std::shared_ptr<PLConstraintScoreTracker>
 
 bool CdclCore::isDecision( int lit )
 {
-    return _satSolverWrapper->isDecision( lit );
+    return _satSolver->isDecision( lit );
 }
 
 double CdclCore::computeDecisionScoreForLiteral( int literal ) const
@@ -1379,6 +1399,21 @@ Set<int> CdclCore::quickXplain( const Set<int> &currentClause,
     Set<int> clause2 = quickXplain( clause1, clauseScores, startIdx, mid, propagated_lit );
 
     return clause1 + clause2;
+}
+
+void CdclCore::reset()
+{
+    _satSolver = new CadicalWrapper( this, this, this );
+
+    // Add the zero literal at the end
+    if ( !_literalsToPropagate.empty() )
+        _literalsToPropagate.append( Pair<int, int>( 0, _context.getLevel() ) );
+
+    for ( unsigned var : _cadicalVarToPlc.keys() )
+        if ( var != 0 )
+            _satSolver->addObservedVar( (int)var );
+
+    _literalsToPropagate.clear();
 }
 
 #endif

@@ -80,6 +80,10 @@ public:
     virtual void forceBacktrack( size_t newLevel ) = 0;
 
     virtual Set<int> addExternalNAPClause( const String &externalNAPClauseFilename ) = 0;
+
+    virtual bool isSolving() const = 0;
+
+    virtual void terminate() = 0;
 };
 
 

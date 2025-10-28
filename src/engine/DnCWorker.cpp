@@ -107,7 +107,10 @@ void DnCWorker::popOneSubQueryAndSolve( bool restoreTreeStates )
         ExitCode result = ExitCode::NOT_DONE;
         if ( fullSolveNeeded )
         {
-            _engine->solve( timeoutInSeconds );
+            if ( _engine->shouldSolveWithCDCL() )
+                _engine->solveWithCDCL( timeoutInSeconds );
+            else
+                _engine->solve( timeoutInSeconds );
             result = _engine->getExitCode();
         }
         else
