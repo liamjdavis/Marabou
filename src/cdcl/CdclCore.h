@@ -274,8 +274,6 @@ private:
     std::shared_ptr<PLConstraintScoreTracker> _scoreTracker;
 
     Map<unsigned, int> _decisionLiterals;
-    Map<unsigned, double> _storedLowerBounds;
-    Map<unsigned, double> _storedUpperBounds;
 
     Map<int, double> _decisionScores;
 

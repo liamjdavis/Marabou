@@ -743,16 +743,13 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
             return true;
         }
 
-    if ( _engine->getLpSolverType() == LPSolverType::NATIVE )
-        _engine->propagateBoundManagerTightenings();
+    reset();
 
     if ( !_externalClauseToAdd.empty() )
     {
         _engine->setExitCode( ExitCode::UNSAT );
         return false;
     }
-
-    reset();
 
     Set<int> externalClause;
 
@@ -766,6 +763,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     if ( !externalClause.empty() )
         _initialClauses.append( externalClause );
 
+    CDCL_LOG( Stringf( "%u Start solving", _index ).ascii() )
     int result = _satSolver->solve();
 
     if ( _statistics && _engine->getVerbosity() )
@@ -1405,15 +1403,34 @@ void CdclCore::reset()
 {
     _satSolver = new CadicalWrapper( this, this, this );
 
-    // Add the zero literal at the end
-    if ( !_literalsToPropagate.empty() )
-        _literalsToPropagate.append( Pair<int, int>( 0, _context.getLevel() ) );
-
     for ( unsigned var : _cadicalVarToPlc.keys() )
         if ( var != 0 )
             _satSolver->addObservedVar( (int)var );
 
     _literalsToPropagate.clear();
+    _externalClauseToAdd.clear();
+    _reasonClauseLiterals.clear();
+
+    if ( _engine->getLpSolverType() == LPSolverType::NATIVE )
+        _engine->propagateBoundManagerTightenings();
+
+    // Add the zero literal at the end
+    if ( !_literalsToPropagate.empty() )
+        _literalsToPropagate.append( Pair<int, int>( 0, _context.getLevel() ) );
+
+    _numOfClauses = 0;
+    _literalToClauses.clear();
+    _vsidsDecayThreshold = 0;
+    _vsidsDecayCounter = 0;
+
+    _restarts = 1;
+    _restartLimit = 512 * luby( 1 );
+    _numOfConflictClauses = 0;
+    _shouldRestart = false;
+
+    _largestAssignmentSoFar.clear();
+    _decisionLiterals.clear();
+    _decisionScores.clear();
 }
 
 #endif

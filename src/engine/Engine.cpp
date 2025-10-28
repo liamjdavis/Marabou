@@ -2722,7 +2722,10 @@ void Engine::reset()
     clearViolatedPLConstraints();
     resetSearchTreeHandler();
     if ( _solveWithCDCL )
+    {
+        _exitCode = ExitCode::NOT_DONE;
         resetCdclCore();
+    }
     resetBoundTighteners();
 }
 
