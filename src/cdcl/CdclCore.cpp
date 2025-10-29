@@ -645,9 +645,6 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
                        !_externalClauseToAdd.empty() )
                   .ascii() )
 
-    if ( !_externalClauseToAdd.empty() )
-        return true;
-
     if ( _lastClauseIndexAdded < CdclCore::sharedClauses.size() )
     {
         addExternalClause( CdclCore::sharedClauses[_lastClauseIndexAdded++] );
@@ -875,13 +872,8 @@ void CdclCore::addDecisionBasedConflictClause()
             clause.insert( lit );
     }
 
-    if ( !clause.empty() )
-    {
-        unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
-        CdclCore::sharedClauses[newClauseIndex] = clause;
-    }
-    else
-        addExternalClause( clause );
+    unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
+    CdclCore::sharedClauses[newClauseIndex] = clause;
 
     if ( _statistics )
     {
