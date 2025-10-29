@@ -153,7 +153,7 @@ void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
     {
         int cdclLiteral = sncSplit.getCdclLiteral();
         if ( cdclLiteral )
-            _cdclCore.phase( sncSplit.getCdclLiteral() );
+            _cdclCore.decide( sncSplit.getCdclLiteral() );
     }
     else
     {

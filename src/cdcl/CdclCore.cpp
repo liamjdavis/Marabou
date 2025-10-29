@@ -27,6 +27,8 @@
 #include <utility>
 
 std::atomic<unsigned> CdclCore::numCdclCores{ 0 };
+Map<unsigned, Set<int>> CdclCore::sharedClauses{};
+std::atomic<unsigned> CdclCore::clauseIndex{ 0 };
 
 CdclCore::CdclCore( IEngine *engine )
     : _engine( engine )
@@ -51,6 +53,7 @@ CdclCore::CdclCore( IEngine *engine )
     , _shouldRestart( false )
     , _initialClauses()
     , _scoreTracker( nullptr )
+    , _lastClauseIndexAdded( 0 )
     , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
     _cadicalVarToPlc.insert( 0, NULL );
@@ -286,15 +289,24 @@ int CdclCore::cb_decide()
         return 0;
     }
 
-    unsigned decisionVariable =
-        GlobalConfiguration::USE_DEEPSOI_LOCAL_SEARCH && _context.getLevel() > 3
-            ? decideSplitVarBasedOnPseudoImpactAndVsids()
-            : decideSplitVarBasedOnPolarityAndVsids();
-
     int decisionLiteral = 0;
 
-    if ( decisionVariable )
-        decisionLiteral = _cadicalVarToPlc[decisionVariable]->getLiteralForDecision();
+    if ( _decision != 0 )
+    {
+        decisionLiteral = _decision;
+        _decision = 0;
+    }
+    else
+    {
+        unsigned decisionVariable =
+            GlobalConfiguration::USE_DEEPSOI_LOCAL_SEARCH && _context.getLevel() > 3
+                ? decideSplitVarBasedOnPseudoImpactAndVsids()
+                : decideSplitVarBasedOnPolarityAndVsids();
+
+
+        if ( decisionVariable )
+            decisionLiteral = _cadicalVarToPlc[decisionVariable]->getLiteralForDecision();
+    }
 
     if ( decisionLiteral )
     {
@@ -632,7 +644,17 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
                        _index,
                        !_externalClauseToAdd.empty() )
                   .ascii() )
-    return !_externalClauseToAdd.empty();
+
+    if ( !_externalClauseToAdd.empty() )
+        return true;
+
+    if ( _lastClauseIndexAdded < CdclCore::sharedClauses.size() )
+    {
+        addExternalClause( CdclCore::sharedClauses[_lastClauseIndexAdded++] );
+        return true;
+    }
+
+    return false;
 }
 
 int CdclCore::cb_add_external_clause_lit()
@@ -853,14 +875,20 @@ void CdclCore::addDecisionBasedConflictClause()
             clause.insert( lit );
     }
 
+    if ( !clause.empty() )
+    {
+        unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
+        CdclCore::sharedClauses[newClauseIndex] = clause;
+    }
+    else
+        addExternalClause( clause );
+
     if ( _statistics )
     {
         struct timespec end = TimeUtils::sampleMicro();
         _statistics->incLongAttribute( Statistics::TOTAL_TIME_CDCL_CORE_MAIN_LOOP_MICRO,
                                        TimeUtils::timePassed( start, end ) );
     }
-
-    addExternalClause( clause );
 }
 
 void CdclCore::removeLiteralFromPropagations( int literal )
@@ -1431,6 +1459,11 @@ void CdclCore::reset()
     _largestAssignmentSoFar.clear();
     _decisionLiterals.clear();
     _decisionScores.clear();
+}
+
+void CdclCore::decide( int decision )
+{
+    _decision = decision;
 }
 
 #endif

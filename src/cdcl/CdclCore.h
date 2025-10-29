@@ -183,8 +183,8 @@ public:
     bool isLiteralFixed( int literal ) const;
 
     /*
-  Notifying on a fixed literal assignment.
- */
+      Notifying on a fixed literal assignment.
+    */
     void notify_fixed_assignment( int lit ) override;
 
     /*
@@ -211,7 +211,12 @@ public:
 
     void reset();
 
+    void decide( int decision );
+
     static std::atomic<unsigned> numCdclCores;
+
+    static Map<unsigned, Set<int>> sharedClauses;
+    static std::atomic<unsigned> clauseIndex;
 
 private:
     /*
@@ -276,6 +281,10 @@ private:
     Map<unsigned, int> _decisionLiterals;
 
     Map<int, double> _decisionScores;
+
+    unsigned _lastClauseIndexAdded;
+
+    int _decision;
 
     /*
      Decision heuristics
