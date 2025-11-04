@@ -830,7 +830,10 @@ void Preprocessor::eliminateVariables()
             ++offset;
         }
         else
+        {
             _oldIndexToNewIndex[i] = i - offset;
+            _newIndexToOldIndex[i - offset] = i;
+        }
     }
 
     // Next, eliminate the fixed variables from the equations
@@ -1041,6 +1044,14 @@ unsigned Preprocessor::getNewIndex( unsigned oldIndex ) const
         return _oldIndexToNewIndex.at( oldIndex );
 
     return oldIndex;
+}
+
+unsigned Preprocessor::getOldIndex( unsigned newIndex ) const
+{
+    if ( _newIndexToOldIndex.exists( newIndex ) )
+        return _newIndexToOldIndex.at( newIndex );
+
+    return newIndex;
 }
 
 void Preprocessor::setStatistics( Statistics *statistics )

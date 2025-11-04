@@ -575,6 +575,10 @@ public:
         TS_ASSERT_EQUALS( preprocessor.getNewIndex( 2 ), 1U );
         TS_ASSERT_EQUALS( preprocessor.getNewIndex( 3 ), 2U );
 
+        TS_ASSERT_EQUALS( preprocessor.getOldIndex( 0 ), 1U );
+        TS_ASSERT_EQUALS( preprocessor.getOldIndex( 1 ), 2U );
+        TS_ASSERT_EQUALS( preprocessor.getOldIndex( 2 ), 3U );
+
         // Variables have been renamed, so we should have 2x0 + x1 (x0 is the new x1)
         List<Equation::Addend>::iterator addend = preprocessedEquation._addends.begin();
         TS_ASSERT_EQUALS( addend->_coefficient, 2.0 );
