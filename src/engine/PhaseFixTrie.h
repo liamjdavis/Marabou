@@ -165,8 +165,6 @@ public:
         std::vector<std::vector<PhaseFix>> prefixes;
         std::vector<PhaseFix> currPrefix;
 
-        std::cout << "Dumping UNSAT prefixes from PhaseFixTrie:" << std::endl;
-
         collectUnsatPrefixes( _root, currPrefix, prefixes );
 
         return prefixes;
@@ -193,13 +191,6 @@ private:
         if ( node->isUnsatRoot )
         {
             prefixes.push_back( currPrefix );
-
-            std::cout << "Unsat Prefix: ";
-            for ( const auto &[var, phase] : currPrefix )
-            {
-                std::cout << "(" << var << ", " << ( phase ? "T" : "F" ) << ") ";
-            }
-            std::cout << std::endl;
 
             // Don't traverse children of unsat roots - they are subsumed
             return;

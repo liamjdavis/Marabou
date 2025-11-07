@@ -37,6 +37,7 @@
 #include "MILPEncoder.h"
 #include "Map.h"
 #include "Options.h"
+#include "PhaseFixTrie.h"
 #include "PrecisionRestorer.h"
 #include "Preprocessor.h"
 #include "Query.h"
@@ -51,6 +52,7 @@
 #include "UnsatCertificateNode.h"
 
 #include <atomic>
+#include <cadical.hpp>
 #include <context/context.h>
 
 
@@ -67,6 +69,8 @@ class String;
 
 
 using CVC4::context::Context;
+
+using PhaseFix = std::pair<unsigned, bool>; // <variable index, phase>
 
 class Engine
     : public IEngine
@@ -326,6 +330,10 @@ private:
         PERFORMED_WEAK_RESTORATION = 2,
     };
 
+    /*
+      CaDiCaL SAT solver for search tree pruning.
+    */
+    std::unique_ptr<CaDiCaL::Solver> _satSolver;
 
     /*
       Perform bound tightening operations that require
@@ -925,6 +933,11 @@ private:
                                     int explainedVar,
                                     bool isUpper,
                                     double targetBound );
+
+    /*
+      Phase fix trie for UNSAT cores.
+    */
+    PhaseFixTrie _phaseFixTrie;
 };
 
 #endif // __Engine_h__

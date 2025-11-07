@@ -35,6 +35,7 @@ public:
         wasDiscarded = false;
 
         lastStoredState = NULL;
+        mockPLConstraints = nullptr;
     }
 
     ~MockEngine()
@@ -72,6 +73,8 @@ public:
     List<Bound> lastLowerBounds;
     List<Bound> lastUpperBounds;
     List<Equation> lastEquations;
+    const List<PiecewiseLinearConstraint *> *mockPLConstraints;
+
     void applySplit( const PiecewiseLinearCaseSplit &split ) override
     {
         List<Tightening> bounds = split.getBoundTightenings();
@@ -294,7 +297,7 @@ public:
 
     const List<PiecewiseLinearConstraint *> *getPiecewiseLinearConstraints() const override
     {
-        return NULL;
+        return mockPLConstraints;
     }
 
     void incNumOfLemmas() override{};

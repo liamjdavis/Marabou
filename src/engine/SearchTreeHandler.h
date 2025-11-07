@@ -21,6 +21,7 @@
 #include "PLConstraintScoreTracker.h"
 #include "PiecewiseLinearCaseSplit.h"
 #include "PiecewiseLinearConstraint.h"
+#include "Preprocessor.h"
 #include "SearchTreeStackEntry.h"
 #include "SearchTreeState.h"
 #include "Stack.h"
@@ -38,6 +39,8 @@ class IEngine;
 class String;
 
 using CVC4::context::Context;
+
+using PhaseFix = std::pair<unsigned, bool>; // PLConstraint newIndex, isActive
 
 class SearchTreeHandler
 {
@@ -176,6 +179,16 @@ public:
     bool pickSplitPLConstraint();
 
     /*
+      Get the search path of ReLU splits taken so far
+    */
+    List<PhaseFix> getCurrentSearchPath() const;
+
+    /*
+      Identify which constraint was last split on
+    */
+    PhaseFix getLastSplitInfo() const;
+
+    /*
       For debugging purposes only - store a correct possible solution
     */
     void storeDebuggingSolution( const Map<unsigned, double> &debuggingSolution );
@@ -257,6 +270,11 @@ private:
       current search state.
     */
     unsigned _numRejectedPhasePatternProposal;
+
+    /*
+      Current search path from ReLU splits.
+    */
+    List<PhaseFix> _currentSearchPath;
 };
 
 #endif // __SearchTreeHandler_h__

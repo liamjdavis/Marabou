@@ -23,7 +23,9 @@
 #include "MStringf.h"
 #include "MarabouError.h"
 #include "Options.h"
+#include "PiecewiseLinearFunctionType.h"
 #include "PseudoImpactTracker.h"
+#include "ReluConstraint.h"
 #include "UnsatCertificateNode.h"
 
 SearchTreeHandler::SearchTreeHandler( IEngine *engine )
@@ -209,6 +211,13 @@ void SearchTreeHandler::performSplit()
 
     _stack.append( stackEntry );
 
+    // Track the split decision in the current search path
+    PhaseFix splitInfo = getLastSplitInfo();
+
+    // Only add if valid split info was found (check for sentinel value UINT_MAX)
+    if ( splitInfo.first != UINT_MAX )
+        _currentSearchPath.append( splitInfo );
+
     if ( _statistics )
     {
         unsigned level = getStackDepth();
@@ -293,6 +302,10 @@ bool SearchTreeHandler::popSplit()
             delete _stack.back();
             _stack.popBack();
             popContext();
+
+            // Remove the corresponding entry from the search path when backtracking
+            if ( !_currentSearchPath.empty() )
+                _currentSearchPath.popBack();
 
             if ( _engine->shouldProduceProofs() && _engine->getUNSATCertificateCurrentPointer() )
             {
@@ -610,4 +623,73 @@ bool SearchTreeHandler::pickSplitPLConstraint()
         _constraintForSplitting = _engine->pickSplitPLConstraint( _branchingHeuristic );
     }
     return _constraintForSplitting != NULL;
+}
+
+List<PhaseFix> SearchTreeHandler::getCurrentSearchPath() const
+{
+    return _currentSearchPath;
+}
+
+PhaseFix SearchTreeHandler::getLastSplitInfo() const
+{
+    // Check if the stack is empty
+    if ( _stack.empty() )
+        return PhaseFix( UINT_MAX, false );
+
+    // Get the last split
+    PiecewiseLinearCaseSplit lastSplit = _stack.back()->_activeSplit;
+    List<Tightening> tightenings = lastSplit.getBoundTightenings();
+
+    // Extract variable indices from the tightenings
+    unsigned bVar = 0;
+    bool isActive = false;
+    bool foundVar = false;
+
+    for ( const auto &tightening : tightenings )
+    {
+        // Find ReLUs
+        if ( FloatUtils::isZero( tightening._value ) )
+        {
+            bVar = tightening._variable;
+
+            // Dtermine if active or inactive phase
+            if ( tightening._type == Tightening::LB )
+                isActive = true;
+            else if ( tightening._type == Tightening::UB )
+                isActive = false;
+
+            foundVar = true;
+            break;
+        }
+    }
+
+    // If no ReLU variable found, return sentinel value
+    if ( !foundVar )
+        return PhaseFix( UINT_MAX, false );
+
+    // Find which ReLU constraint this variable belongs to
+    const List<PiecewiseLinearConstraint *> *constraints = _engine->getPiecewiseLinearConstraints();
+
+    // Check if constraints list is null
+    if ( !constraints )
+        return PhaseFix( UINT_MAX, false );
+
+    for ( const auto &constraint : *constraints )
+    {
+        if ( constraint->getType() == RELU )
+        {
+            ReluConstraint *reluConstraint = static_cast<ReluConstraint *>( constraint );
+
+            if ( reluConstraint->getB() == bVar )
+            {
+                // Note: We're using the preprocessed index here
+                // To get the original index, we would need access to Engine::getPreprocessor()
+                // which is not available through the IEngine interface
+                return PhaseFix( bVar, isActive );
+            }
+        }
+    }
+
+    // ReLU constraint not found, return sentinel value
+    return PhaseFix( UINT_MAX, false );
 }

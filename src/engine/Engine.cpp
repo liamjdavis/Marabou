@@ -72,6 +72,7 @@ Engine::Engine()
     , _produceUNSATProofs( Options::get()->getBool( Options::PRODUCE_PROOFS ) )
     , _groundBoundManager( _context )
     , _UNSATCertificate( NULL )
+    , _satSolver( std::make_unique<CaDiCaL::Solver>() )
 {
     _searchTreeHandler.setStatistics( &_statistics );
     _tableau->setStatistics( &_statistics );
@@ -291,6 +292,127 @@ bool Engine::solve( double timeoutInSeconds )
             // If true, we just entered a new sub-problem
             if ( splitJustPerformed )
             {
+                // Re-instantiate fresh solver
+                _satSolver = std::make_unique<CaDiCaL::Solver>();
+
+                if ( _phaseFixTrie.size() > 0 )
+                {
+                    // Get the phase fix trie contents
+                    std::vector<std::vector<PhaseFix>> unsatPrefixes =
+                        _phaseFixTrie.dumpUnsatPrefixes();
+
+                    printf( "\n=== SAT Solver Debug: Adding UNSAT Prefixes ===\n" );
+                    printf( "Number of UNSAT prefixes: %zu\n", unsatPrefixes.size() );
+
+                    // Add unsat prefixes to SAT solver as UNSAT cores
+                    unsigned clauseNum = 0;
+                    for ( const auto &prefix : unsatPrefixes )
+                    {
+                        printf( "Blocking clause #%u: [", clauseNum++ );
+
+                        // Create blocking clause
+                        for ( const auto &phaseFix : prefix )
+                        {
+                            // SAT literals are 1-indexed
+                            int baseLiteral = static_cast<int>( phaseFix.first ) + 1;
+
+                            // Add phase fix direction
+                            int literal = phaseFix.second ? -baseLiteral : baseLiteral;
+
+                            printf( "%d ", literal );
+
+                            // Add literal to SAT solver
+                            _satSolver->add( literal );
+                        }
+
+                        // Terminate clause
+                        _satSolver->add( 0 );
+
+                        printf( "]\n" );
+                    }
+
+                    printf( "=== End UNSAT Prefixes ===\n\n" );
+
+                    // Add the current phase fixes, active and implied, to the SAT solver
+                    List<PhaseFix> activePhaseFixes = _searchTreeHandler.getCurrentSearchPath();
+
+                    printf(
+                        "=== SAT Solver Debug: Adding Unit Clause (Active + Implied Fixes) ===\n" );
+                    printf( "Number of active phase fixes: %u\n", activePhaseFixes.size() );
+                    printf( "Active phase fixes: [" );
+
+                    for ( const auto &phaseFix : activePhaseFixes )
+                    {
+                        // SAT literals are 1-indexed
+                        int baseLiteral = static_cast<int>( phaseFix.first ) + 1;
+
+                        // Add phase fix direction
+                        int literal = phaseFix.second ? baseLiteral : -baseLiteral;
+
+                        printf( "%d ", literal );
+
+                        // Add literal to SAT solver
+                        _satSolver->add( literal );
+                    }
+
+                    printf( "]\n" );
+
+                    // Get implied fixes and add them to the SAT solver
+                    printf( "Implied phase fixes: [" );
+                    unsigned impliedCount = 0;
+                    for ( const auto &plConstraint : _plConstraints )
+                    {
+                        if ( plConstraint->getType() == PiecewiseLinearFunctionType::RELU &&
+                             plConstraint->phaseFixed() )
+                        {
+                            ReluConstraint *reluConstraint =
+                                dynamic_cast<ReluConstraint *>( plConstraint );
+
+                            // Get old index for the ReLU
+                            unsigned reluNewIndex = reluConstraint->getB();
+                            unsigned reluOldIndex = _preprocessor.getOldIndex( reluNewIndex );
+
+                            // Check phase fix direction
+                            PhaseStatus phase = plConstraint->getPhaseStatus();
+                            bool isActive = ( phase == RELU_PHASE_ACTIVE );
+
+                            // 1-index for SAT literal
+                            int baseLiteral = static_cast<int>( reluOldIndex ) + 1;
+                            int literal = isActive ? baseLiteral : -baseLiteral;
+
+                            printf( "%d ", literal );
+                            _satSolver->add( literal );
+                            impliedCount++;
+                        }
+                    }
+
+                    printf( "]\n" );
+                    printf( "Number of implied phase fixes: %u\n", impliedCount );
+                    printf( "=== End Unit Clause ===\n\n" );
+
+                    _satSolver->add( 0 );
+
+                    // If SAT Solver is UNSAT, throw InfeasibleQueryException
+                    printf( "=== SAT Solver Debug: Solving ===\n" );
+
+                    int result = _satSolver->solve();
+
+                    printf( "SAT solver result: %d ", result );
+                    if ( result == 10 )
+                        printf( "(SAT)\n" );
+                    else if ( result == 20 )
+                        printf( "(UNSAT)\n" );
+                    else
+                        printf( "(UNKNOWN)\n" );
+                    printf( "=== End SAT Solver Debug ===\n\n" );
+
+                    if ( result == 20 )
+                    {
+                        printf( "*** SAT solver pruned UNSAT subproblem ***\n" );
+                        throw InfeasibleQueryException();
+                    }
+                }
+
                 performBoundTighteningAfterCaseSplit();
                 informLPSolverOfBounds();
                 splitJustPerformed = false;
@@ -342,6 +464,27 @@ bool Engine::solve( double timeoutInSeconds )
                             ASSERT( _UNSATCertificateCurrentPointer );
                             ( **_UNSATCertificateCurrentPointer ).setSATSolutionFlag();
                         }
+
+                        printf( "\n---\n" );
+                        printf( "Phase Fix Trie contents:\n" );
+                        std::vector<std::vector<PhaseFix>> trieContents =
+                            _phaseFixTrie.dumpUnsatPrefixes();
+
+                        for ( const auto &prefix : trieContents )
+                        {
+                            printf( "[" );
+                            for ( size_t i = 0; i < prefix.size(); ++i )
+                            {
+                                printf( "(%u, %s)",
+                                        prefix[i].first,
+                                        prefix[i].second ? "active" : "inactive" );
+                                if ( i < prefix.size() - 1 )
+                                    printf( ", " );
+                            }
+                            printf( "]\n" );
+                        }
+                        printf( "---\n" );
+
                         _exitCode = Engine::SAT;
                         return true;
                     }
@@ -406,6 +549,25 @@ bool Engine::solve( double timeoutInSeconds )
             // If we're at level 0, the whole query is unsat.
             if ( _produceUNSATProofs )
                 explainSimplexFailure();
+
+            // Record the UNSAT search path in the PhaseFixTrie before popping
+            List<PhaseFix> searchPath = _searchTreeHandler.getCurrentSearchPath();
+            if ( !searchPath.empty() )
+            {
+                // Convert List<PhaseFix> to std::vector<PhaseFix> and map indices to original
+                std::vector<PhaseFix> unsatPath;
+                unsatPath.reserve( searchPath.size() );
+
+                for ( const auto &phaseFix : searchPath )
+                {
+                    // Map from new (preprocessed) index to old (original) index
+                    unsigned oldIndex = _preprocessor.getOldIndex( phaseFix.first );
+                    unsatPath.emplace_back( oldIndex, phaseFix.second );
+                }
+
+                // Insert the UNSAT path into the trie
+                _phaseFixTrie.insertUnsatPrefix( unsatPath );
+            }
 
             if ( !_searchTreeHandler.popSplit() )
             {

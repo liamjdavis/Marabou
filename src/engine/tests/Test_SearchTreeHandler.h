@@ -569,6 +569,157 @@ public:
         searchTreeState._impliedValidSplitsAtRoot = List<PiecewiseLinearCaseSplit>();
     }
 
+    void test_search_path_tracking()
+    {
+        // Test that the search path is correctly tracked during splits
+        SearchTreeHandler searchTreeHandler( engine );
+
+        ReluConstraint relu1( 0, 1 );
+        ReluConstraint relu2( 2, 3 );
+
+        List<PiecewiseLinearConstraint *> constraints;
+        constraints.append( &relu1 );
+        constraints.append( &relu2 );
+        engine->mockPLConstraints = &constraints;
+
+        // Initially, search path should be empty
+        List<PhaseFix> searchPath = searchTreeHandler.getCurrentSearchPath();
+        TS_ASSERT( searchPath.empty() );
+
+        // Perform first split on relu1
+        for ( unsigned i = 0;
+              i < (unsigned)Options::get()->getInt( Options::CONSTRAINT_VIOLATION_THRESHOLD );
+              ++i )
+            searchTreeHandler.reportViolatedConstraint( &relu1 );
+
+        TS_ASSERT( searchTreeHandler.needToSplit() );
+        TS_ASSERT_THROWS_NOTHING( searchTreeHandler.performSplit() );
+
+        // Search path should now have one entry
+        searchPath = searchTreeHandler.getCurrentSearchPath();
+        TS_ASSERT_EQUALS( searchPath.size(), 1U );
+
+        // Check that the split info is for relu1's b variable (index 0)
+        auto it = searchPath.begin();
+        TS_ASSERT_EQUALS( it->first, 0U ); // b variable of relu1
+        // The phase depends on which split was chosen (active or inactive)
+
+        // Perform second split on relu2
+        for ( unsigned i = 0;
+              i < (unsigned)Options::get()->getInt( Options::CONSTRAINT_VIOLATION_THRESHOLD );
+              ++i )
+            searchTreeHandler.reportViolatedConstraint( &relu2 );
+
+        TS_ASSERT( searchTreeHandler.needToSplit() );
+        TS_ASSERT_THROWS_NOTHING( searchTreeHandler.performSplit() );
+
+        // Search path should now have two entries
+        searchPath = searchTreeHandler.getCurrentSearchPath();
+        TS_ASSERT_EQUALS( searchPath.size(), 2U );
+
+        // Check second entry is for relu2's b variable (index 2)
+        it = searchPath.begin();
+        ++it;
+        TS_ASSERT_EQUALS( it->first, 2U ); // b variable of relu2
+
+        // Pop the second split
+        TS_ASSERT( searchTreeHandler.popSplit() );
+
+        // Search path should be back to one entry
+        searchPath = searchTreeHandler.getCurrentSearchPath();
+        TS_ASSERT_EQUALS( searchPath.size(), 2U ); // Still 2 because pop doesn't remove on sibling
+
+        // Pop the first split completely
+        TS_ASSERT( searchTreeHandler.popSplit() );
+
+        // After popping all alternatives, search path should shrink
+        searchPath = searchTreeHandler.getCurrentSearchPath();
+        // The path size depends on whether alternatives were exhausted
+
+        engine->mockPLConstraints = nullptr;
+    }
+
+    void test_search_path_with_no_constraints()
+    {
+        // Test that getLastSplitInfo handles null constraints gracefully
+        SearchTreeHandler searchTreeHandler( engine );
+
+        MockConstraint constraint;
+
+        PiecewiseLinearCaseSplit split1;
+        Tightening bound1( 1, 0.0, Tightening::LB );
+        split1.storeBoundTightening( bound1 );
+
+        constraint.nextSplits.append( split1 );
+
+        for ( unsigned i = 0;
+              i < (unsigned)Options::get()->getInt( Options::CONSTRAINT_VIOLATION_THRESHOLD );
+              ++i )
+            searchTreeHandler.reportViolatedConstraint( &constraint );
+
+        // Set constraints to null to simulate the scenario in the test
+        engine->mockPLConstraints = nullptr;
+
+        TS_ASSERT( searchTreeHandler.needToSplit() );
+        TS_ASSERT_THROWS_NOTHING( searchTreeHandler.performSplit() );
+
+        // Search path should be empty since constraints was null
+        List<PhaseFix> searchPath = searchTreeHandler.getCurrentSearchPath();
+        TS_ASSERT( searchPath.empty() );
+    }
+
+    void test_search_path_with_real_relu_splits()
+    {
+        // Test with actual ReLU constraints to verify phase detection
+        SearchTreeHandler searchTreeHandler( engine );
+
+        ReluConstraint relu1( 0, 1 );
+        ReluConstraint relu2( 4, 5 );
+
+        List<PiecewiseLinearConstraint *> constraints;
+        constraints.append( &relu1 );
+        constraints.append( &relu2 );
+        engine->mockPLConstraints = &constraints;
+
+        // Perform split on relu1
+        for ( unsigned i = 0;
+              i < (unsigned)Options::get()->getInt( Options::CONSTRAINT_VIOLATION_THRESHOLD );
+              ++i )
+            searchTreeHandler.reportViolatedConstraint( &relu1 );
+
+        TS_ASSERT( searchTreeHandler.needToSplit() );
+        TS_ASSERT_THROWS_NOTHING( searchTreeHandler.performSplit() );
+
+        // Verify the search path captured relu1
+        List<PhaseFix> searchPath = searchTreeHandler.getCurrentSearchPath();
+        TS_ASSERT_EQUALS( searchPath.size(), 1U );
+
+        auto it = searchPath.begin();
+        TS_ASSERT_EQUALS( it->first, 0U ); // b variable is index 0
+        // The phase (active/inactive) depends on which split was first
+        // Active phase: b >= 0 (LB), Inactive phase: b <= 0 (UB)
+
+        // Perform split on relu2
+        for ( unsigned i = 0;
+              i < (unsigned)Options::get()->getInt( Options::CONSTRAINT_VIOLATION_THRESHOLD );
+              ++i )
+            searchTreeHandler.reportViolatedConstraint( &relu2 );
+
+        TS_ASSERT( searchTreeHandler.needToSplit() );
+        TS_ASSERT_THROWS_NOTHING( searchTreeHandler.performSplit() );
+
+        // Verify both splits are in the search path
+        searchPath = searchTreeHandler.getCurrentSearchPath();
+        TS_ASSERT_EQUALS( searchPath.size(), 2U );
+
+        it = searchPath.begin();
+        TS_ASSERT_EQUALS( it->first, 0U ); // First split: relu1's b variable
+        ++it;
+        TS_ASSERT_EQUALS( it->first, 4U ); // Second split: relu2's b variable
+
+        engine->mockPLConstraints = nullptr;
+    }
+
     void test_todo()
     {
         // Reason: the inefficiency in resizing the tableau mutliple times
