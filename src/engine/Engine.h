@@ -938,6 +938,12 @@ private:
       Phase fix trie for UNSAT cores.
     */
     PhaseFixTrie _phaseFixTrie;
+
+    /*
+      Minimize the UNSAT core of UNSAT subproblems
+    */
+    // std::vector<PhaseFix> minimizeUnsatCore( std::vector<PhaseFix> background,
+    // std::vector<PhaseFix> candidates ) const;
 };
 
 #endif // __Engine_h__

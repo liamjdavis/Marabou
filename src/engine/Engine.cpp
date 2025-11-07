@@ -353,6 +353,7 @@ bool Engine::solve( double timeoutInSeconds )
 
                         // Add literal to SAT solver
                         _satSolver->add( literal );
+                        _satSolver->add( 0 );
                     }
 
                     printf( "]\n" );
@@ -382,15 +383,14 @@ bool Engine::solve( double timeoutInSeconds )
 
                             printf( "%d ", literal );
                             _satSolver->add( literal );
+                            _satSolver->add( 0 );
                             impliedCount++;
                         }
                     }
 
                     printf( "]\n" );
                     printf( "Number of implied phase fixes: %u\n", impliedCount );
-                    printf( "=== End Unit Clause ===\n\n" );
-
-                    _satSolver->add( 0 );
+                    printf( "=== End Unit Clauses ===\n\n" );
 
                     // If SAT Solver is UNSAT, throw InfeasibleQueryException
                     printf( "=== SAT Solver Debug: Solving ===\n" );
@@ -564,6 +564,8 @@ bool Engine::solve( double timeoutInSeconds )
                     unsigned oldIndex = _preprocessor.getOldIndex( phaseFix.first );
                     unsatPath.emplace_back( oldIndex, phaseFix.second );
                 }
+
+                // Try to minimize the UNSAT core
 
                 // Insert the UNSAT path into the trie
                 _phaseFixTrie.insertUnsatPrefix( unsatPath );
@@ -4220,3 +4222,19 @@ Engine::analyseExplanationDependencies( const SparseUnsortedList &explanation,
 
     return entries;
 }
+
+// std::vector<PhaseFix> minimizeUnsatCore( std::vector<PhaseFix> background, std::vector<PhaseFix>
+// candidates ) const
+// {
+//     // If no candidates return empty vector
+
+//     // If 1 candidate return candidate
+
+//     // Split candidates into two halves
+
+//     // Check if right half is UNSAT
+
+//     // Check if left half is UNSAT
+
+//     // Combine minimal parts
+// }
