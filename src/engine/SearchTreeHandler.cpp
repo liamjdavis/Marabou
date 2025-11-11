@@ -374,6 +374,23 @@ bool SearchTreeHandler::popSplit()
         stackEntry->_activeSplit = *split;
         stackEntry->_alternativeSplits.erase( split );
 
+        // Update the search path to reflect the alternative split at this level
+        PhaseFix newSplitInfo = getLastSplitInfo();
+        if ( newSplitInfo.first != UINT_MAX )
+        {
+            // Replace the last entry in the search path
+            if ( !_currentSearchPath.empty() )
+                _currentSearchPath.popBack();
+            _currentSearchPath.append( newSplitInfo );
+        }
+        else
+        {
+            // The new split is not a ReLU split, but the previous one might have been
+            // Pop the last entry if it exists to maintain consistency
+            if ( !_currentSearchPath.empty() )
+                _currentSearchPath.popBack();
+        }
+
         inconsistent = !_engine->consistentBounds();
 
         if ( _engine->shouldProduceProofs() && inconsistent )

@@ -301,14 +301,14 @@ bool Engine::solve( double timeoutInSeconds )
                     std::vector<std::vector<PhaseFix>> unsatPrefixes =
                         _phaseFixTrie.dumpUnsatPrefixes();
 
-                    printf( "\n=== SAT Solver Debug: Adding UNSAT Prefixes ===\n" );
-                    printf( "Number of UNSAT prefixes: %zu\n", unsatPrefixes.size() );
+                    // printf( "\n=== SAT Solver Debug: Adding UNSAT Prefixes ===\n" );
+                    // printf( "Number of UNSAT prefixes: %zu\n", unsatPrefixes.size() );
 
                     // Add unsat prefixes to SAT solver as UNSAT cores
                     unsigned clauseNum = 0;
                     for ( const auto &prefix : unsatPrefixes )
                     {
-                        printf( "Blocking clause #%u: [", clauseNum++ );
+                        // printf( "Blocking clause #%u: [", clauseNum++ );
 
                         // Create blocking clause
                         for ( const auto &phaseFix : prefix )
@@ -319,7 +319,7 @@ bool Engine::solve( double timeoutInSeconds )
                             // Add phase fix direction
                             int literal = phaseFix.second ? -baseLiteral : baseLiteral;
 
-                            printf( "%d ", literal );
+                            // printf( "%d ", literal );
 
                             // Add literal to SAT solver
                             _satSolver->add( literal );
@@ -328,18 +328,19 @@ bool Engine::solve( double timeoutInSeconds )
                         // Terminate clause
                         _satSolver->add( 0 );
 
-                        printf( "]\n" );
+                        // printf( "]\n" );
                     }
 
-                    printf( "=== End UNSAT Prefixes ===\n\n" );
+                    // printf( "=== End UNSAT Prefixes ===\n\n" );
 
                     // Add the current phase fixes, active and implied, to the SAT solver
                     List<PhaseFix> activePhaseFixes = _searchTreeHandler.getCurrentSearchPath();
 
-                    printf(
-                        "=== SAT Solver Debug: Adding Unit Clause (Active + Implied Fixes) ===\n" );
-                    printf( "Number of active phase fixes: %u\n", activePhaseFixes.size() );
-                    printf( "Active phase fixes: [" );
+                    // printf(
+                    //     "=== SAT Solver Debug: Adding Unit Clause (Active + Implied Fixes) ===\n"
+                    //     );
+                    // printf( "Number of active phase fixes: %u\n", activePhaseFixes.size() );
+                    // printf( "Active phase fixes: [" );
 
                     for ( const auto &phaseFix : activePhaseFixes )
                     {
@@ -349,17 +350,17 @@ bool Engine::solve( double timeoutInSeconds )
                         // Add phase fix direction
                         int literal = phaseFix.second ? baseLiteral : -baseLiteral;
 
-                        printf( "%d ", literal );
+                        // printf( "%d ", literal );
 
                         // Add literal to SAT solver
                         _satSolver->add( literal );
                         _satSolver->add( 0 );
                     }
 
-                    printf( "]\n" );
+                    // printf( "]\n" );
 
                     // Get implied fixes and add them to the SAT solver
-                    printf( "Implied phase fixes: [" );
+                    // printf( "Implied phase fixes: [" );
                     unsigned impliedCount = 0;
                     for ( const auto &plConstraint : _plConstraints )
                     {
@@ -381,30 +382,30 @@ bool Engine::solve( double timeoutInSeconds )
                             int baseLiteral = static_cast<int>( reluOldIndex ) + 1;
                             int literal = isActive ? baseLiteral : -baseLiteral;
 
-                            printf( "%d ", literal );
+                            // printf( "%d ", literal );
                             _satSolver->add( literal );
                             _satSolver->add( 0 );
                             impliedCount++;
                         }
                     }
 
-                    printf( "]\n" );
-                    printf( "Number of implied phase fixes: %u\n", impliedCount );
-                    printf( "=== End Unit Clauses ===\n\n" );
+                    // printf( "]\n" );
+                    // printf( "Number of implied phase fixes: %u\n", impliedCount );
+                    // printf( "=== End Unit Clauses ===\n\n" );
 
                     // If SAT Solver is UNSAT, throw InfeasibleQueryException
-                    printf( "=== SAT Solver Debug: Solving ===\n" );
+                    // printf( "=== SAT Solver Debug: Solving ===\n" );
 
                     int result = _satSolver->solve();
 
-                    printf( "SAT solver result: %d ", result );
-                    if ( result == 10 )
-                        printf( "(SAT)\n" );
-                    else if ( result == 20 )
-                        printf( "(UNSAT)\n" );
-                    else
-                        printf( "(UNKNOWN)\n" );
-                    printf( "=== End SAT Solver Debug ===\n\n" );
+                    // printf( "SAT solver result: %d ", result );
+                    // if ( result == 10 )
+                    //     printf( "(SAT)\n" );
+                    // else if ( result == 20 )
+                    //     printf( "(UNSAT)\n" );
+                    // else
+                    //    printf( "(UNKNOWN)\n" );
+                    // printf( "=== End SAT Solver Debug ===\n\n" );
 
                     if ( result == 20 )
                     {
