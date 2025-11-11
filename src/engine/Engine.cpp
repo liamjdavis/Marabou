@@ -344,8 +344,11 @@ bool Engine::solve( double timeoutInSeconds )
 
                     for ( const auto &phaseFix : activePhaseFixes )
                     {
+                        // Convert from new (preprocessed) index to old (original) index
+                        unsigned oldIndex = _preprocessor.getOldIndex( phaseFix.first );
+
                         // SAT literals are 1-indexed
-                        int baseLiteral = static_cast<int>( phaseFix.first ) + 1;
+                        int baseLiteral = static_cast<int>( oldIndex ) + 1;
 
                         // Add phase fix direction
                         int literal = phaseFix.second ? baseLiteral : -baseLiteral;
