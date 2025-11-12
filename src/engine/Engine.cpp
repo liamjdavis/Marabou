@@ -295,14 +295,21 @@ bool Engine::solve( double timeoutInSeconds )
                 // Re-instantiate fresh solver
                 _satSolver = std::make_unique<CaDiCaL::Solver>();
 
-                if ( _phaseFixTrie.size() > 0 )
+                // Only use SAT-based pruning if all splits are ReLU splits
+                // (i.e., search path length equals stack depth)
+                List<PhaseFix> activePhaseFixes = _searchTreeHandler.getCurrentSearchPath();
+                unsigned stackDepth = _searchTreeHandler.getStackDepth();
+                bool allSplitsAreReLU = ( activePhaseFixes.size() == stackDepth );
+
+                if ( _phaseFixTrie.size() > 0 && allSplitsAreReLU )
                 {
                     // Get the phase fix trie contents
                     std::vector<std::vector<PhaseFix>> unsatPrefixes =
                         _phaseFixTrie.dumpUnsatPrefixes();
 
-                    // printf( "\n=== SAT Solver Debug: Adding UNSAT Prefixes ===\n" );
-                    // printf( "Number of UNSAT prefixes: %zu\n", unsatPrefixes.size() );
+                    // printf( "\n=== SAT Solver Debug: Adding UNSAT Prefixes, depth %u ===\n",
+                    // _searchTreeHandler.getStackDepth() ); printf( "Number of UNSAT prefixes:
+                    // %zu\n", unsatPrefixes.size() );
 
                     // Add unsat prefixes to SAT solver as UNSAT cores
                     unsigned clauseNum = 0;
@@ -334,7 +341,6 @@ bool Engine::solve( double timeoutInSeconds )
                     // printf( "=== End UNSAT Prefixes ===\n\n" );
 
                     // Add the current phase fixes, active and implied, to the SAT solver
-                    List<PhaseFix> activePhaseFixes = _searchTreeHandler.getCurrentSearchPath();
 
                     // printf(
                     //     "=== SAT Solver Debug: Adding Unit Clause (Active + Implied Fixes) ===\n"
@@ -396,7 +402,7 @@ bool Engine::solve( double timeoutInSeconds )
                     // printf( "Number of implied phase fixes: %u\n", impliedCount );
                     // printf( "=== End Unit Clauses ===\n\n" );
 
-                    // If SAT Solver is UNSAT, throw InfeasibleQueryException
+                    // // If SAT Solver is UNSAT, throw InfeasibleQueryException
                     // printf( "=== SAT Solver Debug: Solving ===\n" );
 
                     int result = _satSolver->solve();
