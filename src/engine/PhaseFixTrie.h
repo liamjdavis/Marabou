@@ -53,7 +53,8 @@ public:
     }
     ~PhaseFixTrie()
     {
-        delete _root;
+        if ( _root )
+            delete _root;
     }
 
     TrieNode *getRoot() const
@@ -64,6 +65,27 @@ public:
     // Disable copy constructor and assignment operator
     PhaseFixTrie( const PhaseFixTrie & ) = delete;
     PhaseFixTrie &operator=( const PhaseFixTrie & ) = delete;
+
+    // Enable move constructor and move assignment operator
+    PhaseFixTrie( PhaseFixTrie &&other ) noexcept
+        : _root( other._root )
+    {
+        other._root = nullptr;
+    }
+
+    PhaseFixTrie &operator=( PhaseFixTrie &&other ) noexcept
+    {
+        if ( this != &other )
+        {
+            // Delete existing tree
+            delete _root;
+
+            // Transfer ownership
+            _root = other._root;
+            other._root = nullptr;
+        }
+        return *this;
+    }
 
     /*
         Insert a new unsat prefix to the trie.

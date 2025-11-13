@@ -30,6 +30,7 @@
 #include "MaxConstraint.h"
 #include "NonlinearConstraint.h"
 #include "Options.h"
+#include "PhaseFixTrie.h"
 #include "PiecewiseLinearConstraint.h"
 #include "PropertyParser.h"
 #include "QueryLoader.h"
@@ -399,8 +400,11 @@ std::string exitCodeToString( IEngine::ExitCode code )
 
 /* The default parameters here are just for readability, you should specify
  * them in the to make them work*/
-std::tuple<std::string, std::map<int, double>, Statistics>
-solve( InputQuery &inputQuery, MarabouOptions &options, std::string redirect = "" )
+std::tuple<std::string, std::map<int, double>, Statistics, PhaseFixTrie *>
+solve( InputQuery &inputQuery,
+       MarabouOptions &options,
+       std::string redirect = "",
+       PhaseFixTrie *phaseFixTrie = nullptr )
 {
     // Arguments: InputQuery object, filename to redirect output
     // Returns: map from variable number to value
@@ -418,9 +422,22 @@ solve( InputQuery &inputQuery, MarabouOptions &options, std::string redirect = "
 
         Engine engine;
 
+        if ( phaseFixTrie != nullptr )
+        {
+            // Move the contents of the input trie into the engine
+            // The input pointer is still owned by Python and will be cleaned up by Python
+            engine.setPhaseFixTrie( phaseFixTrie );
+        }
+
         if ( !engine.processInputQuery( inputQuery ) )
-            return std::make_tuple(
-                exitCodeToString( engine.getExitCode() ), ret, *( engine.getStatistics() ) );
+        {
+            // Create heap-allocated copy of the trie
+            PhaseFixTrie *resultTrie = new PhaseFixTrie( std::move( *engine.getPhaseFixTrie() ) );
+            return std::make_tuple( exitCodeToString( engine.getExitCode() ),
+                                    ret,
+                                    *( engine.getStatistics() ),
+                                    resultTrie );
+        }
         if ( dnc )
         {
             auto dncManager = std::unique_ptr<DnCManager>( new DnCManager( &inputQuery ) );
@@ -439,11 +456,16 @@ solve( InputQuery &inputQuery, MarabouOptions &options, std::string redirect = "
             {
                 retStats = Statistics();
                 retStats.timeout();
-                return std::make_tuple( resultString, ret, retStats );
+                PhaseFixTrie *resultTrie =
+                    new PhaseFixTrie( std::move( *engine.getPhaseFixTrie() ) );
+                return std::make_tuple( resultString, ret, retStats, resultTrie );
             }
             default:
-                return std::make_tuple( resultString, ret, Statistics() ); // TODO: meaningful
-                                                                           // DnCStatistics
+                PhaseFixTrie *resultTrie =
+                    new PhaseFixTrie( std::move( *engine.getPhaseFixTrie() ) );
+                return std::make_tuple(
+                    resultString, ret, Statistics(), resultTrie ); // TODO: meaningful
+                                                                   // DnCStatistics
             }
         }
         else
@@ -462,6 +484,12 @@ solve( InputQuery &inputQuery, MarabouOptions &options, std::string redirect = "
 
             retStats = *( engine.getStatistics() );
         }
+
+        // Create heap-allocated copy of the trie
+        PhaseFixTrie *resultTrie = new PhaseFixTrie( std::move( *engine.getPhaseFixTrie() ) );
+        if ( output != -1 )
+            restoreOutputStream( output );
+        return std::make_tuple( resultString, ret, retStats, resultTrie );
     }
     catch ( const MarabouError &e )
     {
@@ -469,11 +497,11 @@ solve( InputQuery &inputQuery, MarabouOptions &options, std::string redirect = "
                  "Caught a MarabouError. Code: %u. Message: %s\n",
                  e.getCode(),
                  e.getUserMessage() );
-        return std::make_tuple( "ERROR", ret, retStats );
+        // Return nullptr on error, don't leak the old trie
+        if ( output != -1 )
+            restoreOutputStream( output );
+        return std::make_tuple( "ERROR", ret, retStats, nullptr );
     }
-    if ( output != -1 )
-        restoreOutputStream( output );
-    return std::make_tuple( resultString, ret, retStats );
 }
 
 std::tuple<std::string, std::map<int, std::tuple<double, double>>, Statistics>
@@ -581,16 +609,20 @@ PYBIND11_MODULE( MarabouCore, m )
             inputQuery (:class:`~maraboupy.MarabouCore.InputQuery`): Marabou input query to be solved
             options (class:`~maraboupy.MarabouCore.Options`): Object defining the options used for Marabou
             redirect (str, optional): Filepath to direct standard output, defaults to ""
+            phaseFixTrie (:class:`~maraboupy.MarabouCore.PhaseFixTrie`, optional): PhaseFixTrie from previous solve for incremental solving
 
         Returns:
             (tuple): tuple containing:
                 - exitCode (str): A string representing the exit code (sat/unsat/TIMEOUT/ERROR/UNKNOWN/QUIT_REQUESTED).
                 - vals (Dict[int, float]): Empty dictionary if UNSAT, otherwise a dictionary of SATisfying values for variables
                 - stats (:class:`~maraboupy.MarabouCore.Statistics`): A Statistics object to how Marabou performed
+                - phaseFixTrie (:class:`~maraboupy.MarabouCore.PhaseFixTrie`): Updated PhaseFixTrie to pass to next solve (Python owns this pointer)
         )pbdoc",
            py::arg( "inputQuery" ),
            py::arg( "options" ),
-           py::arg( "redirect" ) = "" );
+           py::arg( "redirect" ) = "",
+           py::arg( "phaseFixTrie" ) = nullptr,
+           py::return_value_policy::take_ownership );
     m.def( "calculateBounds",
            &calculateBounds,
            R"pbdoc(
@@ -955,4 +987,5 @@ PYBIND11_MODULE( MarabouCore, m )
         .def( "getDoubleAttribute", &Statistics::getDoubleAttribute )
         .def( "getTotalTimeInMicro", &Statistics::getTotalTimeInMicro )
         .def( "hasTimedOut", &Statistics::hasTimedOut );
+    py::class_<PhaseFixTrie>( m, "PhaseFixTrie" ).def( py::init<>() );
 }

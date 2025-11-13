@@ -65,7 +65,7 @@ def load_query(filename):
     MarabouCore.loadQuery(filename, query)
     return query
 
-def solve_query(ipq, filename="", verbose=True, options=None, propertyFilename=""):
+def solve_query(ipq, filename="", verbose=True, options=None, propertyFilename="", phase_fix_trie=None):
     """Function to solve query represented by this network
 
     Args:
@@ -75,18 +75,20 @@ def solve_query(ipq, filename="", verbose=True, options=None, propertyFilename="
         verbose (bool, optional): Whether to print out solution after solve finishes, defaults to True
         options: (:class:`~maraboupy.MarabouCore.Options`): Object for specifying Marabou options
         propertyFilename (str, optional): Path to property file
+        phase_fix_trie (:class:`~maraboupy.MarabouCore.PhaseFixTrie`, optional): PhaseFixTrie from previous solve for incremental solving, defaults to None
 
     Returns:
         (tuple): tuple containing:
             - exitCode (str): A string representing the exit code (sat/unsat/TIMEOUT/ERROR/UNKNOWN/QUIT_REQUESTED).
             - vals (Dict[int, float]): Empty dictionary if UNSAT, otherwise a dictionary of SATisfying values for variables
-            - stats (:class:`~maraboupy.MarabouCore.Statistics`, optional): A Statistics object to how Marabou performed
+            - stats (:class:`~maraboupy.MarabouCore.Statistics`): A Statistics object to how Marabou performed
+            - phase_fix_trie (:class:`~maraboupy.MarabouCore.PhaseFixTrie`): Updated PhaseFixTrie to pass to next solve
     """
     if propertyFilename:
         MarabouCore.loadProperty(ipq, propertyFilename)
     if options is None:
         options = createOptions()
-    exitCode, vals, stats = MarabouCore.solve(ipq, options, filename)
+    exitCode, vals, stats, phase_fix_trie = MarabouCore.solve(ipq, options, filename, phase_fix_trie)
     if verbose:
         if stats.hasTimedOut():
             print ("TO")
@@ -99,7 +101,7 @@ def solve_query(ipq, filename="", verbose=True, options=None, propertyFilename="
             for i in range(ipq.getNumOutputVariables()):
                 print("output {} = {}".format(i, vals[ipq.outputVariableByIndex(i)]))
 
-    return [exitCode, vals, stats]
+    return [exitCode, vals, stats, phase_fix_trie]
 
 def createOptions(numWorkers=1, initialTimeout=5, initialSplits=0, onlineSplits=2,
                   timeoutInSeconds=0, timeoutFactor=1.5, verbosity=2, snc=False,

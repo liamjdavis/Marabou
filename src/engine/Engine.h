@@ -317,6 +317,16 @@ public:
     */
     const List<PiecewiseLinearConstraint *> *getPiecewiseLinearConstraints() const override;
 
+    /*
+      Get the phase fix trie
+    */
+    PhaseFixTrie *getPhaseFixTrie();
+
+    /*
+      Set the phase fix trie
+    */
+    void setPhaseFixTrie( PhaseFixTrie *phaseFixTrie );
+
 private:
     enum BasisRestorationRequired {
         RESTORATION_NOT_NEEDED = 0,

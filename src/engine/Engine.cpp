@@ -405,7 +405,7 @@ bool Engine::solve( double timeoutInSeconds )
                     // // If SAT Solver is UNSAT, throw InfeasibleQueryException
                     // printf( "=== SAT Solver Debug: Solving ===\n" );
 
-                    int result = _satSolver->solve();
+                    // int result = _satSolver->solve();
 
                     // printf( "SAT solver result: %d ", result );
                     // if ( result == 10 )
@@ -4068,6 +4068,17 @@ void Engine::incNumOfLemmas()
 const List<PiecewiseLinearConstraint *> *Engine::getPiecewiseLinearConstraints() const
 {
     return &_plConstraints;
+}
+
+PhaseFixTrie *Engine::getPhaseFixTrie()
+{
+    return &_phaseFixTrie;
+}
+
+void Engine::setPhaseFixTrie( PhaseFixTrie *phaseFixTrie )
+{
+    if ( phaseFixTrie != nullptr )
+        _phaseFixTrie = std::move( *phaseFixTrie );
 }
 
 std::shared_ptr<GroundBoundManager::GroundBoundEntry>
