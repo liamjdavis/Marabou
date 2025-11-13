@@ -61,7 +61,8 @@ void PolarityBasedDivider::createSubQueries( unsigned numNewSubqueries,
                     *newSplit = *split;
                     for ( const auto &tightening : caseSplit.getBoundTightenings() )
                         newSplit->storeBoundTightening( tightening );
-                    newSplit->setCdclLiteral( caseSplit.getCdclLiteral() );
+                    for ( int literal : caseSplit.getCdclLiterals() )
+                        newSplit->addCdclLiteral( literal );
                     newSplits.append( newSplit );
                 }
             }
@@ -94,14 +95,11 @@ void PolarityBasedDivider::createSubQueries( unsigned numNewSubqueries,
 PiecewiseLinearConstraint *
 PolarityBasedDivider::getPLConstraintToSplit( const PiecewiseLinearCaseSplit &split )
 {
-    _engine->applySnCSplit( split, "" );
+    _engine->applySnCSplit( split, "", true );
 
     PiecewiseLinearConstraint *constraintToSplit = NULL;
     constraintToSplit = _engine->pickSplitPLConstraintSnC( SnCDivideStrategy::Polarity );
-    if ( !_engine->shouldSolveWithCDCL() )
-    {
-        _engine->getContext().pop();
-        _engine->postContextPopHook();
-    }
+    _engine->getContext().pop();
+    _engine->postContextPopHook();
     return constraintToSplit;
 }

@@ -214,7 +214,7 @@ public:
     bool _snc;
     CVC4::context::Context _context;
 
-    void applySnCSplit( PiecewiseLinearCaseSplit /*split*/, String /*queryId*/ ) override
+    void applySnCSplit( PiecewiseLinearCaseSplit, String, bool forDecision ) override
     {
         _snc = true;
         _context.push();
@@ -432,6 +432,10 @@ public:
     bool checkAssignmentComplianceWithClause( const Set<int> & /*clause*/ ) const override
     {
         return true;
+    }
+
+    void resetSncSplitAndFixedLiterals() override
+    {
     }
 #endif
 };

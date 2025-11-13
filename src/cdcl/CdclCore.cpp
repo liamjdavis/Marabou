@@ -53,7 +53,9 @@ CdclCore::CdclCore( IEngine *engine )
     , _shouldRestart( false )
     , _initialClauses()
     , _scoreTracker( nullptr )
-    , _lastClauseIndexAdded( 0 )
+    , _lastSharedClauseIndexAdded( 0 )
+    , _sharedClauseAdded()
+    , _sncSplitLiterals()
     , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
     _cadicalVarToPlc.insert( 0, NULL );
@@ -289,24 +291,15 @@ int CdclCore::cb_decide()
         return 0;
     }
 
+    unsigned decisionVariable =
+        GlobalConfiguration::USE_DEEPSOI_LOCAL_SEARCH && _context.getLevel() > 3
+            ? decideSplitVarBasedOnPseudoImpactAndVsids()
+            : decideSplitVarBasedOnPolarityAndVsids();
+
     int decisionLiteral = 0;
 
-    if ( _decision != 0 )
-    {
-        decisionLiteral = _decision;
-        _decision = 0;
-    }
-    else
-    {
-        unsigned decisionVariable =
-            GlobalConfiguration::USE_DEEPSOI_LOCAL_SEARCH && _context.getLevel() > 3
-                ? decideSplitVarBasedOnPseudoImpactAndVsids()
-                : decideSplitVarBasedOnPolarityAndVsids();
-
-
-        if ( decisionVariable )
-            decisionLiteral = _cadicalVarToPlc[decisionVariable]->getLiteralForDecision();
-    }
+    if ( decisionVariable )
+        decisionLiteral = _cadicalVarToPlc[decisionVariable]->getLiteralForDecision();
 
     if ( decisionLiteral )
     {
@@ -498,7 +491,7 @@ int CdclCore::cb_propagate()
             _literalsToPropagate.append( Pair<int, int>( 0, _context.getLevel() ) );
         }
 
-    CDCL_LOG( Stringf( "%u Propagating literal %d, num vars %d", _index, lit, _satSolver->vars() )
+    CDCL_LOG( Stringf( "%u Propagating literal %d", _index, lit )
                   .ascii() )
     ASSERT( FloatUtils::abs( lit ) <= _satSolver->vars() )
 
@@ -586,8 +579,9 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
             for ( int lit : clause )
             {
                 // Make sure all clause literals were fixed before the literal to explain
-                ASSERT( _cadicalVarToPlc[abs( propagated_lit )]->getPhaseFixingEntry()->id >
-                        _cadicalVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
+                //                ASSERT( _cadicalVarToPlc[abs( propagated_lit
+                //                )]->getPhaseFixingEntry()->id >
+                //                        _cadicalVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
 
                 // Remove fixed literals from clause, as they are redundant
                 if ( !_fixedCadicalVars.exists( -lit ) )
@@ -605,7 +599,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
         _isReasonClauseInitialized = true;
 
         // Unit clause fixes the propagated literal
-        if ( _reasonClauseLiterals.size() == 1 )
+        if ( _reasonClauseLiterals.size() == 1 + _sncSplitLiterals.size() )
             _fixedCadicalVars.insert( propagated_lit );
     }
 
@@ -648,10 +642,15 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
     if ( !_externalClauseToAdd.empty() )
         return true;
 
-    if ( _lastClauseIndexAdded < CdclCore::sharedClauses.size() )
+    while ( _lastSharedClauseIndexAdded < CdclCore::sharedClauses.size() )
     {
-        addExternalClause( CdclCore::sharedClauses[_lastClauseIndexAdded++] );
-        return true;
+        if ( _sharedClauseAdded.exists( _lastSharedClauseIndexAdded ) )
+            ++_lastSharedClauseIndexAdded;
+        else
+        {
+            addExternalClause( CdclCore::sharedClauses[_lastSharedClauseIndexAdded++], false );
+            return true;
+        }
     }
 
     return false;
@@ -687,35 +686,35 @@ int CdclCore::cb_add_external_clause_lit()
     return lit;
 }
 
-void CdclCore::addExternalClause( Set<int> &clause )
+void CdclCore::addExternalClause( Set<int> &clause, bool shareClause )
 {
     CDCL_LOG( Stringf( "%u Add External Clause", _index ).ascii() )
     struct timespec start = TimeUtils::sampleMicro();
 
     ASSERT( !clause.exists( 0 ) )
+
+    if ( shareClause && !_sncSplitLiterals.empty() )
+    {
+        unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
+        CdclCore::sharedClauses[newClauseIndex] = clause;
+
+        for ( int lit : _sncSplitLiterals )
+            CdclCore::sharedClauses[newClauseIndex].insert( lit );
+
+//        DEBUG( std::cout << "index " << _index << " adding clause: ";
+//               for ( int lit
+//                     : CdclCore::sharedClauses[newClauseIndex] ) std::cout
+//               << lit << " ";
+//               std::cout << std::endl; );
+
+        _sharedClauseAdded.insert( newClauseIndex );
+    }
+
     if ( _numOfClauses == _vsidsDecayThreshold )
     {
         _numOfClauses = 0;
         _vsidsDecayThreshold = 512 * luby( ++_vsidsDecayCounter );
         _literalToClauses.clear();
-    }
-
-    if ( GlobalConfiguration::CDCL_SHORTEN_CLAUSES &&
-         !GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
-    {
-        std::shared_ptr<Query> inputQuery = _engine->getInputQuery();
-        NLR::NetworkLevelReasoner *networkLevelReasoner = _engine->getNetworkLevelReasoner();
-        networkLevelReasoner->obtainCurrentBounds( *inputQuery );
-
-        if ( !checkIfShouldSkipClauseShortening( clause ) )
-        {
-            Vector<Pair<double, int>> clauseScores;
-            computeClauseScores( clause, clauseScores );
-            reorderByDecisionLevelIfNecessary( clauseScores );
-            clause.clear();
-            networkLevelReasoner->obtainCurrentBounds( *inputQuery );
-            computeShortedClause( clause, clauseScores, 0 );
-        }
     }
 
     _externalClauseToAdd.append( 0 );
@@ -724,7 +723,7 @@ void CdclCore::addExternalClause( Set<int> &clause )
     for ( int lit : clause )
     {
         _externalClauseToAdd.append( -lit );
-        if ( !_fixedCadicalVars.exists( -lit ) )
+        if ( !_fixedCadicalVars.exists( lit ) )
             _literalToClauses[-lit].insert( _numOfClauses );
     }
 
@@ -757,6 +756,8 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     //        if ( _engine->getExitCode() == ExitCode::UNSAT )
     //            return false;
 
+    reset();
+
     if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
          Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )
         if ( _engine->solve( 0 ) )
@@ -764,8 +765,6 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
             _engine->setExitCode( ExitCode::SAT );
             return true;
         }
-
-    reset();
 
     if ( !_externalClauseToAdd.empty() )
     {
@@ -835,11 +834,20 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
 void CdclCore::addLiteralToPropagate( int literal )
 {
+    if ( _engine->getExitCode() == ExitCode::TIMEOUT )
+        return;
+
     struct timespec start = TimeUtils::sampleMicro();
 
     ASSERT( literal )
-    if ( !isLiteralAssigned( literal ) && !isLiteralToBePropagated( literal ) )
+    if ( !isLiteralAssigned( literal ) && !isLiteralToBePropagated( literal ) &&
+         !_sncSplitLiterals.exists( literal ) )
     {
+        //        std::cout << "literal: " << literal
+        //                  << "; !isLiteralAssigned( -literal ): " << !isLiteralAssigned( -literal
+        //                  )
+        //                  << "; !isLiteralToBePropagated( -literal ): "
+        //                  << !isLiteralToBePropagated( -literal ) << std::endl;
         ASSERT( !isLiteralAssigned( -literal ) && !isLiteralToBePropagated( -literal ) )
         _literalsToPropagate.append( Pair<int, int>( literal, _context.getLevel() ) );
     }
@@ -866,6 +874,7 @@ void CdclCore::addDecisionBasedConflictClause()
     struct timespec start = TimeUtils::sampleMicro();
 
     Set<int> clause = Set<int>();
+
     for ( int l = 1; l <= _context.getLevel(); ++l )
     {
         ASSERT( _decisionLiterals.exists( l ) );
@@ -875,13 +884,24 @@ void CdclCore::addDecisionBasedConflictClause()
             clause.insert( lit );
     }
 
-    if ( !clause.empty() )
+    if ( GlobalConfiguration::CDCL_SHORTEN_CLAUSES )
     {
-        unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
-        CdclCore::sharedClauses[newClauseIndex] = clause;
+        std::shared_ptr<Query> inputQuery = _engine->getInputQuery();
+        NLR::NetworkLevelReasoner *networkLevelReasoner = _engine->getNetworkLevelReasoner();
+        networkLevelReasoner->obtainCurrentBounds( *inputQuery );
+
+        if ( !checkIfShouldSkipClauseShortening( clause ) )
+        {
+            Vector<Pair<double, int>> clauseScores;
+            computeClauseScores( clause, clauseScores );
+            reorderByDecisionLevelIfNecessary( clauseScores );
+            clause.clear();
+            networkLevelReasoner->obtainCurrentBounds( *inputQuery );
+            computeShortedClause( clause, clauseScores, 0 );
+        }
     }
-    else
-        addExternalClause( clause );
+
+    addExternalClause( clause, true );
 
     if ( _statistics )
     {
@@ -1026,7 +1046,7 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     // Pick the split to perform
     PiecewiseLinearConstraint *plc = _cadicalVarToPlc.at( (unsigned)FloatUtils::abs( lit ) );
-    DEBUG( PhaseStatus originalPlcPhase = plc->getPhaseStatus() );
+    //    DEBUG( PhaseStatus originalPlcPhase = plc->getPhaseStatus() );
 
     plc->propagateLitAsSplit( lit );
     _engine->applyPlcPhaseFixingTightenings( *plc );
@@ -1039,7 +1059,11 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
         if ( !isClauseSatisfied( clause ) )
             _satisfiedClauses.insert( clause );
 
-    ASSERT( originalPlcPhase == PHASE_NOT_FIXED || plc->getPhaseStatus() == originalPlcPhase )
+    //    std::cout << "index " << _index << "; lit: " << lit << "; isFixed: " << isFixed
+    //              << "; originalPlcPhase: " << originalPlcPhase << "; isDecision: " << isDecision(
+    //              lit )
+    //              << "; plc->getPhaseStatus(): " << plc->getPhaseStatus() << std::endl;
+    //    ASSERT( originalPlcPhase == PHASE_NOT_FIXED || plc->getPhaseStatus() == originalPlcPhase )
 }
 
 void CdclCore::setStatistics( Statistics *statistics )
@@ -1438,6 +1462,7 @@ void CdclCore::reset()
     _literalsToPropagate.clear();
     _externalClauseToAdd.clear();
     _reasonClauseLiterals.clear();
+    _isReasonClauseInitialized = false;
 
     if ( _engine->getLpSolverType() == LPSolverType::NATIVE )
         _engine->propagateBoundManagerTightenings();
@@ -1459,11 +1484,22 @@ void CdclCore::reset()
     _largestAssignmentSoFar.clear();
     _decisionLiterals.clear();
     _decisionScores.clear();
+
+    _lastSharedClauseIndexAdded = 0;
+    _sharedClauseAdded.clear();
 }
 
-void CdclCore::decide( int decision )
+void CdclCore::addSncSplitLiteral( int literal )
 {
-    _decision = decision;
+//    std::cout << "index " << _index << "; snc literal " << literal << std::endl;
+    ASSERT( !_sncSplitLiterals.exists( literal ) );
+    ASSERT( !_sncSplitLiterals.exists( -literal ) );
+    _sncSplitLiterals.append( literal );
 }
 
+void CdclCore::resetSncSplitAndFixedLiterals()
+{
+    _sncSplitLiterals.clear();
+    _fixedCadicalVars.clear();
+}
 #endif

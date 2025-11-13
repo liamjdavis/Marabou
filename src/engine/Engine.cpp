@@ -144,22 +144,27 @@ void Engine::adjustWorkMemorySize()
         throw MarabouError( MarabouError::ALLOCATION_FAILED, "Engine::work" );
 }
 
-void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
+void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId, bool forDecision )
 {
     _sncMode = true;
     _sncSplit = sncSplit;
     _queryId = queryId;
-    if ( _solveWithCDCL )
-    {
-        int cdclLiteral = sncSplit.getCdclLiteral();
-        if ( cdclLiteral )
-            _cdclCore.decide( sncSplit.getCdclLiteral() );
-    }
-    else
+
+    if ( !_solveWithCDCL || forDecision )
     {
         preContextPushHook();
         _searchTreeHandler.pushContext();
     }
+    else
+    {
+#ifdef BUILD_CADICAL
+        const Set<int> &cdclLiterals = sncSplit.getCdclLiterals();
+        if ( !cdclLiterals.empty() )
+            for ( int literal : cdclLiterals )
+                _cdclCore.addSncSplitLiteral( literal );
+#endif
+    }
+
     applySplit( sncSplit );
     _boundManager.propagateTightenings();
 }
@@ -2721,12 +2726,16 @@ void Engine::reset()
     _sncMode = false;
     clearViolatedPLConstraints();
     resetSearchTreeHandler();
+#ifdef BUILD_CADICAL
     if ( _solveWithCDCL )
     {
+        _boundManager.reset();
         _exitCode = ExitCode::NOT_DONE;
-        resetCdclCore();
+//        resetCdclCore();
     }
+#endif
     resetBoundTighteners();
+    _initialized = false;
 }
 
 void Engine::resetStatistics()
@@ -3676,7 +3685,7 @@ void Engine::explainSimplexFailure()
         Set<int> clause = clauseFromContradictionVector(
             sparseContradiction, _groundBoundManager.getCounter(), -1, true, 0 );
 
-        _cdclCore.addExternalClause( clause );
+        _cdclCore.addExternalClause( clause, false );
     }
     else
         _cdclCore.addDecisionBasedConflictClause();
@@ -4354,6 +4363,27 @@ Engine::analyseExplanationDependencies( const SparseUnsortedList &explanation,
 
     return entries;
 }
+
+List<unsigned> Engine::getOutputVariables() const
+{
+    return _preprocessedQuery->getOutputVariables();
+}
+
+SymbolicBoundTighteningType Engine::getSymbolicBoundTighteningType() const
+{
+    return _symbolicBoundTighteningType;
+}
+
+const IBoundManager *Engine::getBoundManager() const
+{
+    return &_boundManager;
+}
+
+std::shared_ptr<Query> Engine::getInputQuery() const
+{
+    return _preprocessedQuery;
+}
+
 #ifdef BUILD_CADICAL
 
 bool Engine::solveWithCDCL( double timeoutInSeconds )
@@ -4544,7 +4574,7 @@ void Engine::explainGurobiFailure()
     }
 
     if ( _solveWithCDCL )
-        _cdclCore.addExternalClause( clause );
+        _cdclCore.addExternalClause( clause, false );
 
     ENGINE_LOG( Stringf( "Conflict analysis - done, conflict length %u, level %u",
                          clause.size(),
@@ -4600,28 +4630,13 @@ void Engine::configureForCDCL()
         new ( true ) CVC4::context::CDO<UnsatCertificateNode *>( &_context, NULL );
 }
 
-SymbolicBoundTighteningType Engine::getSymbolicBoundTighteningType() const
-{
-    return _symbolicBoundTighteningType;
-}
-
-const IBoundManager *Engine::getBoundManager() const
-{
-    return &_boundManager;
-}
-
-List<unsigned> Engine::getOutputVariables() const
-{
-    return _preprocessedQuery->getOutputVariables();
-}
-
-std::shared_ptr<Query> Engine::getInputQuery() const
-{
-    return _preprocessedQuery;
-}
-
 void Engine::resetCdclCore()
 {
     _cdclCore.reset();
+}
+
+void Engine::resetSncSplitAndFixedLiterals()
+{
+    _cdclCore.resetSncSplitAndFixedLiterals();
 }
 #endif

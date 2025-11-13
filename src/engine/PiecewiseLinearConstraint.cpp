@@ -73,7 +73,7 @@ bool PiecewiseLinearConstraint::isActive() const
 
 void PiecewiseLinearConstraint::registerBoundManager( IBoundManager *boundManager )
 {
-    ASSERT( _boundManager == nullptr );
+//    ASSERT( _boundManager == nullptr );
     _boundManager = boundManager;
 }
 

@@ -30,7 +30,7 @@
 
 #include <cadical.hpp>
 
-#define CDCL_LOG( x, ... ) LOG( GlobalConfiguration::CDCL_LOGGING, "CDCL: %s\n" , x )
+#define CDCL_LOG( x, ... ) LOG( GlobalConfiguration::CDCL_LOGGING, "CDCL: %s\n", x )
 
 using CVC4::context::Context;
 
@@ -131,7 +131,7 @@ public:
     /*
       Internally adds a conflict clause when learned, later to be informed to the SAT solver
     */
-    void addExternalClause( Set<int> &clause );
+    void addExternalClause( Set<int> &clause, bool shareClause );
 
     /*
        Returns the PiecewiseLinearConstraint abstraced by the literal lit
@@ -211,7 +211,9 @@ public:
 
     void reset();
 
-    void decide( int decision );
+    void addSncSplitLiteral( int literal );
+
+    void resetSncSplitAndFixedLiterals();
 
     static std::atomic<unsigned> numCdclCores;
 
@@ -282,9 +284,10 @@ private:
 
     Map<int, double> _decisionScores;
 
-    unsigned _lastClauseIndexAdded;
+    unsigned _lastSharedClauseIndexAdded;
+    Set<unsigned> _sharedClauseAdded;
 
-    int _decision;
+    List<int> _sncSplitLiterals;
 
     /*
      Decision heuristics

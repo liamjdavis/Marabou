@@ -673,7 +673,7 @@ PiecewiseLinearCaseSplit ReluConstraint::getInactiveSplit() const
 #ifdef BUILD_CADICAL
     ASSERT( _cdclVars.size() == 1 );
     unsigned cdclVar = _cdclVars.front();
-    inactivePhase.setCdclLiteral( -(int)cdclVar );
+    inactivePhase.addCdclLiteral( -(int)cdclVar );
 #endif
 
     return inactivePhase;
@@ -703,7 +703,7 @@ PiecewiseLinearCaseSplit ReluConstraint::getActiveSplit() const
 #ifdef BUILD_CADICAL
     ASSERT( _cdclVars.size() == 1 );
     unsigned cdclVar = _cdclVars.front();
-    activePhase.setCdclLiteral( (int)cdclVar );
+    activePhase.addCdclLiteral( (int)cdclVar );
 #endif
 
     return activePhase;

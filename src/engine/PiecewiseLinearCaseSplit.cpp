@@ -83,14 +83,14 @@ void PiecewiseLinearCaseSplit::updateVariableIndex( unsigned oldIndex, unsigned 
         equation.updateVariableIndex( oldIndex, newIndex );
 }
 
-int PiecewiseLinearCaseSplit::getCdclLiteral() const
+const Set<int> &PiecewiseLinearCaseSplit::getCdclLiterals() const
 {
-    return _cdclLiteral;
+    return _cdclLiterals;
 }
 
-void PiecewiseLinearCaseSplit::setCdclLiteral( int literal )
+void PiecewiseLinearCaseSplit::addCdclLiteral( int literal )
 {
-    _cdclLiteral = literal;
+    _cdclLiterals.insert( literal );
 }
 
 //

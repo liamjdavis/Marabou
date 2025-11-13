@@ -235,7 +235,8 @@ public:
     /*
        Register initial split when in SnC mode
      */
-    void applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId ) override;
+    void
+    applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId, bool forDecision ) override;
 
     bool inSnCMode() const override;
 
@@ -367,6 +368,8 @@ public:
     */
     bool shouldSolveWithCDCL() const override;
 
+    List<unsigned> getOutputVariables() const override;
+
 #ifdef BUILD_CADICAL
     /*
       Solve the input query with CDCL
@@ -393,7 +396,7 @@ public:
     */
     void configureForCDCL();
 
-    List<unsigned> getOutputVariables() const override;
+    void resetSncSplitAndFixedLiterals() override;
 
 #endif
 

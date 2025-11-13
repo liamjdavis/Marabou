@@ -591,3 +591,9 @@ bool BoundManager::shouldProduceProofs() const
 {
     return _boundExplainer != nullptr;
 }
+
+void BoundManager::reset()
+{
+    ASSERT( _context.getLevel() == 0 );
+    _consistentBounds = true;
+}

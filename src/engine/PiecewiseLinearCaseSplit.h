@@ -56,8 +56,8 @@ public:
     /*
       Get and Set for CDCL literal associated with this case split.
      */
-    int getCdclLiteral() const;
-    void setCdclLiteral( int literal );
+    const Set<int> &getCdclLiterals() const;
+    void addCdclLiteral( int literal );
 
 private:
     /*
@@ -71,9 +71,9 @@ private:
     List<Equation> _equations;
 
     /*
-      CDCL literal to be phased.
+      CDCL literals to be phased.
      */
-    int _cdclLiteral;
+    Set<int> _cdclLiterals;
 };
 
 #endif // __PiecewiseLinearCaseSplit_h__

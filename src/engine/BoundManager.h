@@ -216,6 +216,8 @@ public:
     */
     bool shouldProduceProofs() const;
 
+    void reset();
+
 private:
     CVC4::context::Context &_context;
     unsigned _size;

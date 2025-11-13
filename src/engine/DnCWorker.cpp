@@ -99,7 +99,7 @@ void DnCWorker::popOneSubQueryAndSolve( bool restoreTreeStates )
         // statistics. The maps are owned by the DnCManager.
 
         // Apply the split and solve
-        _engine->applySnCSplit( *split, queryId );
+        _engine->applySnCSplit( *split, queryId, false );
 
         bool fullSolveNeeded = true; // denotes whether we need to solve the subquery
         if ( restoreTreeStates && searchTreeState )
@@ -107,9 +107,11 @@ void DnCWorker::popOneSubQueryAndSolve( bool restoreTreeStates )
         ExitCode result = ExitCode::NOT_DONE;
         if ( fullSolveNeeded )
         {
+#ifdef BUILD_CADICAL
             if ( _engine->shouldSolveWithCDCL() )
                 _engine->solveWithCDCL( timeoutInSeconds );
             else
+#endif
                 _engine->solve( timeoutInSeconds );
             result = _engine->getExitCode();
         }
@@ -118,6 +120,11 @@ void DnCWorker::popOneSubQueryAndSolve( bool restoreTreeStates )
             // UNSAT is proven when replaying stack-entries
             result = ExitCode::UNSAT;
         }
+
+#ifdef BUILD_CADICAL
+        if ( _engine->shouldSolveWithCDCL() )
+            _engine->resetSncSplitAndFixedLiterals();
+#endif
 
         if ( _verbosity > 0 )
             printProgress( queryId, result );
