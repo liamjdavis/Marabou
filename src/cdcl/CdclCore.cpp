@@ -315,6 +315,8 @@ int CdclCore::cb_decide()
             Stringf( "%u l%d Decided literal %d", _index, _satSolver->getLevel(), decisionLiteral )
                 .ascii() )
 
+        _decisionLiterals[_satSolver->getLevel() + 1] = decisionLiteral;
+
         if ( _statistics )
             _statistics->incUnsignedAttribute( Statistics::NUM_MARABOU_DECISIONS );
     }
@@ -1056,9 +1058,6 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     if ( isFixed )
         _fixedCadicalVars.insert( lit );
-
-    if ( isDecision( lit ) )
-        _decisionLiterals[_satSolver->getLevel()] = lit;
 
     // Pick the split to perform
     PiecewiseLinearConstraint *plc = _cadicalVarToPlc.at( (unsigned)FloatUtils::abs( lit ) );
