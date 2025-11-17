@@ -95,7 +95,7 @@ void PolarityBasedDivider::createSubQueries( unsigned numNewSubqueries,
 PiecewiseLinearConstraint *
 PolarityBasedDivider::getPLConstraintToSplit( const PiecewiseLinearCaseSplit &split )
 {
-    _engine->applySnCSplit( split, "", true );
+    _engine->applySnCSplit( split, "" );
 
     PiecewiseLinearConstraint *constraintToSplit = NULL;
     constraintToSplit = _engine->pickSplitPLConstraintSnC( SnCDivideStrategy::Polarity );

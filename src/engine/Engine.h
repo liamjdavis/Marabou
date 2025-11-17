@@ -235,8 +235,7 @@ public:
     /*
        Register initial split when in SnC mode
      */
-    void
-    applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId, bool forDecision ) override;
+    void applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId ) override;
 
     bool inSnCMode() const override;
 
@@ -395,9 +394,6 @@ public:
      Configure the engine to allow solving with CDCL, used for testing only.
     */
     void configureForCDCL();
-
-    void resetSncSplitAndFixedLiterals() override;
-
 #endif
 
     /*

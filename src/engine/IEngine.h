@@ -65,8 +65,7 @@ public:
     /*
       Register initial SnC split
     */
-    virtual void
-    applySnCSplit( PiecewiseLinearCaseSplit split, String queryId, bool forDecision ) = 0;
+    virtual void applySnCSplit( PiecewiseLinearCaseSplit split, String queryId ) = 0;
     virtual bool inSnCMode() const = 0;
 
     /*
@@ -304,8 +303,6 @@ public:
       Remove a literal from the propagation list to the SAT solver, during the CDCL solving.
      */
     virtual void removeLiteralFromPropagations( int literal ) = 0;
-
-    virtual void resetSncSplitAndFixedLiterals() = 0;
 #endif
 };
 

@@ -284,6 +284,10 @@ public:
     static const bool CDCL_SHORTEN_CLAUSES;
     static const bool CDCL_SHORTEN_CLAUSES_WITH_QUICKXPLAIN;
 
+    /* (SNC) Denotes if to share clauses among workers while solving with CDCL
+     */
+    static const bool CDCL_SHARE_CLAUSES;
+
 #ifdef ENABLE_GUROBI
     /*
       The number of threads Gurobi spawns

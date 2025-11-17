@@ -144,26 +144,25 @@ void Engine::adjustWorkMemorySize()
         throw MarabouError( MarabouError::ALLOCATION_FAILED, "Engine::work" );
 }
 
-void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId, bool forDecision )
+void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
 {
     _sncMode = true;
     _sncSplit = sncSplit;
     _queryId = queryId;
 
-    if ( !_solveWithCDCL || forDecision )
-    {
-        preContextPushHook();
-        _searchTreeHandler.pushContext();
-    }
-    else
-    {
+    preContextPushHook();
+    _searchTreeHandler.pushContext();
+
 #ifdef BUILD_CADICAL
+    if ( _solveWithCDCL )
+    {
+        _cdclCore.resetSncSplitLiterals();
         const Set<int> &cdclLiterals = sncSplit.getCdclLiterals();
         if ( !cdclLiterals.empty() )
             for ( int literal : cdclLiterals )
                 _cdclCore.addSncSplitLiteral( literal );
-#endif
     }
+#endif
 
     applySplit( sncSplit );
     _boundManager.propagateTightenings();
@@ -2731,7 +2730,6 @@ void Engine::reset()
     {
         _boundManager.reset();
         _exitCode = ExitCode::NOT_DONE;
-//        resetCdclCore();
     }
 #endif
     resetBoundTighteners();
@@ -4633,10 +4631,5 @@ void Engine::configureForCDCL()
 void Engine::resetCdclCore()
 {
     _cdclCore.reset();
-}
-
-void Engine::resetSncSplitAndFixedLiterals()
-{
-    _cdclCore.resetSncSplitAndFixedLiterals();
 }
 #endif

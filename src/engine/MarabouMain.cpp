@@ -102,13 +102,6 @@ int marabouMain( int argc, char **argv )
         }
 
         if ( options->getBool( Options::PRODUCE_PROOFS ) &&
-             ( options->getBool( Options::DNC_MODE ) ) )
-        {
-            options->setBool( Options::DNC_MODE, false );
-            printf( "Proof production is not yet supported with snc mode, turning --snc off.\n" );
-        }
-
-        if ( options->getBool( Options::PRODUCE_PROOFS ) &&
              ( options->getBool( Options::SOLVE_WITH_MILP ) ) )
         {
             options->setBool( Options::SOLVE_WITH_MILP, false );

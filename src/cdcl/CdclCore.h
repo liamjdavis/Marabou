@@ -213,7 +213,7 @@ public:
 
     void addSncSplitLiteral( int literal );
 
-    void resetSncSplitAndFixedLiterals();
+    void resetSncSplitLiterals();
 
     static std::atomic<unsigned> numCdclCores;
 
@@ -251,7 +251,7 @@ private:
       Internal data structures to keep track of literals to propagate, assigned and fixed literals;
       and reason and conflict clauses
     */
-    List<Pair<int, int>> _literalsToPropagate;
+    List<Pair<int, unsigned>> _literalsToPropagate;
     CVC4::context::CDHashMap<int, unsigned> _assignedLiterals;
 
     Vector<int> _reasonClauseLiterals;

@@ -96,8 +96,16 @@ public:
 
     void terminate() override;
 
+    unsigned getLevel() override;
+
+    void push() override;
+
+    void popto( unsigned newLevel ) override;
+
 private:
     std::shared_ptr<CaDiCaL::Solver> _solver;
+
+    unsigned _level;
 };
 
 
