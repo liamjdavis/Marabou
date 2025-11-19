@@ -89,6 +89,10 @@ def solve_query(ipq, filename="", verbose=True, options=None, propertyFilename="
     if options is None:
         options = createOptions()
     exitCode, vals, stats, phase_fix_trie = MarabouCore.solve(ipq, options, filename, phase_fix_trie)
+    
+    if phase_fix_trie is not None:
+        MarabouCore.minimizeUnsatCores(ipq, options, phase_fix_trie)
+
     if verbose:
         if stats.hasTimedOut():
             print ("TO")

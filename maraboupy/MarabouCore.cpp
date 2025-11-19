@@ -43,10 +43,12 @@
 #include "SoftmaxConstraint.h"
 #include "VnnLibParser.h"
 
+#include <algorithm>
 #include <fcntl.h>
 #include <map>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <random>
 #include <set>
 #include <string>
 #include <sys/stat.h>
@@ -61,6 +63,8 @@
 #endif
 
 namespace py = pybind11;
+
+using PhaseFix = std::pair<unsigned, bool>; // <variable index, phase>
 
 int maraboupyMain( std::vector<std::string> args )
 {
@@ -504,6 +508,169 @@ solve( InputQuery &inputQuery,
     }
 }
 
+// Helper to create an InputQuery from a Query object
+InputQuery *inputQueryFromQuery( Query *query )
+{
+    InputQuery *inputQuery = new InputQuery();
+    inputQuery->setNumberOfVariables( query->getNumberOfVariables() );
+
+    for ( const auto &equation : query->getEquations() )
+        inputQuery->addEquation( equation );
+
+    for ( const auto &pair : query->getLowerBounds() )
+        inputQuery->setLowerBound( pair.first, pair.second );
+
+    for ( const auto &pair : query->getUpperBounds() )
+        inputQuery->setUpperBound( pair.first, pair.second );
+
+    for ( const auto &constraint : query->getPiecewiseLinearConstraints() )
+        inputQuery->addPiecewiseLinearConstraint( constraint->duplicateConstraint() );
+
+    for ( const auto &constraint : query->getNonlinearConstraints() )
+        inputQuery->addNonlinearConstraint( constraint->duplicateConstraint() );
+
+    for ( const auto &pair : query->_variableToInputIndex )
+        inputQuery->markInputVariable( pair.first, pair.second );
+
+    for ( const auto &pair : query->_variableToOutputIndex )
+        inputQuery->markOutputVariable( pair.first, pair.second );
+
+    return inputQuery;
+}
+
+// Helper function to check if a set of phase fixes is UNSAT
+bool isUnsat( Query *baseQuery, const std::vector<PhaseFix> &fixes, MarabouOptions &options )
+{
+    // Create a fresh InputQuery from the base Query
+    std::unique_ptr<InputQuery> inputQuery( inputQueryFromQuery( baseQuery ) );
+
+    // Apply phase fixes as bounds
+    for ( const auto &fix : fixes )
+    {
+        unsigned var = fix.first;
+        bool active = fix.second;
+
+        if ( active )
+            inputQuery->tightenLowerBound( var, 0.0 );
+        else
+            inputQuery->tightenUpperBound( var, 0.0 );
+    }
+
+    Engine engine;
+    options.setOptions();
+
+    if ( !engine.processInputQuery( *inputQuery ) )
+        return true; // UNSAT during preprocessing
+
+    engine.solve( 1 );
+
+    return engine.getExitCode() == IEngine::UNSAT;
+}
+
+// Recursive QuickXPlain algorithm
+std::vector<PhaseFix> quickXPlain( Query *baseQuery,
+                                   MarabouOptions &options,
+                                   const std::vector<PhaseFix> &background,
+                                   const std::vector<PhaseFix> &candidates )
+{
+    // If background is already UNSAT, return empty core
+    if ( candidates.empty() && isUnsat( baseQuery, background, options ) )
+        return {};
+
+    // If background + candidates is SAT, then no UNSAT core exists in candidates
+    std::vector<PhaseFix> testSet = background;
+    testSet.insert( testSet.end(), candidates.begin(), candidates.end() );
+    if ( !isUnsat( baseQuery, testSet, options ) )
+        return candidates; // Should not happen if initial call is UNSAT
+
+    // If candidates is a singleton, it's the core
+    if ( candidates.size() == 1 )
+        return candidates;
+
+    // Split candidates
+    size_t k = candidates.size() / 2;
+    std::vector<PhaseFix> c1( candidates.begin(), candidates.begin() + k );
+    std::vector<PhaseFix> c2( candidates.begin() + k, candidates.end() );
+
+    // Check if background + c2 is UNSAT (meaning c1 is irrelevant)
+    std::vector<PhaseFix> backgroundPlusC2 = background;
+    backgroundPlusC2.insert( backgroundPlusC2.end(), c2.begin(), c2.end() );
+
+    if ( isUnsat( baseQuery, backgroundPlusC2, options ) )
+    {
+        // c1 is irrelevant, recurse on c2
+        return quickXPlain( baseQuery, options, background, c2 );
+    }
+
+    // Check if background + c1 is UNSAT (meaning c2 is irrelevant)
+    std::vector<PhaseFix> backgroundPlusC1 = background;
+    backgroundPlusC1.insert( backgroundPlusC1.end(), c1.begin(), c1.end() );
+
+    if ( isUnsat( baseQuery, backgroundPlusC1, options ) )
+    {
+        // c2 is irrelevant, recurse on c1
+        return quickXPlain( baseQuery, options, background, c1 );
+    }
+
+    // Both parts are needed. Find minimal subset of c1 needed for c2, and vice versa.
+    std::vector<PhaseFix> c2_prime = quickXPlain( baseQuery, options, backgroundPlusC1, c2 );
+
+    std::vector<PhaseFix> backgroundPlusC2Prime = background;
+    backgroundPlusC2Prime.insert( backgroundPlusC2Prime.end(), c2_prime.begin(), c2_prime.end() );
+
+    std::vector<PhaseFix> c1_prime = quickXPlain( baseQuery, options, backgroundPlusC2Prime, c1 );
+
+    std::vector<PhaseFix> result = c1_prime;
+    result.insert( result.end(), c2_prime.begin(), c2_prime.end() );
+    return result;
+}
+
+void minimizeUnsatCores( InputQuery &inputQuery,
+                         MarabouOptions &options,
+                         PhaseFixTrie *phaseFixTrie )
+{
+    // Create a base Query object for cloning
+    std::unique_ptr<Query> baseQuery( inputQuery.generateQuery() );
+
+    std::vector<std::vector<PhaseFix>> unsatPrefixes = phaseFixTrie->dumpUnsatPrefixes();
+    unsigned initialCount = unsatPrefixes.size();
+    unsigned minimizedCount = 0;
+
+    printf( "Minimizing up to 3 random unsat cores from %u total...\n", initialCount );
+
+    // Shuffle the prefixes to pick random ones
+    std::random_device rd;
+    std::mt19937 g( rd() );
+    std::shuffle( unsatPrefixes.begin(), unsatPrefixes.end(), g );
+
+    // Limit to 3
+    unsigned limit = 3;
+    if ( unsatPrefixes.size() < limit )
+        limit = unsatPrefixes.size();
+
+    for ( unsigned i = 0; i < limit; ++i )
+    {
+        const auto &prefix = unsatPrefixes[i];
+
+        // Run QuickXPlain
+        std::vector<PhaseFix> background;
+        std::vector<PhaseFix> smallerCore =
+            quickXPlain( baseQuery.get(), options, background, prefix );
+
+        if ( smallerCore.size() < prefix.size() )
+        {
+            printf( "*** QuickXPlain minimized core from %lu to %lu  ***\n",
+                    prefix.size(),
+                    smallerCore.size() );
+            minimizedCount++;
+        }
+
+        // Insert smaller core into the trie
+        phaseFixTrie->insertUnsatPrefix( smallerCore );
+    }
+    printf(
+        "Minimization complete. Minimized %u out of %u attempted cores.\n", minimizedCount, limit );
+}
 std::tuple<std::string, std::map<int, std::tuple<double, double>>, Statistics>
 calculateBounds( InputQuery &inputQuery, MarabouOptions &options, std::string redirect = "" )
 {
@@ -988,4 +1155,18 @@ PYBIND11_MODULE( MarabouCore, m )
         .def( "getTotalTimeInMicro", &Statistics::getTotalTimeInMicro )
         .def( "hasTimedOut", &Statistics::hasTimedOut );
     py::class_<PhaseFixTrie>( m, "PhaseFixTrie" ).def( py::init<>() );
+    m.def( "minimizeUnsatCores",
+           &minimizeUnsatCores,
+           R"pbdoc(
+        Minimizes the UNSAT cores stored in the PhaseFixTrie using QuickXPlain.
+        Heuristically minimizes a random subset (up to 3) of the available cores.
+
+        Args:
+            inputQuery (:class:`~maraboupy.MarabouCore.InputQuery`): Marabou input query (background constraints)
+            options (class:`~maraboupy.MarabouCore.Options`): Object defining the options used for Marabou
+            phaseFixTrie (:class:`~maraboupy.MarabouCore.PhaseFixTrie`): PhaseFixTrie containing UNSAT cores to minimize
+        )pbdoc",
+           py::arg( "inputQuery" ),
+           py::arg( "options" ),
+           py::arg( "phaseFixTrie" ) );
 }
