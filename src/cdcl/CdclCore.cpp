@@ -200,7 +200,12 @@ void CdclCore::notify_backtrack( size_t new_level )
     _engine->postContextPopHook();
 
     for ( unsigned l = oldLevel; l > new_level; --l )
-        _decisionLiterals.erase( l );
+        if ( _decisionLiterals.exists( l ) )
+            _decisionLiterals.erase( l );
+        else
+        {
+            ASSERT( l == oldLevel );
+        }
 
     // Maintain literals to propagate learned before the decision level
     List<Pair<int, unsigned>> currentPropagations = _literalsToPropagate;
