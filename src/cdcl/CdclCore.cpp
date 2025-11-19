@@ -293,6 +293,10 @@ int CdclCore::cb_decide()
 
     if ( _shouldRestart )
     {
+        CDCL_LOG( Stringf( "%u l%d Should restart. Forcing backtrack to level 0.",
+                           _index,
+                           _satSolver->getLevel() )
+                      .ascii() );
         _satSolver->forceBacktrack( 0 );
         return 0;
     }
@@ -314,8 +318,6 @@ int CdclCore::cb_decide()
         CDCL_LOG(
             Stringf( "%u l%d Decided literal %d", _index, _satSolver->getLevel(), decisionLiteral )
                 .ascii() )
-
-        _decisionLiterals[_satSolver->getLevel() + 1] = decisionLiteral;
 
         if ( _statistics )
             _statistics->incUnsignedAttribute( Statistics::NUM_MARABOU_DECISIONS );
@@ -1058,6 +1060,9 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     if ( isFixed )
         _fixedCadicalVars.insert( lit );
+
+    if ( isDecision( lit ) )
+        _decisionLiterals.insert( _satSolver->getLevel(), lit );
 
     // Pick the split to perform
     PiecewiseLinearConstraint *plc = _cadicalVarToPlc.at( (unsigned)FloatUtils::abs( lit ) );

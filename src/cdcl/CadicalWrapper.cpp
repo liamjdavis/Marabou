@@ -16,6 +16,8 @@
 #ifdef BUILD_CADICAL
 #include "CadicalWrapper.h"
 
+#include "Debug.h"
+
 CadicalWrapper::CadicalWrapper( CaDiCaL::ExternalPropagator *externalPropagator,
                                 CaDiCaL::Terminator *terminator,
                                 CaDiCaL::FixedAssignmentListener *fixedListener )
@@ -141,6 +143,7 @@ void CadicalWrapper::push()
 
 void CadicalWrapper::popto( unsigned int newLevel )
 {
+    ASSERT( newLevel < _level );
     _level = newLevel;
 }
 
