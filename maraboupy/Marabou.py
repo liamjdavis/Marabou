@@ -114,7 +114,8 @@ def createOptions(numWorkers=1, initialTimeout=5, initialSplits=0, onlineSplits=
                   preprocessorBoundTolerance=0.0000000001, dumpBounds=False,
                   tighteningStrategy="deeppoly", milpTightening="none", milpSolverTimeout=0,
                   numSimulations=10, numBlasThreads=1, performLpTighteningAfterSplit=False,
-                  lpSolver="", produceProofs=False):
+                  lpSolver="", produceProofs=False, coreMinimizationDepthLimit=3,
+                  coreMinimizationLimit=3, coreMinimizationSingleSolveTimeout=1.0):
     """Create an options object for how Marabou should solve the query
 
     Args:
@@ -141,6 +142,9 @@ def createOptions(numWorkers=1, initialTimeout=5, initialSplits=0, onlineSplits=
         numBlasThreads (int, optional): Number of threads to use when using OpenBLAS matrix multiplication (e.g., for DeepPoly analysis), defaults to 1
         performLpTighteningAfterSplit (bool, optional): Whether to perform a LP tightening after a case split, defaults to False
         lpSolver (string, optional): the engine for solving LP (native/gurobi).
+        coreMinimizationDepthLimit (int, optional): Depth limit for QuickXPlain minimization, defaults to 3
+        coreMinimizationLimit (int, optional): Number of cores to minimize, defaults to 3
+        coreMinimizationSingleSolveTimeout (float, optional): Timeout for single solve during minimization, defaults to 1.0
     Returns:
         :class:`~maraboupy.MarabouCore.Options`
     """
@@ -168,4 +172,7 @@ def createOptions(numWorkers=1, initialTimeout=5, initialSplits=0, onlineSplits=
     options._performLpTighteningAfterSplit = performLpTighteningAfterSplit
     options._lpSolver = lpSolver
     options._produceProofs = produceProofs
+    options._coreMinimizationDepthLimit = coreMinimizationDepthLimit
+    options._coreMinimizationLimit = coreMinimizationLimit
+    options._coreMinimizationSingleSolveTimeout = coreMinimizationSingleSolveTimeout
     return options

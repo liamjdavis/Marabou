@@ -318,7 +318,7 @@ struct MarabouOptions
               Options::get()->getString( Options::MILP_SOLVER_BOUND_TIGHTENING_TYPE ).ascii() )
         , _lpSolverString( Options::get()->getString( Options::LP_SOLVER ).ascii() )
         , _produceProofs( Options::get()->getBool( Options::PRODUCE_PROOFS ) )
-        , _coreMinimizationTimeout( 0.0 )
+        , _coreMinimizationDepthLimit( 3 )
         , _coreMinimizationLimit( 3 )
         , _coreMinimizationSingleSolveTimeout( 1.0 ){};
 
@@ -382,7 +382,7 @@ struct MarabouOptions
     std::string _tighteningStrategyString;
     std::string _milpTighteningString;
     std::string _lpSolverString;
-    float _coreMinimizationTimeout;
+    unsigned _coreMinimizationDepthLimit;
     unsigned _coreMinimizationLimit;
     float _coreMinimizationSingleSolveTimeout;
 };
@@ -579,14 +579,12 @@ std::vector<PhaseFix> quickXPlain( Query *baseQuery,
                                    MarabouOptions &options,
                                    const std::vector<PhaseFix> &background,
                                    const std::vector<PhaseFix> &candidates,
-                                   std::chrono::steady_clock::time_point globalStart,
-                                   double timeoutInSeconds )
+                                   unsigned depth,
+                                   unsigned maxDepth )
 {
-    // Check timeout
-    auto now = std::chrono::steady_clock::now();
-    std::chrono::duration<double> elapsed = now - globalStart;
-    if ( timeoutInSeconds > 0 && elapsed.count() > timeoutInSeconds )
-        return candidates; // Timeout reached, return best effort
+    // Check depth limit
+    if ( depth >= maxDepth )
+        return candidates; // Depth limit reached, return current candidates
 
     // If background is already UNSAT, return empty core
     if ( candidates.empty() && isUnsat( baseQuery, background, options ) )
@@ -614,7 +612,7 @@ std::vector<PhaseFix> quickXPlain( Query *baseQuery,
     if ( isUnsat( baseQuery, backgroundPlusC2, options ) )
     {
         // c1 is irrelevant, recurse on c2
-        return quickXPlain( baseQuery, options, background, c2, globalStart, timeoutInSeconds );
+        return quickXPlain( baseQuery, options, background, c2, depth + 1, maxDepth );
     }
 
     // Check if background + c1 is UNSAT (meaning c2 is irrelevant)
@@ -624,18 +622,18 @@ std::vector<PhaseFix> quickXPlain( Query *baseQuery,
     if ( isUnsat( baseQuery, backgroundPlusC1, options ) )
     {
         // c2 is irrelevant, recurse on c1
-        return quickXPlain( baseQuery, options, background, c1, globalStart, timeoutInSeconds );
+        return quickXPlain( baseQuery, options, background, c1, depth + 1, maxDepth );
     }
 
     // Both parts are needed. Find minimal subset of c1 needed for c2, and vice versa.
     std::vector<PhaseFix> c2_prime =
-        quickXPlain( baseQuery, options, backgroundPlusC1, c2, globalStart, timeoutInSeconds );
+        quickXPlain( baseQuery, options, backgroundPlusC1, c2, depth + 1, maxDepth );
 
     std::vector<PhaseFix> backgroundPlusC2Prime = background;
     backgroundPlusC2Prime.insert( backgroundPlusC2Prime.end(), c2_prime.begin(), c2_prime.end() );
 
     std::vector<PhaseFix> c1_prime =
-        quickXPlain( baseQuery, options, backgroundPlusC2Prime, c1, globalStart, timeoutInSeconds );
+        quickXPlain( baseQuery, options, backgroundPlusC2Prime, c1, depth + 1, maxDepth );
 
     std::vector<PhaseFix> result = c1_prime;
     result.insert( result.end(), c2_prime.begin(), c2_prime.end() );
@@ -669,30 +667,14 @@ void minimizeUnsatCores( InputQuery &inputQuery,
     if ( unsatPrefixes.size() < limit )
         limit = unsatPrefixes.size();
 
-    auto globalStart = std::chrono::steady_clock::now();
-
     for ( unsigned i = 0; i < limit; ++i )
     {
-        // Check timeout before starting next core
-        auto now = std::chrono::steady_clock::now();
-        std::chrono::duration<double> elapsed = now - globalStart;
-        if ( options._coreMinimizationTimeout > 0 &&
-             elapsed.count() > options._coreMinimizationTimeout )
-        {
-            printf( "Global minimization timeout reached.\n" );
-            break;
-        }
-
         const auto &prefix = unsatPrefixes[i];
 
         // Run QuickXPlain
         std::vector<PhaseFix> background;
-        std::vector<PhaseFix> smallerCore = quickXPlain( baseQuery.get(),
-                                                         options,
-                                                         background,
-                                                         prefix,
-                                                         globalStart,
-                                                         options._coreMinimizationTimeout );
+        std::vector<PhaseFix> smallerCore = quickXPlain(
+            baseQuery.get(), options, background, prefix, 0, options._coreMinimizationDepthLimit );
 
         if ( smallerCore.size() < prefix.size() )
         {
@@ -799,7 +781,8 @@ PYBIND11_MODULE( MarabouCore, m )
         .def_readwrite( "_performLpTighteningAfterSplit",
                         &MarabouOptions::_performLpTighteningAfterSplit )
         .def_readwrite( "_produceProofs", &MarabouOptions::_produceProofs )
-        .def_readwrite( "_coreMinimizationTimeout", &MarabouOptions::_coreMinimizationTimeout )
+        .def_readwrite( "_coreMinimizationDepthLimit",
+                        &MarabouOptions::_coreMinimizationDepthLimit )
         .def_readwrite( "_coreMinimizationLimit", &MarabouOptions::_coreMinimizationLimit )
         .def_readwrite( "_coreMinimizationSingleSolveTimeout",
                         &MarabouOptions::_coreMinimizationSingleSolveTimeout );
