@@ -56,11 +56,6 @@ void CadicalWrapper::assume( int lit )
     _solver->assume( lit );
 }
 
-void CadicalWrapper::phase( int lit )
-{
-    _solver->phase( lit );
-}
-
 int CadicalWrapper::solve()
 {
     return _solver->solve();

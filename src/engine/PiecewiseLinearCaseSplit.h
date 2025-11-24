@@ -53,12 +53,6 @@ public:
     */
     void updateVariableIndex( unsigned oldIndex, unsigned newIndex );
 
-    /*
-      Get and Set for CDCL literal associated with this case split.
-     */
-    const Set<int> &getCdclLiterals() const;
-    void addCdclLiteral( int literal );
-
 private:
     /*
       Bound tightening information.
@@ -69,11 +63,6 @@ private:
       The equation that needs to be added.
     */
     List<Equation> _equations;
-
-    /*
-      CDCL literals to be phased.
-     */
-    Set<int> _cdclLiterals;
 };
 
 #endif // __PiecewiseLinearCaseSplit_h__

@@ -61,8 +61,6 @@ void PolarityBasedDivider::createSubQueries( unsigned numNewSubqueries,
                     *newSplit = *split;
                     for ( const auto &tightening : caseSplit.getBoundTightenings() )
                         newSplit->storeBoundTightening( tightening );
-                    for ( int literal : caseSplit.getCdclLiterals() )
-                        newSplit->addCdclLiteral( literal );
                     newSplits.append( newSplit );
                 }
             }

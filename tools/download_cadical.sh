@@ -5,14 +5,15 @@ mydir="${0%/*}"
 cd $mydir
 git clone https://github.com/arminbiere/cadical.git
 cd cadical
-git checkout d04d77b1ed04f08eebd78aeaff94673bd11330c8
-mkdir build
-cd build
-for f in ../src/*.cpp; do g++ -O3 -DNDEBUG -DNBUILD -DLOGGING -g -fPIC -c $f; done
-ar rc libcadical.a `ls *.o | grep -v ical.o`
-g++ -fPIC -o cadical cadical.o -L. -lcadical
-g++ -fPIC -o mobical mobical.o -L. -lcadical
-#./configure
-#make
+git fetch --all
+git checkout 14593f819cb242082b127396218bd60889409737
+sed -i 's/\r$//' configure
+find scripts -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+sed -i 's/\r$//' VERSION
+sed -i 's/\r$//' LICENSE
+sed -i 's/\r$//' makefile.in
+chmod +x configure scripts/*.sh
+./configure -a
+make
 
 cd $curdir

@@ -155,9 +155,9 @@ public:
     void removeLiteralFromPropagations( int literal );
 
     /*
-      Force the default decision phase of a variable to a certain value.
+      Assume valid non zero literal for next call to 'solve'.
      */
-    void phase( int literal );
+    void assume( int literal );
 
     /*
       Check if the solver should stop due to the requested timeout by the user
@@ -210,10 +210,6 @@ public:
     bool isDecision( int lit );
 
     void reset();
-
-    void addSncSplitLiteral( int literal );
-
-    void resetSncSplitLiterals();
 
     static std::atomic<unsigned> numCdclCores;
 
@@ -281,13 +277,13 @@ private:
     std::shared_ptr<PLConstraintScoreTracker> _scoreTracker;
 
     Map<unsigned, int> _decisionLiterals;
-
+    unsigned _decisionIndex;
     Map<int, double> _decisionScores;
 
     unsigned _lastSharedClauseIndexAdded;
     Set<unsigned> _sharedClauseAdded;
 
-    List<int> _sncSplitLiterals;
+    Set<int> _sncSplitLiterals;
 
     /*
      Decision heuristics

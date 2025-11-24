@@ -153,17 +153,6 @@ void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
     preContextPushHook();
     _searchTreeHandler.pushContext();
 
-#ifdef BUILD_CADICAL
-    if ( _solveWithCDCL )
-    {
-        _cdclCore.resetSncSplitLiterals();
-        const Set<int> &cdclLiterals = sncSplit.getCdclLiterals();
-        if ( !cdclLiterals.empty() )
-            for ( int literal : cdclLiterals )
-                _cdclCore.addSncSplitLiteral( literal );
-    }
-#endif
-
     applySplit( sncSplit );
     _boundManager.propagateTightenings();
 }
@@ -230,12 +219,12 @@ void Engine::initializeSolver()
     if ( _solveWithMILP )
         return;
 
-#ifdef BUILD_CADICAL
-    if ( _solveWithCDCL )
-        for ( const auto plConstraint : _plConstraints )
-            if ( plConstraint->phaseFixed() )
-                _cdclCore.phase( plConstraint->propagatePhaseAsLit() );
-#endif
+//#ifdef BUILD_CADICAL
+//    if ( _solveWithCDCL )
+//        for ( const auto plConstraint : _plConstraints )
+//            if ( plConstraint->phaseFixed() )
+//                _cdclCore.assume( plConstraint->propagatePhaseAsLit() );
+//#endif
 
     updateDirections();
     if ( _lpSolverType == LPSolverType::NATIVE )
@@ -2729,6 +2718,7 @@ void Engine::reset()
     if ( _solveWithCDCL )
     {
         _boundManager.reset();
+        _cdclCore.reset();
         _exitCode = ExitCode::NOT_DONE;
     }
 #endif
