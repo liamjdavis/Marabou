@@ -13,7 +13,7 @@ sed -i 's/\r$//' VERSION
 sed -i 's/\r$//' LICENSE
 sed -i 's/\r$//' makefile.in
 chmod +x configure scripts/*.sh
-./configure -a
+./configure -a -shared
 make
 
 cd $curdir
