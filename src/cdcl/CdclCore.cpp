@@ -728,9 +728,6 @@ int CdclCore::cb_add_external_clause_lit()
 
 void CdclCore::addExternalClause( Set<int> &clause, bool shareClause )
 {
-    if ( clause.empty() )
-        empty();
-
     CDCL_LOG( Stringf( "%u l%d Add External Clause", _index, _satSolver->getLevel() ).ascii() )
     struct timespec start = TimeUtils::sampleMicro();
 
