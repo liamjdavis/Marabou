@@ -18,6 +18,7 @@
 #include "Debug.h"
 #include "EngineState.h"
 #include "IEngine.h"
+#include "InfeasibleQueryException.h"
 #include "LargestIntervalDivider.h"
 #include "MStringf.h"
 #include "MarabouError.h"
@@ -98,11 +99,19 @@ void DnCWorker::popOneSubQueryAndSolve( bool restoreTreeStates )
         // object of class DnCStatistics, which contains some basic
         // statistics. The maps are owned by the DnCManager.
 
-        // Apply the split and solve
-        _engine->applySnCSplit( *split, queryId );
-
         bool fullSolveNeeded = true; // denotes whether we need to solve the subquery
-        if ( restoreTreeStates && searchTreeState )
+
+        // Apply the split and solve
+        try
+        {
+            _engine->applySnCSplit( *split, queryId );
+        }
+        catch ( const InfeasibleQueryException & )
+        {
+            fullSolveNeeded = false;
+        }
+
+        if ( restoreTreeStates && searchTreeState && fullSolveNeeded )
             fullSolveNeeded = _engine->restoreSearchTreeState( *searchTreeState );
         ExitCode result = ExitCode::NOT_DONE;
         if ( fullSolveNeeded )

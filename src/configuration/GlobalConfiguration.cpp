@@ -120,7 +120,7 @@ const bool GlobalConfiguration::WRITE_JSON_PROOF = false;
 const unsigned GlobalConfiguration::BACKWARD_BOUND_PROPAGATION_DEPTH = 3;
 const unsigned GlobalConfiguration::MAX_ROUNDS_OF_BACKWARD_ANALYSIS = 10;
 
-const bool GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES = false;
+const bool GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES = true;
 const bool GlobalConfiguration::MINIMIZE_PROOF_DEPENDENCIES = false;
 
 const bool GlobalConfiguration::CONVERT_VERIFICATION_QUERY_INTO_REACHABILITY_QUERY = false;
@@ -128,7 +128,7 @@ const bool GlobalConfiguration::CONVERT_VERIFICATION_QUERY_INTO_REACHABILITY_QUE
 const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES = false;
 const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES_WITH_QUICKXPLAIN = false;
 
-const bool GlobalConfiguration::CDCL_SHARE_CLAUSES = true;
+const bool GlobalConfiguration::CDCL_SHARE_CLAUSES = false;
 
 #ifdef ENABLE_GUROBI
 const unsigned GlobalConfiguration::GUROBI_NUMBER_OF_THREADS = 1;
@@ -154,7 +154,7 @@ const bool GlobalConfiguration::ONNX_PARSER_LOGGING = false;
 const bool GlobalConfiguration::SOI_LOGGING = false;
 const bool GlobalConfiguration::SCORE_TRACKER_LOGGING = false;
 const bool GlobalConfiguration::CEGAR_LOGGING = false;
-const bool GlobalConfiguration::CDCL_LOGGING = false;
+const bool GlobalConfiguration::CDCL_LOGGING = true;
 
 const bool GlobalConfiguration::USE_SMART_FIX = false;
 const bool GlobalConfiguration::USE_LEAST_FIX = false;

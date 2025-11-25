@@ -149,10 +149,8 @@ void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
     _sncMode = true;
     _sncSplit = sncSplit;
     _queryId = queryId;
-
     preContextPushHook();
     _searchTreeHandler.pushContext();
-
     applySplit( sncSplit );
     _boundManager.propagateTightenings();
 }

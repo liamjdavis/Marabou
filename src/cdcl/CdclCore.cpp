@@ -116,7 +116,7 @@ void CdclCore::notify_assignment( const std::vector<int> &lits )
                            _index,
                            _satSolver->getLevel(),
                            lit,
-                           _satSolver->isDecision( lit ) )
+                           isDecision( lit ) )
                       .ascii() )
 
         if ( !isLiteralAssigned( lit ) )
@@ -549,7 +549,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
     ASSERT( _engine->getLpSolverType() == LPSolverType::NATIVE )
     struct timespec start = TimeUtils::sampleMicro();
     ASSERT( propagated_lit )
-    ASSERT( !_satSolver->isDecision( propagated_lit ) )
+    ASSERT( !isDecision( propagated_lit ) )
 
     if ( !_isReasonClauseInitialized )
     {
@@ -790,7 +790,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     // Add all literals initially in literalsToPropagate as snc literals
     for ( const auto &pair : _literalsToPropagate )
     {
-        ASSERT( pair.second() == 0 )
+        ASSERT( pair.first() != 0 && pair.second() == 0 )
         _sncSplitLiterals.insert( pair.first() );
         _fixedCadicalVars.insert( pair.first() );
     }
@@ -922,6 +922,7 @@ void CdclCore::addDecisionBasedConflictClause()
                       << " does not exists!" << std::endl;
         ASSERT( _decisionLiterals.exists( l ) );
         int lit = _decisionLiterals[l];
+        ASSERT( lit != 0 );
         if ( !isDecision( ( lit ) ) )
             std::cout << _index << " level " << _satSolver->getLevel() << " decision literal #" << l
                       << ": " << lit << " is not a decision!" << std::endl;
@@ -1083,6 +1084,7 @@ bool CdclCore::hasConflictClause() const
 
 void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 {
+    ASSERT( lit != 0 );
     if ( isLiteralToBePropagated( -lit ) || isLiteralAssigned( -lit ) )
         return;
 
