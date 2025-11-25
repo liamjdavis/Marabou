@@ -728,6 +728,9 @@ int CdclCore::cb_add_external_clause_lit()
 
 void CdclCore::addExternalClause( Set<int> &clause, bool shareClause )
 {
+    if ( clause.empty() )
+        empty();
+
     CDCL_LOG( Stringf( "%u l%d Add External Clause", _index, _satSolver->getLevel() ).ascii() )
     struct timespec start = TimeUtils::sampleMicro();
 
@@ -735,6 +738,7 @@ void CdclCore::addExternalClause( Set<int> &clause, bool shareClause )
 
     if ( shareClause )
     {
+        ASSERT( !clause.empty() );
         unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
         CdclCore::sharedClauses[newClauseIndex] = clause;
         _sharedClauseAdded.insert( newClauseIndex );
@@ -786,6 +790,14 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     //        if ( _engine->getExitCode() == ExitCode::UNSAT )
     //            return false;
 
+    // Add all literals initially in literalsToPropagate as snc literals
+    for ( const auto &pair : _literalsToPropagate )
+    {
+        ASSERT( pair.second() == 0 )
+        _sncSplitLiterals.insert( pair.first() );
+        _fixedCadicalVars.insert( pair.first() );
+    }
+
     if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
          Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )
         if ( _engine->solve( 0 ) )
@@ -796,16 +808,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
     // Add the zero literal at the end
     if ( !_literalsToPropagate.empty() )
-    {
-        for ( const auto &pair : _literalsToPropagate )
-        {
-            ASSERT( pair.second() == 0 )
-            _sncSplitLiterals.insert( pair.first() );
-            _fixedCadicalVars.insert( pair.first() );
-        }
-
         _literalsToPropagate.append( Pair<int, unsigned>( 0, _satSolver->getLevel() ) );
-    }
 
     if ( !_externalClauseToAdd.empty() )
     {
