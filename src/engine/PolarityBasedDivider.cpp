@@ -18,6 +18,7 @@
 #include "Debug.h"
 #include "EngineState.h"
 #include "FloatUtils.h"
+#include "InfeasibleQueryException.h"
 #include "MStringf.h"
 #include "PiecewiseLinearCaseSplit.h"
 
@@ -93,7 +94,14 @@ void PolarityBasedDivider::createSubQueries( unsigned numNewSubqueries,
 PiecewiseLinearConstraint *
 PolarityBasedDivider::getPLConstraintToSplit( const PiecewiseLinearCaseSplit &split )
 {
-    _engine->applySnCSplit( split, "" );
+    try
+    {
+        _engine->applySnCSplit( split, "" );
+    }
+    catch ( const InfeasibleQueryException & )
+    {
+        return NULL;
+    }
 
     PiecewiseLinearConstraint *constraintToSplit = NULL;
     constraintToSplit = _engine->pickSplitPLConstraintSnC( SnCDivideStrategy::Polarity );
