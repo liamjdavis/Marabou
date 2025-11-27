@@ -679,10 +679,12 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
     if ( !_externalClauseToAdd.empty() )
         return true;
 
-    while ( _lastSharedClauseIndexAdded < CdclCore::sharedClauses.size() )
+    while ( _lastSharedClauseIndexAdded < CdclCore::clauseIndex )
     {
         if ( _sharedClauseAdded.exists( _lastSharedClauseIndexAdded ) )
             ++_lastSharedClauseIndexAdded;
+        else if ( CdclCore::sharedClauses[_lastSharedClauseIndexAdded].empty() )
+            continue;
         else
         {
             addExternalClause( CdclCore::sharedClauses[_lastSharedClauseIndexAdded++], false );
