@@ -735,7 +735,7 @@ void CdclCore::addExternalClause( Set<int> &clause, bool shareClause )
 
     if ( shareClause )
     {
-        ASSERT( !clause.empty() );
+        ASSERT( !clause.empty() || _sncSplitLiterals.empty() );
         unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
         CdclCore::sharedClauses[newClauseIndex] = clause;
         _sharedClauseAdded.insert( newClauseIndex );
