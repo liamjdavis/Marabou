@@ -411,7 +411,7 @@ public:
                                             unsigned,
                                             int,
                                             bool,
-                                            double targetBound ) override
+                                            double ) override
     {
         return Set<int>();
     }
