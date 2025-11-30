@@ -146,10 +146,10 @@ void CdclCore::notify_new_decision_level()
     CDCL_LOG(
         Stringf( "%u l%d Notified new decision level", _index, _satSolver->getLevel() ).ascii() )
 
-    std::cout << _index << " l" << _satSolver->getLevel() << " new level ";
+//    std::cout << _index << " l" << _satSolver->getLevel() << " new level ";
     _engine->preContextPushHook();
     pushContext();
-    std::cout << "l" << _satSolver->getLevel() << std::endl;
+//    std::cout << "l" << _satSolver->getLevel() << std::endl;
 
     if ( _statistics )
     {
@@ -183,8 +183,8 @@ void CdclCore::notify_backtrack( size_t new_level )
     CDCL_LOG(
         Stringf( "%u l%d Backtracking to level %d", _index, _satSolver->getLevel(), new_level )
             .ascii() )
-    std::cout << _index << " l" << _satSolver->getLevel() << " backtrack to l" << new_level
-              << std::endl;
+//    std::cout << _index << " l" << _satSolver->getLevel() << " backtrack to l" << new_level
+//              << std::endl;
 
     unsigned oldLevel = _satSolver->getLevel();
 
@@ -209,8 +209,8 @@ void CdclCore::notify_backtrack( size_t new_level )
             continue;
 
         ASSERT( l == _decisionIndex )
-        std::cout << _index << " deletes decision #" << _decisionIndex << ": "
-                  << _decisionLiterals[_decisionIndex] << std::endl;
+//        std::cout << _index << " deletes decision #" << _decisionIndex << ": "
+//                  << _decisionLiterals[_decisionIndex] << std::endl;
         _decisionLiterals.erase( _decisionIndex-- );
     }
 
@@ -305,7 +305,7 @@ int CdclCore::cb_decide()
 
     if ( _shouldRestart )
     {
-        std::cout << _index << " l" << _satSolver->getLevel() << " restart" << std::endl;
+//        std::cout << _index << " l" << _satSolver->getLevel() << " restart" << std::endl;
         CDCL_LOG( Stringf( "%u l%d Should restart. Forcing backtrack to level 0.",
                            _index,
                            _satSolver->getLevel() )
@@ -337,7 +337,7 @@ int CdclCore::cb_decide()
     }
     else
     {
-        std::cout << _index << " l" << _satSolver->getLevel() << " no decision " << std::endl;
+//        std::cout << _index << " l" << _satSolver->getLevel() << " no decision " << std::endl;
         CDCL_LOG( Stringf( "%u l%d No decision made", _index, _satSolver->getLevel() ).ascii() )
         if ( _statistics )
             _statistics->incUnsignedAttribute( Statistics::NUM_SAT_SOLVER_DECISIONS );
@@ -577,9 +577,14 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                 for ( unsigned level = 1; level <= _satSolver->getLevel(); ++level )
                 {
                     if ( !_decisionLiterals.exists( level ) )
-                        std::cout << _index << " l" << _satSolver->getLevel()
-                                  << " decision literal level " << level << " does not exists!"
-                                  << std::endl;
+                    {
+                        ASSERT( level == _satSolver->getLevel() )
+//                        std::cout << _index << " l" << _satSolver->getLevel()
+//                                  << " decision literal level " << level << " does not exists!"
+//                            << std::endl;
+                        continue;
+                    }
+
                     ASSERT( _decisionLiterals.exists( level ) );
                     int lit = _decisionLiterals[level];
                     ASSERT( isDecision( lit ) && lit != propagated_lit );
@@ -928,8 +933,13 @@ void CdclCore::addDecisionBasedConflictClause()
     for ( unsigned l = 1; l <= _satSolver->getLevel(); ++l )
     {
         if ( !_decisionLiterals.exists( l ) )
-            std::cout << _index << " level " << _satSolver->getLevel() << " decision literal #" << l
-                      << " does not exists!" << std::endl;
+        {
+//            std::cout << _index << " level " << _satSolver->getLevel() << " decision literal #" << l
+//                << " does not exists!" << std::endl;
+            ASSERT( l == _satSolver->getLevel() );
+            continue;
+        }
+
         ASSERT( _decisionLiterals.exists( l ) );
         int lit = _decisionLiterals[l];
         ASSERT( lit != 0 );
@@ -975,8 +985,8 @@ void CdclCore::removeLiteralFromPropagations( int literal )
 
 void CdclCore::assume( int literal )
 {
-    std::cout << _index << " l" << _satSolver->getLevel() << " assume literal " << literal
-              << std::endl;
+//    std::cout << _index << " l" << _satSolver->getLevel() << " assume literal " << literal
+//              << std::endl;
     CDCL_LOG(
         Stringf( "%u l%d Assuming literal %d", _index, _satSolver->getLevel(), literal ).ascii() )
     _satSolver->assume( literal );
@@ -1106,8 +1116,8 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     if ( isDecision( lit ) )
     {
-        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
-                  << " level: " << _decisionIndex + 1 << std::endl;
+//        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
+//                  << " level: " << _decisionIndex + 1 << std::endl;
         _decisionLiterals.insert( ++_decisionIndex, lit );
     }
 
