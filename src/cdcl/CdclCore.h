@@ -29,6 +29,7 @@
 #include "context/cdhashset.h"
 
 #include <cadical.hpp>
+#include <mutex>
 
 #define CDCL_LOG( x, ... ) LOG( GlobalConfiguration::CDCL_LOGGING, "CDCL: %s\n", x )
 
@@ -131,7 +132,7 @@ public:
     /*
       Internally adds a conflict clause when learned, later to be informed to the SAT solver
     */
-    void addExternalClause( Set<int> &clause, bool shareClause );
+    void addExternalClause( const Set<int> &clause, bool shareClause );
 
     /*
        Returns the PiecewiseLinearConstraint abstraced by the literal lit
@@ -214,8 +215,8 @@ public:
     static std::atomic<unsigned> numCdclCores;
 
     static Map<unsigned, Set<int>> sharedClauses;
+    static std::mutex sharedClausesMutex;
     static std::atomic<unsigned> clauseIndex;
-
 private:
     /*
       The engine.

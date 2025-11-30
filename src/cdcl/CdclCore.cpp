@@ -208,8 +208,8 @@ void CdclCore::notify_backtrack( size_t new_level )
             continue;
 
         ASSERT( l == _decisionIndex )
-        //        std::cout << _index << " deletes decision #" << _decisionIndex << ": "
-        //                  << _decisionLiterals[_decisionIndex] << std::endl;
+        std::cout << _index << " deletes decision #" << _decisionIndex << ": "
+                  << _decisionLiterals[_decisionIndex] << std::endl;
         _decisionLiterals.erase( _decisionIndex-- );
     }
 
@@ -576,6 +576,10 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
             {
                 for ( unsigned level = 1; level <= _satSolver->getLevel(); ++level )
                 {
+                    if ( !_decisionLiterals.exists( level ) )
+                        std::cout << _index << " l" << _satSolver->getLevel()
+                                  << " decision literal level " << level << " does not exists!"
+                                  << std::endl;
                     ASSERT( _decisionLiterals.exists( level ) );
                     int lit = _decisionLiterals[level];
                     ASSERT( isDecision( lit ) && lit != propagated_lit );
@@ -679,15 +683,17 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
     if ( !_externalClauseToAdd.empty() )
         return true;
 
-    while ( _lastSharedClauseIndexAdded < CdclCore::clauseIndex )
+    while ( _lastSharedClauseIndexAdded < CdclCore::sharedClauses.size() )
     {
         if ( _sharedClauseAdded.exists( _lastSharedClauseIndexAdded ) )
             ++_lastSharedClauseIndexAdded;
-        else if ( CdclCore::sharedClauses[_lastSharedClauseIndexAdded].empty() )
-            continue;
         else
         {
-            addExternalClause( CdclCore::sharedClauses[_lastSharedClauseIndexAdded++], false );
+            CdclCore::sharedClausesMutex.lock();
+            const auto &clause = CdclCore::sharedClauses[_lastSharedClauseIndexAdded++];
+            CdclCore::sharedClausesMutex.unlock();
+
+            addExternalClause( clause, false );
             return true;
         }
     }
@@ -728,7 +734,7 @@ int CdclCore::cb_add_external_clause_lit()
     return lit;
 }
 
-void CdclCore::addExternalClause( Set<int> &clause, bool shareClause )
+void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 {
     CDCL_LOG( Stringf( "%u l%d Add External Clause", _index, _satSolver->getLevel() ).ascii() )
     struct timespec start = TimeUtils::sampleMicro();
@@ -739,7 +745,9 @@ void CdclCore::addExternalClause( Set<int> &clause, bool shareClause )
     {
         ASSERT( !clause.empty() || _sncSplitLiterals.empty() );
         unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
+        CdclCore::sharedClausesMutex.lock();
         CdclCore::sharedClauses[newClauseIndex] = clause;
+        CdclCore::sharedClausesMutex.unlock();
         _sharedClauseAdded.insert( newClauseIndex );
     }
 
@@ -1098,8 +1106,8 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     if ( isDecision( lit ) )
     {
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
-        //                  << " level: " << _decisionIndex + 1 << std::endl;
+        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
+                  << " level: " << _decisionIndex + 1 << std::endl;
         _decisionLiterals.insert( ++_decisionIndex, lit );
     }
 
