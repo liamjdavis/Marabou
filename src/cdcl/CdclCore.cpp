@@ -810,6 +810,8 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         ASSERT( pair.first() != 0 && pair.second() == 0 )
         _sncSplitLiterals.insert( pair.first() );
         _fixedCadicalVars.insert( pair.first() );
+        std::cout << _index << " l" << _satSolver->getLevel() << " adding snc literal "
+                  << pair.first() << std::endl;
     }
 
     if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
