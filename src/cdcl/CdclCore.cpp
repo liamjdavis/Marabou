@@ -28,6 +28,7 @@
 
 std::atomic<unsigned> CdclCore::numCdclCores{ 0 };
 Map<unsigned, Set<int>> CdclCore::sharedClauses{};
+std::mutex CdclCore::sharedClausesMutex{};
 std::atomic<unsigned> CdclCore::clauseIndex{ 0 };
 
 CdclCore::CdclCore( IEngine *engine )
