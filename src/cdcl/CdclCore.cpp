@@ -146,10 +146,10 @@ void CdclCore::notify_new_decision_level()
     CDCL_LOG(
         Stringf( "%u l%d Notified new decision level", _index, _satSolver->getLevel() ).ascii() )
 
-    //    std::cout << _index << " l" << _satSolver->getLevel() << " new level ";
+    std::cout << _index << " l" << _satSolver->getLevel() << " new level ";
     _engine->preContextPushHook();
     pushContext();
-    //    std::cout << "l" << _satSolver->getLevel() << std::endl;
+    std::cout << "l" << _satSolver->getLevel() << std::endl;
 
     if ( _statistics )
     {
@@ -183,8 +183,8 @@ void CdclCore::notify_backtrack( size_t new_level )
     CDCL_LOG(
         Stringf( "%u l%d Backtracking to level %d", _index, _satSolver->getLevel(), new_level )
             .ascii() )
-    //    std::cout << _index << " l" << _satSolver->getLevel() << " backtrack to l" << new_level
-    //              << std::endl;
+    std::cout << _index << " l" << _satSolver->getLevel() << " backtrack to l" << new_level
+              << std::endl;
 
     unsigned oldLevel = _satSolver->getLevel();
 
@@ -337,8 +337,7 @@ int CdclCore::cb_decide()
     }
     else
     {
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " no decision " <<
-        //        std::endl;
+        std::cout << _index << " l" << _satSolver->getLevel() << " no decision " << std::endl;
         CDCL_LOG( Stringf( "%u l%d No decision made", _index, _satSolver->getLevel() ).ascii() )
         if ( _statistics )
             _statistics->incUnsignedAttribute( Statistics::NUM_SAT_SOLVER_DECISIONS );
@@ -976,8 +975,8 @@ void CdclCore::removeLiteralFromPropagations( int literal )
 
 void CdclCore::assume( int literal )
 {
-    //    std::cout << _index << " l" << _satSolver->getLevel() << " assume literal " << literal
-    //              << std::endl;
+    std::cout << _index << " l" << _satSolver->getLevel() << " assume literal " << literal
+              << std::endl;
     CDCL_LOG(
         Stringf( "%u l%d Assuming literal %d", _index, _satSolver->getLevel(), literal ).ascii() )
     _satSolver->assume( literal );
@@ -1127,10 +1126,10 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
         if ( !isClauseSatisfied( clause ) )
             _satisfiedClauses.insert( clause );
 
-    //    if ( originalPlcPhase != PHASE_NOT_FIXED && plc->getPhaseStatus() != originalPlcPhase )
-    //        std::cout << _index << " l" << _satSolver->getLevel() << " lit " << lit << " isFixed "
-    //                  << isFixed << " originalPlcPhase " << originalPlcPhase
-    //                  << " plc->getPhaseStatus() " << plc->getPhaseStatus() << std::endl;
+//    if ( originalPlcPhase != PHASE_NOT_FIXED && plc->getPhaseStatus() != originalPlcPhase )
+//        std::cout << _index << " l" << _satSolver->getLevel() << " lit " << lit << " isFixed "
+//                  << isFixed << " originalPlcPhase " << originalPlcPhase
+//                  << " plc->getPhaseStatus() " << plc->getPhaseStatus() << std::endl;
     ASSERT( originalPlcPhase == PHASE_NOT_FIXED || plc->getPhaseStatus() == originalPlcPhase )
 }
 
