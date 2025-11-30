@@ -209,8 +209,8 @@ void CdclCore::notify_backtrack( size_t new_level )
             continue;
 
         ASSERT( l == _decisionIndex )
-        std::cout << _index << " deletes decision #" << _decisionIndex << ": "
-                  << _decisionLiterals[_decisionIndex] << std::endl;
+//        std::cout << _index << " deletes decision #" << _decisionIndex << ": "
+//                  << _decisionLiterals[_decisionIndex] << std::endl;
         _decisionLiterals.erase( _decisionIndex-- );
     }
 
@@ -1107,8 +1107,8 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     if ( isDecision( lit ) )
     {
-        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
-                  << " level: " << _decisionIndex + 1 << std::endl;
+//        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
+//                  << " level: " << _decisionIndex + 1 << std::endl;
         _decisionLiterals.insert( ++_decisionIndex, lit );
     }
 
