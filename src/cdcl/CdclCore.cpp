@@ -209,8 +209,8 @@ void CdclCore::notify_backtrack( size_t new_level )
             continue;
 
         ASSERT( l == _decisionIndex )
-//        std::cout << _index << " deletes decision #" << _decisionIndex << ": "
-//                  << _decisionLiterals[_decisionIndex] << std::endl;
+        std::cout << _index << " deletes decision #" << _decisionIndex << ": "
+                  << _decisionLiterals[_decisionIndex] << std::endl;
         _decisionLiterals.erase( _decisionIndex-- );
     }
 
@@ -305,7 +305,7 @@ int CdclCore::cb_decide()
 
     if ( _shouldRestart )
     {
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " restart" << std::endl;
+        std::cout << _index << " l" << _satSolver->getLevel() << " restart" << std::endl;
         CDCL_LOG( Stringf( "%u l%d Should restart. Forcing backtrack to level 0.",
                            _index,
                            _satSolver->getLevel() )
@@ -617,9 +617,9 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
             for ( int lit : clause )
             {
                 // Make sure all clause literals were fixed before the literal to explain
-                //                ASSERT( _cadicalVarToPlc[abs( propagated_lit
-                //                )]->getPhaseFixingEntry()->id >
-                //                        _cadicalVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
+                ASSERT( isLiteralAssigned( lit ) );
+                ASSERT( _cadicalVarToPlc[abs( propagated_lit )]->getPhaseFixingEntry()->id >
+                        _cadicalVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
 
                 // Remove fixed literals from clause, as they are redundant
                 if ( !_fixedCadicalVars.exists( -lit ) )
@@ -1107,8 +1107,8 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     if ( isDecision( lit ) )
     {
-//        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
-//                  << " level: " << _decisionIndex + 1 << std::endl;
+        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
+                  << " level: " << _decisionIndex + 1 << std::endl;
         _decisionLiterals.insert( ++_decisionIndex, lit );
     }
 
