@@ -624,8 +624,10 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
             {
                 // Make sure all clause literals were fixed before the literal to explain
                 ASSERT( isLiteralAssigned( lit ) );
-                ASSERT( _cadicalVarToPlc[abs( propagated_lit )]->getPhaseFixingEntry()->id >
-                        _cadicalVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
+
+                ASSERT( !GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES ||
+                        _cadicalVarToPlc[abs( propagated_lit )]->getPhaseFixingEntry()->id >
+                            _cadicalVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
 
                 // Remove fixed literals from clause, as they are redundant
                 if ( !_fixedCadicalVars.exists( -lit ) )
