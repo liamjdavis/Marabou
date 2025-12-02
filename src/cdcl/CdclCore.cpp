@@ -648,15 +648,15 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
         ++_numOfClauses;
         _isReasonClauseInitialized = true;
 
-        std::cout << _index << " l" << _satSolver->getLevel() << " adding reason clause for "
-                  << propagated_lit << ":";
-        for (int lit : _reasonClauseLiterals)
-            std::cout << " " << lit;
-        std::cout << std::endl;
-        std::cout << _index << " l" << _satSolver->getLevel() << " currently assigned literals: ";
-        for (const auto &p : _assignedLiterals)
-            std::cout << " (" << p.first << "," << p.second << ")";
-        std::cout << std::endl;
+//        std::cout << _index << " l" << _satSolver->getLevel() << " adding reason clause for "
+//                  << propagated_lit << ":";
+//        for (int lit : _reasonClauseLiterals)
+//            std::cout << " " << lit;
+//        std::cout << std::endl;
+//        std::cout << _index << " l" << _satSolver->getLevel() << " currently assigned literals: ";
+//        for (const auto &p : _assignedLiterals)
+//            std::cout << " (" << p.first << "," << p.second << ")";
+//        std::cout << std::endl;
 
         // Unit clause fixes the propagated literal
         if ( _reasonClauseLiterals.size() == 1 )
@@ -826,8 +826,8 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         ASSERT( pair.first() != 0 && pair.second() == 0 )
         _sncSplitLiterals.insert( pair.first() );
         _fixedCadicalVars.insert( pair.first() );
-        std::cout << _index << " l" << _satSolver->getLevel() << " adding snc literal "
-                  << pair.first() << std::endl;
+//        std::cout << _index << " l" << _satSolver->getLevel() << " adding snc literal "
+//                  << pair.first() << std::endl;
     }
 
     if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
