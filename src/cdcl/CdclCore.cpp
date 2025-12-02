@@ -869,8 +869,8 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     }
     catch ( std::exception &e )
     {
-        std::cout << "Engine exit code: " << _engine->getExitCode();
-        std::cout << "Is CaDiCaL in solving mode: " << _satSolver->isSolving();
+        std::cout << "Engine exit code: " << _engine->getExitCode() << std::endl;
+        std::cout << "Is CaDiCaL in solving mode: " << _satSolver->isSolving() << std::endl;
 
         std::cout << "literals to propagate: ";
         for ( const auto &p : _literalsToPropagate )
