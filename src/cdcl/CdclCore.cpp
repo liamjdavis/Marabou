@@ -542,14 +542,6 @@ int CdclCore::cb_propagate()
 
 int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
 {
-    if ( _engine->getExitCode() != ExitCode::NOT_DONE )
-    {
-        return 0;
-    }
-
-    if ( checkIfShouldExitDueToTimeout() )
-        return 0;
-
     ASSERT( _engine->getLpSolverType() == LPSolverType::NATIVE )
     struct timespec start = TimeUtils::sampleMicro();
     ASSERT( propagated_lit )
@@ -862,55 +854,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         _initialClauses.append( externalClause );
 
     CDCL_LOG( Stringf( "%u l%d Start solving", _index, _satSolver->getLevel() ).ascii() )
-    int result;
-    try
-    {
-        result = _satSolver->solve();
-    }
-    catch ( std::exception &e )
-    {
-        std::cout << "Engine exit code: " << _engine->getExitCode() << std::endl;
-        std::cout << "Is CaDiCaL in solving mode: " << _satSolver->isSolving() << std::endl;
-
-        std::cout << "literals to propagate: ";
-        for ( const auto &p : _literalsToPropagate )
-            std::cout << "(" << p.first() << "," << p.second() << ") ";
-        std::cout << std::endl;
-
-        std::cout << "Assigned literals: ";
-        for ( const auto &p : _assignedLiterals )
-            std::cout << "(" << p.first << "," << p.second << ") ";
-        std::cout << std::endl;
-
-        std::cout << "_isReasonClauseInitialized: " << _isReasonClauseInitialized << std::endl;
-        std::cout << "Reason clause: ";
-        for ( int l : _reasonClauseLiterals )
-            std::cout << l << " ";
-        std::cout << std::endl;
-
-        std::cout << "External clause: ";
-        for ( int l : _externalClauseToAdd )
-            std::cout << l << " ";
-        std::cout << std::endl;
-
-        std::cout << "Fixed literals:  ";
-        for ( int l : _fixedCadicalVars )
-            std::cout << l << " ";
-        std::cout << std::endl;
-
-        std::cout << "Decision literals:  ";
-        for ( const auto &p : _decisionLiterals )
-            std::cout << "(" << p.first << "," << p.second << ") ";
-        std::cout << std::endl;
-
-        std::cout << "SNC split literals:  ";
-        for ( int l : _sncSplitLiterals )
-            std::cout << l << " ";
-        std::cout << std::endl;
-
-        _engine->exportQueryWithError( "" );
-        throw e;
-    }
+    int result = _satSolver->solve();
 
     if ( _statistics && _engine->getVerbosity() )
     {
