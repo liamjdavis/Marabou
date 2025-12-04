@@ -807,6 +807,9 @@ const PiecewiseLinearConstraint *CdclCore::getConstraintFromLit( int lit ) const
 
 bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 {
+    if ( !_satSolver )
+        reset();
+
     _timeoutInSeconds = timeoutInSeconds;
 
     // Maybe query detected as UNSAT in processInputQuery
