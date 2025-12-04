@@ -721,6 +721,8 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
 
             if ( Set<int>::intersection( clause, _sncSplitLiterals ).empty() )
                 addExternalClause( clause, false );
+            else
+                continue;
 
             return true;
         }
