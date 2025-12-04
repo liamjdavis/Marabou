@@ -83,6 +83,7 @@ Engine::Engine()
     , _solveWithCDCL( false )
 #endif
     , _initialized( false )
+    , _varToPLC()
 {
     _searchTreeHandler.setStatistics( &_statistics );
 #ifdef BUILD_CADICAL
@@ -217,12 +218,12 @@ void Engine::initializeSolver()
     if ( _solveWithMILP )
         return;
 
-//#ifdef BUILD_CADICAL
-//    if ( _solveWithCDCL )
-//        for ( const auto plConstraint : _plConstraints )
-//            if ( plConstraint->phaseFixed() )
-//                _cdclCore.assume( plConstraint->propagatePhaseAsLit() );
-//#endif
+    // #ifdef BUILD_CADICAL
+    //     if ( _solveWithCDCL )
+    //         for ( const auto plConstraint : _plConstraints )
+    //             if ( plConstraint->phaseFixed() )
+    //                 _cdclCore.assume( plConstraint->propagatePhaseAsLit() );
+    // #endif
 
     updateDirections();
     if ( _lpSolverType == LPSolverType::NATIVE )
@@ -1605,6 +1606,8 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
             constraint->registerTableau( _tableau );
 #ifdef BUILD_CADICAL
             constraint->registerCdclCore( &_cdclCore );
+            for ( unsigned var : constraint->getParticipatingVariables() )
+                _varToPLC.insert( var, constraint );
 #endif
             //            if ( !Options::get()->getBool( Options::DNC_MODE ) )
             constraint->initializeCDOs( &_context );
@@ -3639,21 +3642,24 @@ void Engine::explainSimplexFailure()
         writeContradictionToCertificate( leafContradictionVec, infeasibleVar );
 
         ( **_UNSATCertificateCurrentPointer ).makeLeaf();
-
-        if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
-        {
-            SparseUnsortedList sparseContradictionToAnalyse = SparseUnsortedList();
-            leafContradictionVec.empty()
-                ? sparseContradictionToAnalyse.initializeToEmpty()
-                : sparseContradictionToAnalyse.initialize( leafContradictionVec.data(),
-                                                           leafContradictionVec.size() );
-
-            analyseExplanationDependencies(
-                sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0 );
-        }
-
-        return;
     }
+
+    Set<int> clause = {};
+    if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
+    {
+        SparseUnsortedList sparseContradictionToAnalyse = SparseUnsortedList();
+        leafContradictionVec.empty()
+            ? sparseContradictionToAnalyse.initializeToEmpty()
+            : sparseContradictionToAnalyse.initialize( leafContradictionVec.data(),
+                                                       leafContradictionVec.size() );
+
+        clause = analyseExplanationDependencies(
+            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0 );
+
+        if ( !_solveWithCDCL )
+            return;
+    }
+
 #ifdef BUILD_CADICAL
     // If both bounds are ground bounds, explanation would be empty and the clause trivial
     if ( _boundManager.getUpperBound( infeasibleVar ) ==
@@ -3664,15 +3670,9 @@ void Engine::explainSimplexFailure()
         _cdclCore.addDecisionBasedConflictClause();
         return;
     }
-    if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
-    {
-        SparseUnsortedList sparseContradiction( leafContradictionVec.data(),
-                                                leafContradictionVec.size() );
-        Set<int> clause = clauseFromContradictionVector(
-            sparseContradiction, _groundBoundManager.getCounter(), -1, true, 0 );
 
+    if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
         _cdclCore.addExternalClause( clause, false );
-    }
     else
         _cdclCore.addDecisionBasedConflictClause();
 #endif
@@ -4217,12 +4217,11 @@ bool Engine::shouldSolveWithCDCL() const
     return _solveWithCDCL;
 }
 
-Set<std::shared_ptr<GroundBoundManager::GroundBoundEntry>>
-Engine::analyseExplanationDependencies( const SparseUnsortedList &explanation,
-                                        unsigned id,
-                                        int explainedVar,
-                                        bool isUpper,
-                                        double targetBound )
+Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &explanation,
+                                                 unsigned id,
+                                                 int explainedVar,
+                                                 bool isUpper,
+                                                 double targetBound )
 {
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
@@ -4231,6 +4230,7 @@ Engine::analyseExplanationDependencies( const SparseUnsortedList &explanation,
     if ( explainedVar >= 0 )
         linearCombination[explainedVar]++;
 
+    Set<int> clause = {};
     Set<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> entries =
         Set<std::shared_ptr<GroundBoundManager::GroundBoundEntry>>();
 
@@ -4313,41 +4313,54 @@ Engine::analyseExplanationDependencies( const SparseUnsortedList &explanation,
         }
     }
 
-    if ( _solveWithCDCL )
-        return entries;
-
     for ( const auto &entry : entries )
     {
-        ASSERT( entry->id < id );
+        int decisionCounter = 0;
+        Set<int> subClause = {};
 
-        if ( entry->lemma && !entry->lemma->getExplanations().empty() &&
-             !entry->lemma->getExplanations().front().empty() && !entry->lemma->getToCheck() )
+        ASSERT( entry->id < id );
+        if ( entry->lemma && entry->lemma->getToCheck() )
+            subClause = entry->clause;
+        else if ( entry->lemma && !entry->lemma->getExplanations().empty() &&
+                  !entry->lemma->getToCheck() )
         {
             entry->lemma->setToCheck();
 
             _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS_USED );
+
             std::_List_const_iterator<unsigned int> it = entry->lemma->getCausingVars().begin();
             for ( const auto &expl : entry->lemma->getExplanations() )
             {
-                if ( expl.empty() )
-                {
-                    std::advance( it, 1 );
-                    continue;
-                }
-
-                analyseExplanationDependencies( expl,
-                                                entry->id,
-                                                *it,
-                                                entry->lemma->getCausingVarBound() ==
-                                                    Tightening::UB,
-                                                entry->lemma->getMinTargetBound() );
+                subClause.insert( analyseExplanationDependencies(
+                    expl,
+                    entry->id,
+                    *it,
+                    entry->lemma->getCausingVarBound() == Tightening::UB,
+                    entry->lemma->getMinTargetBound() ) );
 
                 std::advance( it, 1 );
             }
+            entry->clause = subClause;
         }
+#ifdef BUILD_CADICAL
+        else if ( entry->isPhaseFixing && _solveWithCDCL )
+            subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
+
+        if ( _solveWithCDCL )
+        {
+            clause.insert( subClause );
+
+            for ( int lit : clause )
+                if ( _cdclCore.isDecision( lit ) )
+                    ++decisionCounter;
+
+            if ( decisionCounter > _context.getLevel() )
+                return clause;
+        }
+#endif
     }
 
-    return entries;
+    return clause;
 }
 
 List<unsigned> Engine::getOutputVariables() const
@@ -4377,117 +4390,6 @@ bool Engine::solveWithCDCL( double timeoutInSeconds )
     return _cdclCore.solveWithCDCL( timeoutInSeconds );
 }
 
-Set<int> Engine::clauseFromContradictionVector( const SparseUnsortedList &explanation,
-                                                unsigned id,
-                                                int explainedVar,
-                                                bool isUpper,
-                                                double targetBound )
-{
-    ASSERT( _solveWithCDCL );
-    ASSERT( _nlConstraints.empty() && !explanation.empty() );
-    Set<int> clause = Set<int>();
-
-    Vector<double> linearCombination( 0 );
-    UNSATCertificateUtils::getExplanationRowCombination(
-        explanation, linearCombination, _tableau->getSparseA(), _tableau->getN() );
-
-    if ( explainedVar >= 0 )
-        linearCombination[explainedVar]++;
-
-    int lit;
-    int decisionCounter = 0;
-
-    // Iterate through all constraints, check whether their phase was involved in the explanation
-    // Propagate literals accordingly
-    // Currently works only for ReLU constraints
-    for ( const auto &constraint : _plConstraints )
-    {
-        lit = 0;
-        // TODO support max and disjunction
-        ASSERT( constraint->getType() != DISJUNCTION && constraint->getType() != MAX );
-        if ( constraint->getPhaseFixingEntry() && constraint->getPhaseFixingEntry()->id < id )
-        {
-            for ( unsigned var : constraint->getParticipatingVariables() )
-                if ( !FloatUtils::isZero( linearCombination[var] ) )
-                {
-                    Tightening::BoundType boundTypeParticipating =
-                        ( ( linearCombination[var] > 0 ) && isUpper ) ||
-                                ( ( linearCombination[var] < 0 ) && !isUpper )
-                            ? Tightening::UB
-                            : Tightening::LB;
-                    std::shared_ptr<GroundBoundManager::GroundBoundEntry> entry =
-                        _groundBoundManager.getGroundBoundEntryUpToId(
-                            var, boundTypeParticipating, id );
-
-                    if ( entry->isPhaseFixing &&
-                         constraint->isBoundFixingPhase(
-                             var, entry->val, boundTypeParticipating ) &&
-                         !entry->lemma )
-                    {
-                        ++decisionCounter;
-                        lit = constraint->propagatePhaseAsLit();
-                        break;
-                    }
-                }
-        }
-
-        if ( lit )
-        {
-            ASSERT( !clause.exists( -lit ) );
-            ASSERT( constraint->phaseFixed() || !constraint->isActive() )
-            clause.insert( lit );
-        }
-    }
-
-    if ( decisionCounter >= _context.getLevel() )
-        return clause;
-
-    Set<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> entries =
-        analyseExplanationDependencies( explanation, id, explainedVar, isUpper, targetBound );
-
-    for ( const auto &entry : entries )
-    {
-        ASSERT( entry->id < id );
-        Set<int> minorClause;
-        if ( entry->lemma && !entry->lemma->getExplanations().empty() &&
-             !entry->lemma->getExplanations().front().empty() && entry->clause.empty() )
-        {
-            minorClause =
-                clauseFromContradictionVector( entry->lemma->getExplanations().back(),
-                                               entry->id,
-                                               entry->lemma->getCausingVars().back(),
-                                               entry->lemma->getCausingVarBound() == Tightening::UB,
-                                               entry->lemma->getBound() );
-
-            _groundBoundManager.addClauseToGroundBoundEntry( entry, minorClause );
-            _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS_USED );
-        }
-        else
-            minorClause = entry->clause;
-
-        decisionCounter = 0;
-        for ( int literal : minorClause )
-        {
-            ASSERT( literal && !clause.exists( -literal ) );
-            clause.insert( literal );
-            if ( _cdclCore.isDecision( literal ) )
-                ++decisionCounter;
-            if ( decisionCounter >= _context.getLevel() )
-                return minorClause;
-        }
-
-        decisionCounter = 0;
-        for ( const auto &clauseLit : clause )
-            if ( _cdclCore.isDecision( clauseLit ) )
-                ++decisionCounter;
-
-        if ( decisionCounter >= _context.getLevel() )
-            return clause;
-    }
-
-    return clause;
-}
-
 Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litConstraint )
 {
     ASSERT( _solveWithCDCL && _produceUNSATProofs );
@@ -4506,11 +4408,13 @@ Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litCons
 
     SparseUnsortedList tempExpl = phaseFixingEntry->lemma->getExplanations().back();
     _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS_USED );
-    Set clause = clauseFromContradictionVector( tempExpl,
-                                                phaseFixingEntry->id,
-                                                phaseFixingEntry->lemma->getCausingVars().back(),
-                                                phaseFixingEntry->lemma->getCausingVarBound(),
-                                                phaseFixingEntry->lemma->getBound() );
+    Set<int> clause =
+        analyseExplanationDependencies( tempExpl,
+                                        phaseFixingEntry->id,
+                                        phaseFixingEntry->lemma->getCausingVars().back(),
+                                        phaseFixingEntry->lemma->getCausingVarBound(),
+                                        phaseFixingEntry->lemma->getBound() );
+    phaseFixingEntry->clause = clause;
 
     return clause;
 }

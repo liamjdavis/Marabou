@@ -407,14 +407,6 @@ public:
         return _exitCode == ExitCode::SAT;
     }
 
-    Set<int> clauseFromContradictionVector( const SparseUnsortedList &,
-                                            unsigned,
-                                            int,
-                                            bool,
-                                            double ) override
-    {
-        return Set<int>();
-    }
 
     Set<int> explainPhaseWithProof( const PiecewiseLinearConstraint * ) override
     {

@@ -31,11 +31,13 @@ public:
     {
         GroundBoundEntry( unsigned id,
                           double val,
+                          unsigned var,
                           const std::shared_ptr<PLCLemma> &lemma,
                           const Set<int> &clause,
                           bool isPhaseFixing )
             : id( id )
             , val( val )
+            , var( var )
             , lemma( lemma )
             , clause( clause )
             , isPhaseFixing( isPhaseFixing )
@@ -43,10 +45,10 @@ public:
         }
         unsigned id;
         double val;
+        unsigned var;
         const std::shared_ptr<PLCLemma> lemma;
         Set<int> clause;
         bool isPhaseFixing;
-        Set<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> depList;
     };
 
     GroundBoundManager( CVC4::context::Context &ctx );

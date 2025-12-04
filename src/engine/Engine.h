@@ -673,6 +673,8 @@ private:
      */
     bool _initialized;
 
+    Map<unsigned, PiecewiseLinearConstraint*> _varToPLC;
+
     /*
       Perform a simplex step: compute the cost function, pick the
       entering and leaving variables and perform a pivot.
@@ -1026,25 +1028,14 @@ private:
     /*
     Analyse dependencies of an explanation vector, resulting in a list of necessary ground bounds
    */
-    Set<std::shared_ptr<GroundBoundManager::GroundBoundEntry>>
+    Set<int>
     analyseExplanationDependencies( const SparseUnsortedList &explanation,
                                     unsigned id,
                                     int explainedVar,
                                     bool isUpper,
                                     double targetBound );
 #ifdef BUILD_CADICAL
-    /*
-     Creates a boolean-abstracted clause from an explanation
-    */
-    Set<int> clauseFromContradictionVector( const SparseUnsortedList &explanation,
-                                            unsigned id,
-                                            int explainedVar,
-                                            bool isUpper,
-                                            double targetBound ) override;
-
     void removeLiteralFromPropagations( int literal ) override;
-
-
 #endif
 };
 
