@@ -719,7 +719,9 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
             const auto &clause = CdclCore::sharedClauses[_lastSharedClauseIndexAdded++];
             CdclCore::sharedClausesMutex.unlock();
 
-            addExternalClause( clause, false );
+            if ( Set<int>::intersection( clause, _sncSplitLiterals ).empty() )
+                addExternalClause( clause, false );
+
             return true;
         }
     }
