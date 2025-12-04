@@ -616,6 +616,16 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                 }
             }
 
+            if ( GlobalConfiguration::CDCL_SHARE_CLAUSES )
+            {
+                unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
+                CdclCore::sharedClausesMutex.lock();
+                CdclCore::sharedClauses[newClauseIndex] = clause;
+                CdclCore::sharedClauses[newClauseIndex].insert( propagated_lit );
+                CdclCore::sharedClausesMutex.unlock();
+                _sharedClauseAdded.insert( newClauseIndex );
+            }
+
             for ( int lit : clause )
             {
                 // Make sure all clause literals were fixed before the literal to explain
@@ -759,7 +769,6 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     if ( shareClause )
     {
-        ASSERT( !clause.empty() || _sncSplitLiterals.empty() );
         unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
         CdclCore::sharedClausesMutex.lock();
         CdclCore::sharedClauses[newClauseIndex] = clause;
