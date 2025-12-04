@@ -475,25 +475,25 @@ bool Engine::solve( double timeoutInSeconds )
                             ( **_UNSATCertificateCurrentPointer ).setSATSolutionFlag();
                         }
 
-                        printf( "\n---\n" );
-                        printf( "Phase Fix Trie contents:\n" );
+                        // printf( "\n---\n" );
+                        // printf( "Phase Fix Trie contents:\n" );
                         std::vector<std::vector<PhaseFix>> trieContents =
                             _phaseFixTrie.dumpUnsatPrefixes();
 
-                        for ( const auto &prefix : trieContents )
-                        {
-                            printf( "[" );
-                            for ( size_t i = 0; i < prefix.size(); ++i )
-                            {
-                                printf( "(%u, %s)",
-                                        prefix[i].first,
-                                        prefix[i].second ? "active" : "inactive" );
-                                if ( i < prefix.size() - 1 )
-                                    printf( ", " );
-                            }
-                            printf( "]\n" );
-                        }
-                        printf( "---\n" );
+                        // for ( const auto &prefix : trieContents )
+                        // {
+                        //     printf( "[" );
+                        //     for ( size_t i = 0; i < prefix.size(); ++i )
+                        //     {
+                        //         printf( "(%u, %s)",
+                        //                 prefix[i].first,
+                        //                 prefix[i].second ? "active" : "inactive" );
+                        //         if ( i < prefix.size() - 1 )
+                        //             printf( ", " );
+                        //     }
+                        //     printf( "]\n" );
+                        // }
+                        // printf( "---\n" );
 
                         _exitCode = Engine::SAT;
                         return true;
@@ -751,7 +751,6 @@ bool Engine::handleMalformedBasisException()
 {
     // Debug
     printf( "MalformedBasisException caught!\n" );
-    //
 
     if ( _basisRestorationPerformed == Engine::NO_RESTORATION_PERFORMED )
     {
