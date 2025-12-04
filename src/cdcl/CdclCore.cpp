@@ -621,7 +621,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                 unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
                 CdclCore::sharedClausesMutex.lock();
                 CdclCore::sharedClauses[newClauseIndex] = clause;
-                CdclCore::sharedClauses[newClauseIndex].insert( propagated_lit );
+                CdclCore::sharedClauses[newClauseIndex].insert( -propagated_lit );
                 CdclCore::sharedClausesMutex.unlock();
                 _sharedClauseAdded.insert( newClauseIndex );
             }
