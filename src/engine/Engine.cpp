@@ -4313,9 +4313,9 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         }
     }
 
+    int decisionCounter = 0;
     for ( const auto &entry : entries )
     {
-        int decisionCounter = 0;
         Set<int> subClause = {};
 
         ASSERT( entry->id < id );
@@ -4350,8 +4350,8 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         {
             clause.insert( subClause );
 
-            for ( int lit : clause )
-                if ( _cdclCore.isDecision( lit ) )
+            for ( int lit : subClause )
+                if ( _cdclCore.isDecision( lit ) && !clause.exists( lit ) )
                     ++decisionCounter;
 
             if ( decisionCounter > _context.getLevel() )
