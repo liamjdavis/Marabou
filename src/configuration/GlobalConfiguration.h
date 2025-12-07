@@ -287,6 +287,7 @@ public:
     /* (SNC) Denotes if to share clauses among workers while solving with CDCL
      */
     static const bool CDCL_SHARE_CLAUSES;
+    static const unsigned CDCL_SHARED_CLAUSES_SIZE_LIMIT;
 
 #ifdef ENABLE_GUROBI
     /*
