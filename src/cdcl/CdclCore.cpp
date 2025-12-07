@@ -146,10 +146,8 @@ void CdclCore::notify_new_decision_level()
     CDCL_LOG(
         Stringf( "%u l%d Notified new decision level", _index, _satSolver->getLevel() ).ascii() )
 
-    //    std::cout << _index << " l" << _satSolver->getLevel() << " new level ";
     _engine->preContextPushHook();
     pushContext();
-    //    std::cout << "l" << _satSolver->getLevel() << std::endl;
 
     if ( _statistics )
     {
@@ -183,8 +181,6 @@ void CdclCore::notify_backtrack( size_t new_level )
     CDCL_LOG(
         Stringf( "%u l%d Backtracking to level %d", _index, _satSolver->getLevel(), new_level )
             .ascii() )
-    //    std::cout << _index << " l" << _satSolver->getLevel() << " backtrack to l" << new_level
-    //              << std::endl;
 
     unsigned oldLevel = _satSolver->getLevel();
 
@@ -203,7 +199,6 @@ void CdclCore::notify_backtrack( size_t new_level )
     popContextTo( new_level );
     _engine->postContextPopHook();
 
-    //    std::cout << _index << " l" << _satSolver->getLevel() << " delete decision literals: ";
     for ( unsigned l = oldLevel; l > new_level; l-- )
     {
         if ( l > _decisionIndex )
@@ -211,11 +206,8 @@ void CdclCore::notify_backtrack( size_t new_level )
 
         ASSERT( l == _decisionIndex )
         ASSERT( _decisionLiterals.exists( _decisionIndex ) );
-        //        std::cout << "(" << _decisionIndex << "," << _decisionLiterals[_decisionIndex] <<
-        //        ") ";
         _decisionLiterals.erase( _decisionIndex-- );
     }
-    //    std::cout << std::endl;
 
     // Maintain literals to propagate learned before the decision level
     List<Pair<int, unsigned>> currentPropagations = _literalsToPropagate;
@@ -308,7 +300,6 @@ int CdclCore::cb_decide()
 
     if ( _shouldRestart )
     {
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " restart" << std::endl;
         CDCL_LOG( Stringf( "%u l%d Should restart. Forcing backtrack to level 0.",
                            _index,
                            _satSolver->getLevel() )
@@ -340,8 +331,6 @@ int CdclCore::cb_decide()
     }
     else
     {
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " no decision " <<
-        //        std::endl;
         CDCL_LOG( Stringf( "%u l%d No decision made", _index, _satSolver->getLevel() ).ascii() )
         if ( _statistics )
             _statistics->incUnsignedAttribute( Statistics::NUM_SAT_SOLVER_DECISIONS );
@@ -575,11 +564,6 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                     if ( !_decisionLiterals.exists( level ) )
                     {
                         ASSERT( level == _satSolver->getLevel() )
-                        //                        std::cout << _index << " l" <<
-                        //                        _satSolver->getLevel()
-                        //                                  << " decision literal level " << level
-                        //                                  << " does not exists!"
-                        //                                  << std::endl;
                         continue;
                     }
 
@@ -616,7 +600,8 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                 }
             }
 
-            if ( GlobalConfiguration::CDCL_SHARE_CLAUSES )
+            if ( GlobalConfiguration::CDCL_SHARE_CLAUSES &&
+                 clause.size() <= GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT - 1 )
             {
                 unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
                 CdclCore::sharedClausesMutex.lock();
@@ -649,17 +634,6 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
         _literalToClauses[propagated_lit].insert( _numOfClauses );
         ++_numOfClauses;
         _isReasonClauseInitialized = true;
-
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " adding reason clause
-        //        for "
-        //                  << propagated_lit << ":";
-        //        for (int lit : _reasonClauseLiterals)
-        //            std::cout << " " << lit;
-        //        std::cout << std::endl;
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " currently assigned
-        //        literals: "; for (const auto &p : _assignedLiterals)
-        //            std::cout << " (" << p.first << "," << p.second << ")";
-        //        std::cout << std::endl;
 
         // Unit clause fixes the propagated literal
         if ( _reasonClauseLiterals.size() == 1 )
@@ -771,7 +745,7 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     ASSERT( !clause.exists( 0 ) )
 
-    if ( shareClause )
+    if ( shareClause && clause.size() <= GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT )
     {
         unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
         CdclCore::sharedClausesMutex.lock();
@@ -835,8 +809,6 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         ASSERT( pair.first() != 0 && pair.second() == 0 )
         _sncSplitLiterals.insert( pair.first() );
         _fixedCadicalVars.insert( pair.first() );
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " adding snc literal "
-        //                  << pair.first() << std::endl;
     }
 
     if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
@@ -963,9 +935,6 @@ void CdclCore::addDecisionBasedConflictClause()
     {
         if ( !_decisionLiterals.exists( l ) )
         {
-            //            std::cout << _index << " level " << _satSolver->getLevel() << " decision
-            //            literal #" << l
-            //                << " does not exists!" << std::endl;
             ASSERT( l == _satSolver->getLevel() );
             continue;
         }
@@ -973,10 +942,6 @@ void CdclCore::addDecisionBasedConflictClause()
         ASSERT( _decisionLiterals.exists( l ) );
         int lit = _decisionLiterals[l];
         ASSERT( lit != 0 );
-        //        if ( !isDecision( ( lit ) ) )
-        //            std::cout << _index << " level " << _satSolver->getLevel() << " decision
-        //            literal #" << l
-        //                      << ": " << lit << " is not a decision!" << std::endl;
         ASSERT( isDecision( lit ) );
         if ( !_fixedCadicalVars.exists( lit ) )
             clause.insert( lit );
@@ -1016,8 +981,6 @@ void CdclCore::removeLiteralFromPropagations( int literal )
 
 void CdclCore::assume( int literal )
 {
-    //    std::cout << _index << " l" << _satSolver->getLevel() << " assume literal " << literal
-    //              << std::endl;
     CDCL_LOG(
         Stringf( "%u l%d Assuming literal %d", _index, _satSolver->getLevel(), literal ).ascii() )
     _satSolver->assume( literal );
@@ -1147,8 +1110,6 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     if ( isDecision( lit ) )
     {
-        //        std::cout << _index << " l" << _satSolver->getLevel() << " decision: " << lit
-        //                  << " level: " << _decisionIndex + 1 << std::endl;
         _decisionLiterals.insert( ++_decisionIndex, lit );
     }
 
@@ -1167,10 +1128,6 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
         if ( !isClauseSatisfied( clause ) )
             _satisfiedClauses.insert( clause );
 
-    //    if ( originalPlcPhase != PHASE_NOT_FIXED && plc->getPhaseStatus() != originalPlcPhase )
-    //        std::cout << _index << " l" << _satSolver->getLevel() << " lit " << lit << " isFixed "
-    //                  << isFixed << " originalPlcPhase " << originalPlcPhase
-    //                  << " plc->getPhaseStatus() " << plc->getPhaseStatus() << std::endl;
     ASSERT( originalPlcPhase == PHASE_NOT_FIXED || plc->getPhaseStatus() == originalPlcPhase )
 }
 
