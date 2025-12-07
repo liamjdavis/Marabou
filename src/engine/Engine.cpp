@@ -32,7 +32,6 @@
 #include "SearchTreeHandler.h"
 #include "TableauRow.h"
 #include "TimeUtils.h"
-#include "TrivialClauseException.h"
 #include "VariableOutOfBoundDuringOptimizationException.h"
 #include "Vector.h"
 
@@ -3646,7 +3645,7 @@ void Engine::explainSimplexFailure()
     }
 
     Set<int> clause = {};
-    bool useTrivialClause = false;
+
     if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
     {
         SparseUnsortedList sparseContradictionToAnalyse = SparseUnsortedList();
@@ -3655,19 +3654,9 @@ void Engine::explainSimplexFailure()
             : sparseContradictionToAnalyse.initialize( leafContradictionVec.data(),
                                                        leafContradictionVec.size() );
 
-        try
-        {
-            clause = analyseExplanationDependencies( sparseContradictionToAnalyse,
-                                                     _groundBoundManager.getCounter(),
-                                                     -1,
-                                                     true,
-                                                     0,
-                                                     true );
-        }
-        catch ( TrivialClauseException )
-        {
-            useTrivialClause = false;
-        }
+        clause = analyseExplanationDependencies(
+            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0, true );
+
 
         if ( !_solveWithCDCL )
             return;
@@ -3684,7 +3673,7 @@ void Engine::explainSimplexFailure()
         return;
     }
 
-    if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES && !useTrivialClause )
+    if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
         _cdclCore.addExternalClause( clause, false );
     else
         _cdclCore.addDecisionBasedConflictClause();
@@ -4371,8 +4360,14 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                 if ( _cdclCore.isDecision( lit ) && !clause.exists( lit ) )
                     ++decisionCounter;
 
+            // If clause includes all decisions, remove all deduction literal
             if ( decisionCounter >= _context.getLevel() )
-                throw TrivialClauseException();
+            {
+                for ( int lit : clause )
+                    if ( !_cdclCore.isDecision( lit ) )
+                        clause.erase( lit );
+                return clause;
+            }
         }
 #endif
     }
