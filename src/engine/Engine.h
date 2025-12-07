@@ -1028,12 +1028,12 @@ private:
     /*
     Analyse dependencies of an explanation vector, resulting in a list of necessary ground bounds
    */
-    Set<int>
-    analyseExplanationDependencies( const SparseUnsortedList &explanation,
-                                    unsigned id,
-                                    int explainedVar,
-                                    bool isUpper,
-                                    double targetBound );
+    Set<int> analyseExplanationDependencies( const SparseUnsortedList &explanation,
+                                             unsigned id,
+                                             int explainedVar,
+                                             bool isUpper,
+                                             double targetBound,
+                                             bool isConflict );
 #ifdef BUILD_CADICAL
     void removeLiteralFromPropagations( int literal ) override;
 #endif

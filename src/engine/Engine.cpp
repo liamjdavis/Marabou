@@ -3657,8 +3657,12 @@ void Engine::explainSimplexFailure()
 
         try
         {
-            clause = analyseExplanationDependencies(
-                sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0 );
+            clause = analyseExplanationDependencies( sparseContradictionToAnalyse,
+                                                     _groundBoundManager.getCounter(),
+                                                     -1,
+                                                     true,
+                                                     0,
+                                                     true );
         }
         catch ( TrivialClauseException )
         {
@@ -4230,7 +4234,8 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                                                  unsigned id,
                                                  int explainedVar,
                                                  bool isUpper,
-                                                 double targetBound )
+                                                 double targetBound,
+                                                 bool isConflict )
 {
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
@@ -4328,7 +4333,9 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         Set<int> subClause = {};
 
         ASSERT( entry->id < id );
-        if ( entry->lemma && entry->lemma->getToCheck() )
+        if ( !isConflict && entry->isPhaseFixing && _solveWithCDCL )
+            subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
+        else if ( entry->lemma && entry->lemma->getToCheck() )
             subClause = entry->clause;
         else if ( entry->lemma && !entry->lemma->getExplanations().empty() &&
                   !entry->lemma->getToCheck() )
@@ -4345,7 +4352,8 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                     entry->id,
                     *it,
                     entry->lemma->getCausingVarBound() == Tightening::UB,
-                    entry->lemma->getMinTargetBound() ) );
+                    entry->lemma->getMinTargetBound(),
+                    isConflict ) );
 
                 std::advance( it, 1 );
             }
@@ -4422,7 +4430,8 @@ Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litCons
                                         phaseFixingEntry->id,
                                         phaseFixingEntry->lemma->getCausingVars().back(),
                                         phaseFixingEntry->lemma->getCausingVarBound(),
-                                        phaseFixingEntry->lemma->getBound() );
+                                        phaseFixingEntry->lemma->getBound(),
+                                        false );
     phaseFixingEntry->clause = clause;
 
     return clause;
