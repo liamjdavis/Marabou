@@ -32,6 +32,7 @@
 #include "SearchTreeHandler.h"
 #include "TableauRow.h"
 #include "TimeUtils.h"
+#include "TrivialClauseException.h"
 #include "VariableOutOfBoundDuringOptimizationException.h"
 #include "Vector.h"
 
@@ -3645,6 +3646,7 @@ void Engine::explainSimplexFailure()
     }
 
     Set<int> clause = {};
+    bool useTrivialClause = false;
     if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
     {
         SparseUnsortedList sparseContradictionToAnalyse = SparseUnsortedList();
@@ -3653,8 +3655,15 @@ void Engine::explainSimplexFailure()
             : sparseContradictionToAnalyse.initialize( leafContradictionVec.data(),
                                                        leafContradictionVec.size() );
 
-        clause = analyseExplanationDependencies(
-            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0 );
+        try
+        {
+            clause = analyseExplanationDependencies(
+                sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0 );
+        }
+        catch ( TrivialClauseException )
+        {
+            useTrivialClause = false;
+        }
 
         if ( !_solveWithCDCL )
             return;
@@ -3671,7 +3680,7 @@ void Engine::explainSimplexFailure()
         return;
     }
 
-    if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
+    if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES && !useTrivialClause )
         _cdclCore.addExternalClause( clause, false );
     else
         _cdclCore.addDecisionBasedConflictClause();
@@ -4354,15 +4363,8 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                 if ( _cdclCore.isDecision( lit ) && !clause.exists( lit ) )
                     ++decisionCounter;
 
-            if ( decisionCounter > _context.getLevel() )
-            {
-                // If the clause contains all decisions, we can remove all other literals
-                for ( int lit : clause )
-                    if ( !_cdclCore.isDecision( lit ) )
-                        clause.erase( lit );
-
-                return clause;
-            }
+            if ( decisionCounter >= _context.getLevel() )
+                throw TrivialClauseException();
         }
 #endif
     }

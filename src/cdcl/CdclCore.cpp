@@ -20,6 +20,7 @@
 #include "Options.h"
 #include "Query.h"
 #include "TimeUtils.h"
+#include "TrivialClauseException.h"
 
 #include <atomic>
 #include <chrono>
@@ -554,10 +555,20 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
 
         if ( !_fixedCadicalVars.exists( propagated_lit ) )
         {
+            bool trivialClause = false;
             Set<int> clause;
             if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
-                clause = _engine->explainPhaseWithProof( _cadicalVarToPlc[abs( propagated_lit )] );
-            else
+                try
+                {
+                    clause =
+                        _engine->explainPhaseWithProof( _cadicalVarToPlc[abs( propagated_lit )] );
+                }
+                catch ( TrivialClauseException )
+                {
+                    trivialClause = true;
+                }
+
+            if ( !GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES || trivialClause )
             {
                 for ( unsigned level = 1; level <= _satSolver->getLevel(); ++level )
                 {
