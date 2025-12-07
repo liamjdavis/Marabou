@@ -4355,7 +4355,14 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                     ++decisionCounter;
 
             if ( decisionCounter > _context.getLevel() )
+            {
+                // If the clause contains all decisions, we can remove all other literals
+                for ( int lit : clause )
+                    if ( !_cdclCore.isDecision( lit ) )
+                        clause.erase( lit );
+
                 return clause;
+            }
         }
 #endif
     }
