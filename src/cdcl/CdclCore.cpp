@@ -551,12 +551,12 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                            _satSolver->getLevel(),
                            propagated_lit )
                       .ascii() )
+        Set<int> clause = {};
 
         if ( !_fixedCadicalVars.exists( propagated_lit ) )
         {
             if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
-                Set<int> clause =
-                    _engine->explainPhaseWithProof( _cadicalVarToPlc[abs( propagated_lit )] );
+                clause = _engine->explainPhaseWithProof( _cadicalVarToPlc[abs( propagated_lit )] );
             else
             {
                 for ( unsigned level = 1; level <= _satSolver->getLevel(); ++level )

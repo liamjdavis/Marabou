@@ -4360,7 +4360,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                 if ( _cdclCore.isDecision( lit ) && !clause.exists( lit ) )
                     ++decisionCounter;
 
-            // If clause includes all decisions, remove all deduction literal
+            // If clause includes all decisions, remove all deduction literals
             if ( decisionCounter >= _context.getLevel() )
             {
                 for ( int lit : clause )
