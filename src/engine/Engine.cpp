@@ -4322,7 +4322,9 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         Set<int> subClause = {};
 
         ASSERT( entry->id < id );
-        if ( ( !reqDecision || decisionCounter ) && entry->isPhaseFixing && _solveWithCDCL )
+        // If a decision is required, we can stop analysing derived literals only after a decision was added to the clause.
+        if ( ( !reqDecision || decisionCounter || !entry->lemma ) && entry->isPhaseFixing &&
+             _solveWithCDCL )
             subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
         else if ( entry->lemma && entry->lemma->getToCheck() )
             subClause = entry->clause;
@@ -4349,8 +4351,6 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
             entry->clause = subClause;
         }
 #ifdef BUILD_CADICAL
-        else if ( entry->isPhaseFixing && _solveWithCDCL )
-            subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
 
         if ( _solveWithCDCL )
         {
