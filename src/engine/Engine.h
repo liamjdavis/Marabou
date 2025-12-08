@@ -1033,7 +1033,7 @@ private:
                                              int explainedVar,
                                              bool isUpper,
                                              double targetBound,
-                                             bool isConflict );
+                                             bool reqDecision );
 #ifdef BUILD_CADICAL
     void removeLiteralFromPropagations( int literal ) override;
 #endif

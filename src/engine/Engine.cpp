@@ -4224,7 +4224,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                                                  int explainedVar,
                                                  bool isUpper,
                                                  double targetBound,
-                                                 bool isConflict )
+                                                 bool reqDecision )
 {
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
@@ -4322,7 +4322,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         Set<int> subClause = {};
 
         ASSERT( entry->id < id );
-        if ( !isConflict && entry->isPhaseFixing && _solveWithCDCL )
+        if ( ( !reqDecision || decisionCounter ) && entry->isPhaseFixing && _solveWithCDCL )
             subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
         else if ( entry->lemma && entry->lemma->getToCheck() )
             subClause = entry->clause;
@@ -4342,7 +4342,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                     *it,
                     entry->lemma->getCausingVarBound() == Tightening::UB,
                     entry->lemma->getMinTargetBound(),
-                    isConflict ) );
+                    !decisionCounter || !reqDecision ) );
 
                 std::advance( it, 1 );
             }
