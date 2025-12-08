@@ -111,7 +111,7 @@ const GlobalConfiguration::BasisFactorizationType GlobalConfiguration::BASIS_FAC
 const unsigned GlobalConfiguration::BABSR_CANDIDATES_THRESHOLD = 5;
 const unsigned GlobalConfiguration::POLARITY_CANDIDATES_THRESHOLD = 5;
 
-const unsigned GlobalConfiguration::DNC_DEPTH_THRESHOLD = 5;
+const unsigned GlobalConfiguration::DNC_DEPTH_THRESHOLD = 2;
 
 const double GlobalConfiguration::MINIMAL_COEFFICIENT_FOR_TIGHTENING = 0.01;
 const double GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE = 0.000001;
@@ -120,16 +120,16 @@ const bool GlobalConfiguration::WRITE_JSON_PROOF = false;
 const unsigned GlobalConfiguration::BACKWARD_BOUND_PROPAGATION_DEPTH = 3;
 const unsigned GlobalConfiguration::MAX_ROUNDS_OF_BACKWARD_ANALYSIS = 10;
 
-const bool GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES = true;
-const bool GlobalConfiguration::MINIMIZE_PROOF_DEPENDENCIES = true;
+const bool GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES = false;
+const bool GlobalConfiguration::MINIMIZE_PROOF_DEPENDENCIES = false;
 
 const bool GlobalConfiguration::CONVERT_VERIFICATION_QUERY_INTO_REACHABILITY_QUERY = false;
 
-const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES = false;
+const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES = true;
 const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES_WITH_QUICKXPLAIN = false;
 
 const bool GlobalConfiguration::CDCL_SHARE_CLAUSES = true;
-const unsigned GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT = 5;
+const unsigned GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT = 10;
 
 #ifdef ENABLE_GUROBI
 const unsigned GlobalConfiguration::GUROBI_NUMBER_OF_THREADS = 1;

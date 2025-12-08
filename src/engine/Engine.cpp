@@ -4344,7 +4344,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                     *it,
                     entry->lemma->getCausingVarBound() == Tightening::UB,
                     entry->lemma->getMinTargetBound(),
-                    !decisionCounter || !reqDecision ) );
+                    !decisionCounter && reqDecision ) );
 
                 std::advance( it, 1 );
             }
