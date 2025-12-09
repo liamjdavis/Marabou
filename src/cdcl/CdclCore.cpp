@@ -604,7 +604,11 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
             }
 
             if ( GlobalConfiguration::CDCL_SHARE_CLAUSES &&
-                 clause.size() <= GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT - 1 )
+                 clause.size() <=
+                     static_cast<unsigned>(
+                         GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE *
+                         _satSolver->vars() ) -
+                         1 )
             {
                 unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
                 CdclCore::sharedClausesMutex.lock();
@@ -748,7 +752,10 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     ASSERT( !clause.exists( 0 ) )
 
-    if ( shareClause && clause.size() <= GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT )
+    if ( shareClause &&
+         clause.size() <= static_cast<unsigned>(
+                              GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE *
+                              _satSolver->vars() ) )
     {
         unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
         CdclCore::sharedClausesMutex.lock();

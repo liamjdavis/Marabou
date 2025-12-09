@@ -129,7 +129,7 @@ const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES = true;
 const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES_WITH_QUICKXPLAIN = false;
 
 const bool GlobalConfiguration::CDCL_SHARE_CLAUSES = true;
-const unsigned GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT = 10;
+const double GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE = 0.05;
 
 #ifdef ENABLE_GUROBI
 const unsigned GlobalConfiguration::GUROBI_NUMBER_OF_THREADS = 1;
