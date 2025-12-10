@@ -95,11 +95,6 @@ public:
         }
     }
 
-    void applyPlcPhaseFixingTightenings( PiecewiseLinearConstraint & /*constraint*/ ) override
-    {
-    }
-
-
     void postContextPopHook() override
     {
     }

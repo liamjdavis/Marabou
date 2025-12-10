@@ -1128,7 +1128,7 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
     DEBUG( PhaseStatus originalPlcPhase = plc->getPhaseStatus() );
 
     plc->propagateLitAsSplit( lit );
-    _engine->applyPlcPhaseFixingTightenings( *plc );
+    _engine->applySplit( plc->getValidCaseSplit() );
     plc->setActiveConstraint( false );
 
     ASSERT( !isLiteralAssigned( lit ) )

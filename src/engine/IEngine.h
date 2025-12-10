@@ -58,11 +58,6 @@ public:
     virtual void applySplit( const PiecewiseLinearCaseSplit &split ) = 0;
 
     /*
-      Apply tighetenings implied from phase fixing of the given piecewise linear constraint;
-     */
-    virtual void applyPlcPhaseFixingTightenings( PiecewiseLinearConstraint &constraint ) = 0;
-
-    /*
       Register initial SnC split
     */
     virtual void applySnCSplit( PiecewiseLinearCaseSplit split, String queryId ) = 0;
