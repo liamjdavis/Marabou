@@ -271,7 +271,7 @@ bool CdclCore::cb_check_found_model( const std::vector<int> &model )
         if ( !_externalClauseToAdd.empty() )
             return false;
 
-        result = _engine->solve( 0 );
+        result = _engine->solve( _timeoutInSeconds );
 
         // In cases where Marabou fails to provide a conflict clause, add the trivial possibility
         if ( !result && _externalClauseToAdd.empty() )
@@ -282,7 +282,7 @@ bool CdclCore::cb_check_found_model( const std::vector<int> &model )
         result = result && _externalClauseToAdd.empty();
     }
     else
-        result = _engine->solve( 0 );
+        result = _engine->solve( _timeoutInSeconds );
 
     return result;
 }
@@ -363,7 +363,7 @@ int CdclCore::cb_propagate()
     if ( _engine->getLpSolverType() == LPSolverType::GUROBI &&
          GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
     {
-        if ( _engine->solve( 0 ) )
+        if ( _engine->solve( _timeoutInSeconds ) )
         {
             if ( _statistics )
                 start = TimeUtils::sampleMicro();
@@ -407,7 +407,7 @@ int CdclCore::cb_propagate()
         // If no literals left to propagate, and no clause already found, attempt solving
         if ( _externalClauseToAdd.empty() )
         {
-            if ( _engine->solve( 0 ) )
+            if ( _engine->solve( _timeoutInSeconds ) )
             {
                 if ( _statistics )
                     start = TimeUtils::sampleMicro();
@@ -823,7 +823,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
     if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
          Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )
-        if ( _engine->solve( 0 ) )
+        if ( _engine->solve( _timeoutInSeconds ) )
         {
             _engine->setExitCode( ExitCode::SAT );
             return true;
