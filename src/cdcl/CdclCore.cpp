@@ -556,7 +556,8 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
         if ( !_fixedCadicalVars.exists( propagated_lit ) )
         {
             if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
-                clause = _engine->explainPhaseWithProof( _satSolverVarToPlc[abs( propagated_lit )] );
+                clause =
+                    _engine->explainPhaseWithProof( _satSolverVarToPlc[abs( propagated_lit )] );
             else
             {
                 for ( int lit : _sncSplitLiterals )
@@ -753,9 +754,9 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
     ASSERT( !clause.exists( 0 ) )
 
     if ( shareClause &&
-         clause.size() <= static_cast<unsigned>(
-                              GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE *
-                              _satSolver->vars() ) )
+         clause.size() <=
+             static_cast<unsigned>( GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE *
+                                    _satSolver->vars() ) )
     {
         unsigned newClauseIndex = CdclCore::clauseIndex.fetch_add( 1 );
         CdclCore::sharedClausesMutex.lock();

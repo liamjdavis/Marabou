@@ -70,7 +70,7 @@ void DnCWorker::setQueryDivider( SnCDivideStrategy divideStrategy )
         _queryDivider = std::unique_ptr<QueryDivider>( new PolarityBasedDivider( _engine ) );
     else if ( divideStrategy == SnCDivideStrategy::Vsids )
         _queryDivider =
-            std::unique_ptr<QueryDivider>( new VsidsBasedDivider( _engine->getCdclCore() ) );
+            std::unique_ptr<QueryDivider>( new VsidsBasedDivider( _engine ) );
     else
     {
         const List<unsigned> &inputVariables = _engine->getInputVariables();

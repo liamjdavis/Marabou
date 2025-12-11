@@ -15,10 +15,12 @@
 
 #include "VsidsBasedDivider.h"
 
+#include "InfeasibleQueryException.h"
+
 #include <utility>
 
-VsidsBasedDivider::VsidsBasedDivider( const CdclCore* cdclCore )
-    : _cdclCore( std::move( cdclCore ) )
+VsidsBasedDivider::VsidsBasedDivider( std::shared_ptr<IEngine> engine )
+    : _engine( std::move( engine ) )
 {
 }
 
@@ -41,10 +43,7 @@ void VsidsBasedDivider::createSubQueries( unsigned int numNewSubQueries,
         List<PiecewiseLinearCaseSplit *> newSplits;
         for ( const auto &split : splits )
         {
-            unsigned satSolverVarToSplit = _cdclCore->decideSplitVarBasedOnPolarityAndVsids();
-            const PiecewiseLinearConstraint *pLConstraintToSplit =
-                _cdclCore->getPlc( satSolverVarToSplit );
-
+            const PiecewiseLinearConstraint *pLConstraintToSplit = getPLConstraintToSplit( *split );
             if ( pLConstraintToSplit == NULL )
             {
                 auto newSplit = new PiecewiseLinearCaseSplit();
@@ -87,4 +86,24 @@ void VsidsBasedDivider::createSubQueries( unsigned int numNewSubQueries,
         subQuery->_timeoutInSeconds = timeoutInSeconds;
         subQueries.append( subQuery );
     }
+}
+
+const PiecewiseLinearConstraint *
+VsidsBasedDivider::getPLConstraintToSplit( const PiecewiseLinearCaseSplit &split )
+{
+    try
+    {
+        _engine->applySnCSplit( split, "" );
+    }
+    catch ( const InfeasibleQueryException & )
+    {
+        return NULL;
+    }
+
+    const PiecewiseLinearConstraint *constraintToSplit = NULL;
+    unsigned varToSplit = _engine->getCdclCore()->decideSplitVarBasedOnPolarityAndVsids();
+    constraintToSplit = _engine->getCdclCore()->getPlc( varToSplit );
+    _engine->getContext().pop();
+    _engine->postContextPopHook();
+    return constraintToSplit;
 }

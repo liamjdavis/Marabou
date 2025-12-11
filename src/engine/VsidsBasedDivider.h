@@ -16,14 +16,13 @@
 #ifndef __VsidsBasedDivider_h__
 #define __VsidsBasedDivider_h__
 
-#include "QueryDivider.h"
-
 #include "CdclCore.h"
+#include "QueryDivider.h"
 
 class VsidsBasedDivider : public QueryDivider
 {
 public:
-    VsidsBasedDivider( const CdclCore* cdclCore );
+    VsidsBasedDivider( std::shared_ptr<IEngine> engine );
 
     void createSubQueries( unsigned numNewSubQueries,
                            const String queryIdPrefix,
@@ -33,7 +32,10 @@ public:
                            SubQueries &subQueries ) override;
 
 private:
-    const CdclCore* _cdclCore;
+    std::shared_ptr<IEngine> _engine;
+
+    const PiecewiseLinearConstraint *
+    getPLConstraintToSplit( const PiecewiseLinearCaseSplit &split );
 };
 
 

@@ -424,7 +424,7 @@ void DnCManager::initialDivide( SubQueries &subQueries )
     else if ( _sncSplittingStrategy == SnCDivideStrategy::Vsids )
     {
         queryDivider =
-            std::unique_ptr<QueryDivider>( new VsidsBasedDivider( _baseEngine->getCdclCore() ) );
+            std::unique_ptr<QueryDivider>( new VsidsBasedDivider( _baseEngine ) );
     }
     else // Default is LargestInterval
     {
