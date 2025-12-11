@@ -184,6 +184,8 @@ SnCDivideStrategy Options::getSnCDivideStrategy() const
         return SnCDivideStrategy::Polarity;
     else if ( strategyString == "largest-interval" )
         return SnCDivideStrategy::LargestInterval;
+    else if ( strategyString == "vsids" )
+        return SnCDivideStrategy::Vsids;
     else
         return SnCDivideStrategy::Auto;
 }

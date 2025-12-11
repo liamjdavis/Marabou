@@ -389,6 +389,8 @@ public:
      Configure the engine to allow solving with CDCL, used for testing only.
     */
     void configureForCDCL();
+
+    const CdclCore *getCdclCore() const override;
 #endif
 
     /*

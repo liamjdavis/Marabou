@@ -30,6 +30,7 @@
 #include "SnCDivideStrategy.h"
 #include "TimeUtils.h"
 #include "Vector.h"
+#include "VsidsBasedDivider.h"
 
 #include <atomic>
 #include <chrono>
@@ -419,6 +420,11 @@ void DnCManager::initialDivide( SubQueries &subQueries )
     if ( _sncSplittingStrategy == SnCDivideStrategy::Polarity )
     {
         queryDivider = std::unique_ptr<QueryDivider>( new PolarityBasedDivider( _baseEngine ) );
+    }
+    else if ( _sncSplittingStrategy == SnCDivideStrategy::Vsids )
+    {
+        queryDivider =
+            std::unique_ptr<QueryDivider>( new VsidsBasedDivider( _baseEngine->getCdclCore() ) );
     }
     else // Default is LargestInterval
     {

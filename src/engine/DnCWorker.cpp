@@ -27,6 +27,7 @@
 #include "SnCDivideStrategy.h"
 #include "SubQuery.h"
 #include "TableauStateStorageLevel.h"
+#include "VsidsBasedDivider.h"
 
 #include <atomic>
 #include <chrono>
@@ -67,6 +68,9 @@ void DnCWorker::setQueryDivider( SnCDivideStrategy divideStrategy )
 {
     if ( divideStrategy == SnCDivideStrategy::Polarity )
         _queryDivider = std::unique_ptr<QueryDivider>( new PolarityBasedDivider( _engine ) );
+    else if ( divideStrategy == SnCDivideStrategy::Vsids )
+        _queryDivider =
+            std::unique_ptr<QueryDivider>( new VsidsBasedDivider( _engine->getCdclCore() ) );
     else
     {
         const List<unsigned> &inputVariables = _engine->getInputVariables();

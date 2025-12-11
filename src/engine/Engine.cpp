@@ -4494,4 +4494,9 @@ void Engine::resetCdclCore()
 {
     _cdclCore.reset();
 }
+
+const CdclCore *Engine::getCdclCore() const
+{
+    return &_cdclCore;
+}
 #endif

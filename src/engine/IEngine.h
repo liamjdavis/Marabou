@@ -34,6 +34,7 @@
 #undef ERROR
 #endif
 
+class CdclCore;
 class EngineState;
 class Equation;
 namespace NLR {
@@ -293,6 +294,8 @@ public:
       Remove a literal from the propagation list to the SAT solver, during the CDCL solving.
      */
     virtual void removeLiteralFromPropagations( int literal ) = 0;
+
+    virtual const CdclCore *getCdclCore() const = 0;
 #endif
 };
 

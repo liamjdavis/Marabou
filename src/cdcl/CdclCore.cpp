@@ -36,7 +36,7 @@ CdclCore::CdclCore( IEngine *engine )
     , _context( _engine->getContext() )
     , _statistics( nullptr )
     , _satSolver( nullptr )
-    , _cadicalVarToPlc()
+    , _satSolverVarToPlc()
     , _literalsToPropagate()
     , _assignedLiterals( &_context )
     , _reasonClauseLiterals()
@@ -59,7 +59,7 @@ CdclCore::CdclCore( IEngine *engine )
     , _sncSplitLiterals()
     , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
-    _cadicalVarToPlc.insert( 0, NULL );
+    _satSolverVarToPlc.insert( 0, NULL );
 }
 
 CdclCore::~CdclCore()
@@ -71,7 +71,7 @@ void CdclCore::initBooleanAbstraction( PiecewiseLinearConstraint *plc )
 {
     struct timespec start = TimeUtils::sampleMicro();
 
-    plc->booleanAbstraction( _cadicalVarToPlc );
+    plc->booleanAbstraction( _satSolverVarToPlc );
 
     if ( _statistics )
     {
@@ -85,8 +85,8 @@ bool CdclCore::isLiteralAssigned( int literal ) const
 {
     if ( _assignedLiterals.count( literal ) > 0 )
     {
-        ASSERT( _cadicalVarToPlc.at( abs( literal ) )->phaseFixed() ||
-                !_cadicalVarToPlc.at( abs( literal ) )->isActive() )
+        ASSERT( _satSolverVarToPlc.at( abs( literal ) )->phaseFixed() ||
+                !_satSolverVarToPlc.at( abs( literal ) )->isActive() )
         return true;
     }
 
@@ -316,7 +316,7 @@ int CdclCore::cb_decide()
     int decisionLiteral = 0;
 
     if ( decisionVariable )
-        decisionLiteral = _cadicalVarToPlc[decisionVariable]->getLiteralForDecision();
+        decisionLiteral = _satSolverVarToPlc[decisionVariable]->getLiteralForDecision();
 
     if ( decisionLiteral )
     {
@@ -556,7 +556,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
         if ( !_fixedCadicalVars.exists( propagated_lit ) )
         {
             if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
-                clause = _engine->explainPhaseWithProof( _cadicalVarToPlc[abs( propagated_lit )] );
+                clause = _engine->explainPhaseWithProof( _satSolverVarToPlc[abs( propagated_lit )] );
             else
             {
                 for ( int lit : _sncSplitLiterals )
@@ -624,8 +624,8 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                 ASSERT( isLiteralAssigned( lit ) );
 
                 ASSERT( !GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES ||
-                        _cadicalVarToPlc[abs( propagated_lit )]->getPhaseFixingEntry()->id >
-                            _cadicalVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
+                        _satSolverVarToPlc[abs( propagated_lit )]->getPhaseFixingEntry()->id >
+                            _satSolverVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
 
                 // Remove fixed literals from clause, as they are redundant
                 if ( !_fixedCadicalVars.exists( -lit ) )
@@ -797,8 +797,8 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
 const PiecewiseLinearConstraint *CdclCore::getConstraintFromLit( int lit ) const
 {
-    if ( _cadicalVarToPlc.exists( (unsigned)FloatUtils::abs( lit ) ) )
-        return _cadicalVarToPlc.at( (unsigned)FloatUtils::abs( lit ) );
+    if ( _satSolverVarToPlc.exists( (unsigned)FloatUtils::abs( lit ) ) )
+        return _satSolverVarToPlc.at( (unsigned)FloatUtils::abs( lit ) );
     return nullptr;
 }
 
@@ -1124,7 +1124,7 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
     }
 
     // Pick the split to perform
-    PiecewiseLinearConstraint *plc = _cadicalVarToPlc.at( (unsigned)FloatUtils::abs( lit ) );
+    PiecewiseLinearConstraint *plc = _satSolverVarToPlc.at( (unsigned)FloatUtils::abs( lit ) );
     DEBUG( PhaseStatus originalPlcPhase = plc->getPhaseStatus() );
 
     plc->propagateLitAsSplit( lit );
@@ -1252,7 +1252,7 @@ unsigned CdclCore::decideSplitVarBasedOnPseudoImpactAndVsids() const
     double maxScore = 0;
     unsigned variableWithMaxScore = 0;
 
-    for ( const auto &pair : _cadicalVarToPlc )
+    for ( const auto &pair : _satSolverVarToPlc )
     {
         unsigned var = pair.first;
         if ( var == 0 )
@@ -1305,7 +1305,7 @@ void CdclCore::setInputBoundsForLiteralInNLR(
     NLR::NetworkLevelReasoner *networkLevelReasoner ) const
 {
     const auto &layers = networkLevelReasoner->getLayerIndexToLayer();
-    const PiecewiseLinearConstraint *plc = _cadicalVarToPlc[abs( literal )];
+    const PiecewiseLinearConstraint *plc = _satSolverVarToPlc[abs( literal )];
     for ( unsigned variable : plc->getParticipatingVariables() )
     {
         NLR::NeuronIndex neuronIndex = networkLevelReasoner->variableToNeuron( variable );
@@ -1531,7 +1531,7 @@ void CdclCore::reset()
 {
     _satSolver = new CadicalWrapper( this, this, this );
 
-    for ( unsigned var : _cadicalVarToPlc.keys() )
+    for ( unsigned var : _satSolverVarToPlc.keys() )
         if ( var != 0 )
             _satSolver->addObservedVar( (int)var );
 
@@ -1560,5 +1560,10 @@ void CdclCore::reset()
     _sharedClauseAdded.clear();
 
     _sncSplitLiterals.clear();
+}
+
+const PiecewiseLinearConstraint *CdclCore::getPlc( unsigned int var ) const
+{
+    return _satSolverVarToPlc[var];
 }
 #endif

@@ -420,6 +420,11 @@ public:
     {
         return true;
     }
+
+    const CdclCore *getCdclCore() const override
+    {
+        return nullptr;
+    }
 #endif
 };
 

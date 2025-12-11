@@ -212,11 +212,20 @@ public:
 
     void reset();
 
+    /*
+     Decision heuristics
+    */
+    unsigned decideSplitVarBasedOnPolarityAndVsids() const;
+    unsigned decideSplitVarBasedOnPseudoImpactAndVsids() const;
+
+    const PiecewiseLinearConstraint *getPlc( unsigned var ) const;
+
     static std::atomic<unsigned> numCdclCores;
 
     static Map<unsigned, Set<int>> sharedClauses;
     static std::mutex sharedClausesMutex;
     static std::atomic<unsigned> clauseIndex;
+
 private:
     /*
       The engine.
@@ -242,7 +251,7 @@ private:
       Boolean abstraction map, from boolean variables to the PiecewiseLinearConstraint they
       represent
     */
-    Map<unsigned, PiecewiseLinearConstraint *> _cadicalVarToPlc;
+    Map<unsigned, PiecewiseLinearConstraint *> _satSolverVarToPlc;
 
     /*
       Internal data structures to keep track of literals to propagate, assigned and fixed literals;
@@ -285,13 +294,6 @@ private:
     Set<unsigned> _sharedClauseAdded;
 
     Set<int> _sncSplitLiterals;
-
-    /*
-     Decision heuristics
-     */
-    unsigned decideSplitVarBasedOnPolarityAndVsids() const;
-    unsigned decideSplitVarBasedOnPseudoImpactAndVsids() const;
-
 
     /*
       Access info in the internal data structures
