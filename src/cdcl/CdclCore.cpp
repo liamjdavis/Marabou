@@ -774,12 +774,15 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     _externalClauseToAdd.append( 0 );
 
-    // Remove fixed literals as they are redundant
-    for ( int lit : clause )
+    if (clause != _sncSplitLiterals)
     {
-        _externalClauseToAdd.append( -lit );
-        if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
-            _literalToClauses[-lit].insert( _numOfClauses );
+        // Remove fixed literals as they are redundant
+        for ( int lit : clause )
+        {
+            _externalClauseToAdd.append( -lit );
+            if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
+                _literalToClauses[-lit].insert( _numOfClauses );
+        }
     }
 
     ++_numOfClauses;
@@ -955,6 +958,8 @@ void CdclCore::addDecisionBasedConflictClause()
         ASSERT( _decisionLiterals.exists( l ) );
         int lit = _decisionLiterals[l];
         ASSERT( lit != 0 );
+        if (!isDecision(lit))
+            std::cout << _index << " l" << _satSolver->getLevel() << " " << lit << std::endl;
         ASSERT( isDecision( lit ) );
         if ( !_fixedCadicalVars.exists( lit ) )
             clause.insert( lit );
