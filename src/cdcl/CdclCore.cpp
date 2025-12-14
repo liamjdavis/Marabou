@@ -54,7 +54,6 @@ CdclCore::CdclCore( IEngine *engine )
     , _shouldRestart( false )
     , _initialClauses()
     , _scoreTracker( nullptr )
-    , _decisionIndex( 0 )
     , _lastSharedClauseIndexAdded( 0 )
     , _sharedClauseAdded()
     , _sncSplitLiterals()
@@ -201,14 +200,8 @@ void CdclCore::notify_backtrack( size_t new_level )
     if ( _isSolving )
     {
         for ( unsigned l = oldLevel; l > new_level; l-- )
-        {
-            if ( l > _decisionIndex )
-                continue;
-
-            ASSERT( l == _decisionIndex )
-            ASSERT( _decisionLiterals.exists( _decisionIndex ) );
-            _decisionLiterals.erase( _decisionIndex-- );
-        }
+            if ( _decisionLiterals.exists( l ) )
+                _decisionLiterals.erase( l );
 
         // Maintain literals to propagate learned before the decision level
         List<Pair<int, unsigned>> currentPropagations = _literalsToPropagate;
@@ -770,15 +763,12 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     _externalClauseToAdd.append( 0 );
 
-    if ( !Set<int>::containedIn( clause, _sncSplitLiterals ) )
+    // Remove fixed literals as they are redundant
+    for ( int lit : clause )
     {
-        // Remove fixed literals as they are redundant
-        for ( int lit : clause )
-        {
-            _externalClauseToAdd.append( -lit );
-            if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
-                _literalToClauses[-lit].insert( _numOfClauses );
-        }
+        _externalClauseToAdd.append( -lit );
+        if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
+            _literalToClauses[-lit].insert( _numOfClauses );
     }
 
     ++_numOfClauses;
@@ -903,6 +893,8 @@ void CdclCore::addLiteralToPropagate( int literal )
     struct timespec start = TimeUtils::sampleMicro();
 
     ASSERT( literal )
+    if ( _sncSplitLiterals.exists( -literal ) )
+        std::cout << -literal << " assumed" << std::endl;
     if ( !isLiteralAssigned( literal ) && !isLiteralToBePropagated( literal ) )
     {
         ASSERT( !isLiteralAssigned( -literal ) && !isLiteralToBePropagated( -literal ) )
@@ -937,10 +929,7 @@ void CdclCore::addDecisionBasedConflictClause()
     for ( int l = 1; l <= _context.getLevel(); ++l )
     {
         if ( !_decisionLiterals.exists( l ) )
-        {
-            ASSERT( l == _context.getLevel() );
             continue;
-        }
 
         ASSERT( _decisionLiterals.exists( l ) );
         int lit = _decisionLiterals[l];
@@ -988,6 +977,7 @@ void CdclCore::assume( int literal )
 {
     CDCL_LOG(
         Stringf( "%u l%d Assuming literal %d", _index, _context.getLevel(), literal ).ascii() )
+
     _satSolver->assume( literal );
     _sncSplitLiterals.insert( literal );
 }
@@ -1115,14 +1105,9 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 
     if ( isDecision( lit ) )
     {
-        CDCL_LOG( Stringf( "%u l%d Adding decision: %d with decision index %u",
-                           _index,
-                           _context.getLevel(),
-                           lit,
-                           _decisionIndex + 1 )
-                      .ascii() );
-        ASSERT( _decisionIndex + 1 == (unsigned)_context.getLevel() );
-        _decisionLiterals.insert( ++_decisionIndex, lit );
+        CDCL_LOG(
+            Stringf( "%u l%d Adding decision: %d", _index, _context.getLevel(), lit ).ascii() );
+        _decisionLiterals.insert( _context.getLevel(), lit );
     }
 
     // Pick the split to perform
@@ -1547,7 +1532,6 @@ void CdclCore::reset()
 
     _largestAssignmentSoFar.clear();
     _decisionLiterals.clear();
-    _decisionIndex = 0;
     _decisionScores.clear();
 
     _lastSharedClauseIndexAdded = 0;
