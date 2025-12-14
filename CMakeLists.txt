@@ -241,6 +241,7 @@ set(GMP_INCLUDE "/usr/include")
 
 # Add include directories and link to GMP where needed later
 set(HAVE_GMP TRUE)
+list(APPEND LIBS ${GMP_LIB})
 
 ###########
 ## Build ##
@@ -347,9 +348,10 @@ find_package(Threads REQUIRED)
 list(APPEND LIBS Threads::Threads)
 
 if (BUILD_STATIC_MARABOU)
-    target_link_libraries(${MARABOU_LIB} PRIVATE ${LIBS} ${GMP_LIB} -static)
+    # build a static library
+    target_link_libraries(${MARABOU_LIB} ${LIBS} -static)
 else ()
-    target_link_libraries(${MARABOU_LIB} PRIVATE ${LIBS} ${GMP_LIB})
+    target_link_libraries(${MARABOU_LIB} ${LIBS})
 endif ()
 
 target_include_directories(${MARABOU_LIB} PRIVATE ${LIBS_INCLUDES})

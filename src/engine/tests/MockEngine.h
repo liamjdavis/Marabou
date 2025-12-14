@@ -389,10 +389,21 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<Query> getInputQuery() const
+    std::shared_ptr<Query> getInputQuery() const override
     {
         return std::shared_ptr<Query>( nullptr );
     }
+
+    AletheProofWriter *getAletheWriter() const override
+    {
+        return NULL;
+    }
+
+    unsigned getNumOfLemmas() const override
+    {
+        return 0;
+    }
+
 
 #ifdef BUILD_CADICAL
     bool solveWithCDCL( double timeoutInSeconds ) override
