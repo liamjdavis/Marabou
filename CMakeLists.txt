@@ -234,6 +234,14 @@ if (BUILD_CADICAL)
     list(APPEND LIBS ${CADICAL_LIB})
 endif ()
 
+message(WARNING "GMP not found by CMake; trying manual paths")
+# Try common system locations (adjust if needed)
+set(GMP_LIB "/usr/lib/x86_64-linux-gnu/libgmp.so")
+set(GMP_INCLUDE "/usr/include")
+
+# Add include directories and link to GMP where needed later
+set(HAVE_GMP TRUE)
+
 ###########
 ## Build ##
 ###########
@@ -339,10 +347,9 @@ find_package(Threads REQUIRED)
 list(APPEND LIBS Threads::Threads)
 
 if (BUILD_STATIC_MARABOU)
-    # build a static library
-    target_link_libraries(${MARABOU_LIB} ${LIBS} -static)
+    target_link_libraries(${MARABOU_LIB} PRIVATE ${LIBS} ${GMP_LIB} -static)
 else ()
-    target_link_libraries(${MARABOU_LIB} ${LIBS})
+    target_link_libraries(${MARABOU_LIB} PRIVATE ${LIBS} ${GMP_LIB})
 endif ()
 
 target_include_directories(${MARABOU_LIB} PRIVATE ${LIBS_INCLUDES})

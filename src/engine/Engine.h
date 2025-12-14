@@ -364,6 +364,16 @@ public:
 
     List<unsigned> getOutputVariables() const override;
 
+    /*
+     Returns the Alethe proof writer.
+    */
+    AletheProofWriter *getAletheWriter() const override;
+
+    /*
+     Returns the number of lemmas
+    */
+    unsigned getNumOfLemmas() const override;
+
 #ifdef BUILD_CADICAL
     /*
       Solve the input query with CDCL
@@ -659,6 +669,8 @@ private:
     GroundBoundManager _groundBoundManager;
     UnsatCertificateNode *_UNSATCertificate;
     CVC4::context::CDO<UnsatCertificateNode *> *_UNSATCertificateCurrentPointer;
+    AletheProofWriter *_aletheWriter;
+
 
     /*
       Solve the query with CDCL

@@ -18,6 +18,7 @@
 
 #include "List.h"
 #include "QueryDivider.h"
+#include "IEngine.h"
 
 #include <math.h>
 

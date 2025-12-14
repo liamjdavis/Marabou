@@ -17,26 +17,24 @@
 #include "DisjunctionConstraint.h"
 #include "LeakyReluConstraint.h"
 #include "MaxConstraint.h"
-#include "ReluConstraint.h"
-#include "SignConstraint.h"
+#include "gmpxx.h"
 
 const unsigned SmtLibWriter::SMTLIBWRITER_PRECISION =
     (unsigned)std::log10( 1 / GlobalConfiguration::DEFAULT_EPSILON_FOR_COMPARISONS );
 
-
-void SmtLibWriter::writeToSmtLibFile( const String &fileName,
-                                      unsigned numOfTableauRows,
-                                      unsigned numOfVariables,
-                                      const Vector<double> &upperBounds,
-                                      const Vector<double> &lowerBounds,
-                                      const SparseMatrix *tableau,
-                                      const List<Equation> &additionalEquations,
-                                      const List<PiecewiseLinearConstraint *> &problemConstraints )
+List<String>
+SmtLibWriter::convertToSmtLib( unsigned numOfTableauRows,
+                               unsigned numOfVariables,
+                               const Vector<double> &upperBounds,
+                               const Vector<double> &lowerBounds,
+                               const SparseMatrix *tableau,
+                               const List<Equation> &additionalEquations,
+                               const List<PiecewiseLinearConstraint *> &problemConstraints )
 {
     List<String> instance;
 
     // Write with SmtLibWriter
-    unsigned b, f;
+    unsigned b, f, aux;
 
     SmtLibWriter::addHeader( numOfVariables, instance );
     SmtLibWriter::addGroundUpperBounds( upperBounds, instance );
@@ -69,7 +67,8 @@ void SmtLibWriter::writeToSmtLibFile( const String &fileName,
         {
             b = conVars[0];
             f = conVars[1];
-            SmtLibWriter::addReLUConstraint( b, f, constraint->getPhaseStatus(), instance );
+            aux = conVars[2];
+            SmtLibWriter::addReLUConstraint( b, f, aux, constraint->getPhaseStatus(), instance );
         }
         else if ( constraint->getType() == SIGN )
         {
@@ -119,36 +118,64 @@ void SmtLibWriter::writeToSmtLibFile( const String &fileName,
     }
 
     SmtLibWriter::addFooter( instance );
+
+    return instance;
+}
+
+void SmtLibWriter::writeToSmtLibFile( const String &fileName,
+                                      unsigned numOfTableauRows,
+                                      unsigned numOfVariables,
+                                      const Vector<double> &upperBounds,
+                                      const Vector<double> &lowerBounds,
+                                      const SparseMatrix *tableau,
+                                      const List<Equation> &additionalEquations,
+                                      const List<PiecewiseLinearConstraint *> &problemConstraints )
+{
+    List<String> instance = SmtLibWriter::convertToSmtLib( numOfTableauRows,
+                                                           numOfVariables,
+                                                           upperBounds,
+                                                           lowerBounds,
+                                                           tableau,
+                                                           additionalEquations,
+                                                           problemConstraints );
     File file( fileName );
     SmtLibWriter::writeInstanceToFile( file, instance );
 }
 
 void SmtLibWriter::addHeader( unsigned numberOfVariables, List<String> &instance )
 {
-    instance.append( "( set-logic QF_LRA )\n" );
+    instance.append( "(set-logic QF_LRA)\n" );
     for ( unsigned i = 0; i < numberOfVariables; ++i )
-        instance.append( "( declare-fun x" + std::to_string( i ) + " () Real )\n" );
+        instance.append( "(declare-fun x" + std::to_string( i ) + " () Real)\n" );
 }
 
 void SmtLibWriter::addFooter( List<String> &instance )
 {
-    instance.append( "( check-sat )\n" );
-    instance.append( "( exit )\n" );
+    instance.append( "(check-sat)\n" );
+    instance.append( "(exit)\n" );
 }
 
 void SmtLibWriter::addReLUConstraint( unsigned b,
                                       unsigned f,
+                                      unsigned aux,
                                       const PhaseStatus status,
                                       List<String> &instance )
 {
-    if ( status == PHASE_NOT_FIXED )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " ( ite ( >= x" +
-                         std::to_string( b ) + " 0 ) x" + std::to_string( b ) + " 0 ) ) )\n" );
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF || status == PHASE_NOT_FIXED )
+    {
+        instance.append( "(assert (or (and (>= x" + std::to_string( b ) + " 0.0) (<= x" +
+                         std::to_string( aux ) + " 0.0)) (and (<= x" + std::to_string( b ) +
+                         " 0.0) (<= x" + std::to_string( f ) + " 0.0))))\n" );
+        instance.append( "(assert (= (>= x" + std::to_string( b ) + " 0.0) (<= x" +
+                         std::to_string( aux ) + " 0.0)))\n" );
+        instance.append( "(assert (= (<= x" + std::to_string( b ) + " 0.0) (<= x" +
+                         std::to_string( f ) + " 0.0)))\n" );
+    }
     else if ( status == RELU_PHASE_ACTIVE )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " x" + std::to_string( b ) +
-                         " ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " x" + std::to_string( b ) +
+                         "))\n" );
     else if ( status == RELU_PHASE_INACTIVE )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " 0 ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " 0))\n" );
 }
 
 void SmtLibWriter::addSignConstraint( unsigned b,
@@ -157,12 +184,12 @@ void SmtLibWriter::addSignConstraint( unsigned b,
                                       List<String> &instance )
 {
     if ( status == PHASE_NOT_FIXED )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " ( ite ( >= x" +
-                         std::to_string( b ) + " 0 ) 1 ( - 1 ) ) ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " (ite (>= x" +
+                         std::to_string( b ) + " 0.0) 1.0 (- 1.0))))\n" );
     else if ( status == SIGN_PHASE_POSITIVE )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " 1 ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " 1.0))\n" );
     else if ( status == SIGN_PHASE_NEGATIVE )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " ( - 1 ) ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " (- 1.0)))\n" );
 }
 
 void SmtLibWriter::addAbsConstraint( unsigned b,
@@ -171,15 +198,15 @@ void SmtLibWriter::addAbsConstraint( unsigned b,
                                      List<String> &instance )
 {
     if ( status == PHASE_NOT_FIXED )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " ( ite ( >= x" +
-                         std::to_string( b ) + " 0 ) x" + std::to_string( b ) + " ( - x" +
-                         std::to_string( b ) + " ) ) ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " (ite (>= x" +
+                         std::to_string( b ) + " 0.0) x" + std::to_string( b ) + " (- x" +
+                         std::to_string( b ) + "))))\n" );
     else if ( status == ABS_PHASE_POSITIVE )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " x" + std::to_string( b ) +
-                         " ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " x" + std::to_string( b ) +
+                         "))\n" );
     else if ( status == ABS_PHASE_NEGATIVE )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " ( - x" + std::to_string( b ) +
-                         " ) ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " (- x" + std::to_string( b ) +
+                         ")))\n" );
 }
 
 void SmtLibWriter::addMaxConstraint( unsigned f,
@@ -194,13 +221,13 @@ void SmtLibWriter::addMaxConstraint( unsigned f,
 
     // f equals to some value (the value of maxVal)
     if ( status == MAX_PHASE_ELIMINATED )
-        instance.append( String( "( assert ( = x" + std::to_string( f ) + " " ) +
-                         signedValue( maxVal ) + " ) )\n" );
+        instance.append( String( "(assert (= x" + std::to_string( f ) + " " ) +
+                         signedValue( maxVal ) + "))\n" );
 
     // f equals to some element (maxVal is an index)
     else if ( status != PHASE_NOT_FIXED )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " x" +
-                         std::to_string( (unsigned)maxVal ) + " ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " x" +
+                         std::to_string( (unsigned)maxVal ) + "))\n" );
 
     else
     {
@@ -209,7 +236,7 @@ void SmtLibWriter::addMaxConstraint( unsigned f,
         for ( const auto &element : elements )
         {
             counter = 0;
-            assertRowLine = "( assert ( =>";
+            assertRowLine = "(assert (=>";
             for ( auto const &otherElement : elements )
             {
                 if ( otherElement == element )
@@ -217,21 +244,21 @@ void SmtLibWriter::addMaxConstraint( unsigned f,
 
                 if ( counter < size - 2 )
                 {
-                    assertRowLine += " ( and";
+                    assertRowLine += " (and";
                     ++counter;
                 }
 
-                assertRowLine += " ( >= x" + std::to_string( element ) + " x" +
-                                 std::to_string( otherElement ) + " )";
+                assertRowLine += " (>= x" + std::to_string( element ) + " x" +
+                                 std::to_string( otherElement ) + ")";
             }
 
             for ( unsigned i = 0; i < size - 2; ++i )
-                assertRowLine += String( " )" );
+                assertRowLine += String( ")" );
 
             assertRowLine +=
-                " ( = x" + std::to_string( f ) + " x" + std::to_string( element ) + " )";
+                " (= x" + std::to_string( f ) + " x" + std::to_string( element ) + ")";
 
-            instance.append( assertRowLine + " ) )\n" );
+            instance.append( assertRowLine + "))\n" );
         }
     }
 }
@@ -242,12 +269,12 @@ void SmtLibWriter::addDisjunctionConstraint( const List<PiecewiseLinearCaseSplit
     ASSERT( !disjuncts.empty() );
 
     unsigned size;
-    instance.append( "( assert\n" );
+    instance.append( "(assert\n" );
 
     for ( const auto &disjunct : disjuncts )
     {
         if ( !( disjunct == disjuncts.back() ) )
-            instance.append( "( or\n" );
+            instance.append( "(or\n" );
 
         size = disjunct.getEquations().size() + disjunct.getBoundTightenings().size();
         ASSERT( size )
@@ -264,7 +291,7 @@ void SmtLibWriter::addDisjunctionConstraint( const List<PiecewiseLinearCaseSplit
             for ( const auto &eq : disjunct.getEquations() )
             {
                 if ( counter < size - 1 )
-                    instance.append( "( and " );
+                    instance.append( "(and " );
                 ++counter;
                 SmtLibWriter::addEquation( eq, instance, false );
             }
@@ -272,7 +299,7 @@ void SmtLibWriter::addDisjunctionConstraint( const List<PiecewiseLinearCaseSplit
             for ( const auto &bound : disjunct.getBoundTightenings() )
             {
                 if ( counter < size - 1 )
-                    instance.append( "( and " );
+                    instance.append( "(and " );
                 ++counter;
 
                 SmtLibWriter::addTightening( bound, instance );
@@ -280,13 +307,13 @@ void SmtLibWriter::addDisjunctionConstraint( const List<PiecewiseLinearCaseSplit
         }
 
         for ( unsigned i = 0; i < size - 1; ++i )
-            instance.append( " )" );
+            instance.append( ")" );
         instance.append( "\n" );
     }
 
     size = disjuncts.size();
     for ( unsigned i = 0; i < size; ++i )
-        instance.append( String( " )" ) );
+        instance.append( String( ")" ) );
 
     instance.append( "\n" );
 }
@@ -298,16 +325,16 @@ void SmtLibWriter::addLeakyReLUConstraint( unsigned b,
                                            List<String> &instance )
 {
     if ( status == PHASE_NOT_FIXED )
-        instance.append( String( "( assert ( = x" + std::to_string( f ) + " ( ite ( >= x" +
-                                 std::to_string( b ) + " 0 ) x" + std::to_string( b ) + " ( * " ) +
-                         signedValue( slope ) + " x" + std::to_string( b ) + " ) ) ) )\n" );
+        instance.append( String( "(assert (= x" + std::to_string( f ) + " (ite (>= x" +
+                                 std::to_string( b ) + " 0) x" + std::to_string( b ) + " (* " ) +
+                         signedValue( slope ) + " x" + std::to_string( b ) + "))))\n" );
     else if ( status == RELU_PHASE_ACTIVE )
-        instance.append( "( assert ( = x" + std::to_string( f ) + " x" + std::to_string( b ) +
-                         " ) )\n" );
+        instance.append( "(assert (= x" + std::to_string( f ) + " x" + std::to_string( b ) +
+                         "))\n" );
     else if ( status == RELU_PHASE_INACTIVE )
         instance.append(
-            String( "( assert ( = x" + std::to_string( f ) + " x" + std::to_string( b ) ) +
-            signedValue( -slope ) + ") )\n" );
+            String( "(assert (= x" + std::to_string( f ) + " x" + std::to_string( b ) ) +
+            signedValue( -slope ) + "))\n" );
 }
 
 void SmtLibWriter::addTableauRow( const SparseUnsortedList &row, List<String> &instance )
@@ -316,40 +343,40 @@ void SmtLibWriter::addTableauRow( const SparseUnsortedList &row, List<String> &i
 
     // Avoid adding a redundant last element
     auto it = --row.end();
-    if ( std::isnan( it->_value ) || FloatUtils::isZero( it->_value ) )
+    if ( std::isnan( it->_value ) || it->_value == 0 )
         --size;
 
     if ( !size )
         return;
 
     unsigned counter = 0;
-    String assertRowLine = "( assert ( = 0";
+    String assertRowLine = "(assert (= 0.0";
     auto entry = row.begin();
 
     for ( ; entry != row.end(); ++entry )
     {
-        if ( FloatUtils::isZero( entry->_value ) )
+        if ( entry->_value == 0 )
             continue;
 
         if ( counter != size - 1 )
-            assertRowLine += String( " ( + " );
+            assertRowLine += String( " (+ " );
         else
             assertRowLine += String( " " );
-
+        mpq_class tempVal( entry->_value );
         // Coefficients +-1 can be dropped
         if ( entry->_value == 1 )
             assertRowLine += String( "x" ) + std::to_string( entry->_index );
         else if ( entry->_value == -1 )
-            assertRowLine += String( "( - x" ) + std::to_string( entry->_index ) + " )";
+            assertRowLine += String( "(- x" ) + std::to_string( entry->_index ) + ")";
         else
-            assertRowLine += String( "( * " ) + signedValue( entry->_value ) + " x" +
-                             std::to_string( entry->_index ) + " )";
+            assertRowLine +=
+                String( "(* " ) + tempVal.get_str() + " x" + std::to_string( entry->_index ) + ")";
 
         ++counter;
     }
 
     for ( unsigned i = 0; i < counter + 1; ++i )
-        assertRowLine += String( " )" );
+        assertRowLine += String( ")" );
 
     instance.append( assertRowLine + "\n" );
 }
@@ -358,16 +385,16 @@ void SmtLibWriter::addGroundUpperBounds( const Vector<double> &bounds, List<Stri
 {
     unsigned n = bounds.size();
     for ( unsigned i = 0; i < n; ++i )
-        instance.append( String( "( assert ( <= x" + std::to_string( i ) ) + String( " " ) +
-                         signedValue( bounds[i] ) + " ) )\n" );
+        instance.append( String( "(assert (<= x" + std::to_string( i ) ) + String( " " ) +
+                         signedValue( bounds[i] ) + "))\n" );
 }
 
 void SmtLibWriter::addGroundLowerBounds( const Vector<double> &bounds, List<String> &instance )
 {
     unsigned n = bounds.size();
     for ( unsigned i = 0; i < n; ++i )
-        instance.append( String( "( assert ( >= x" + std::to_string( i ) ) + String( " " ) +
-                         signedValue( bounds[i] ) + " ) )\n" );
+        instance.append( String( "(assert (>= x" + std::to_string( i ) ) + String( " " ) +
+                         signedValue( bounds[i] ) + "))\n" );
 }
 
 void SmtLibWriter::writeInstanceToFile( IFile &file, const List<String> &instance )
@@ -385,7 +412,7 @@ String SmtLibWriter::signedValue( double val )
     std::stringstream s;
     s << std::fixed << std::setprecision( SMTLIBWRITER_PRECISION ) << abs( val );
     return val >= 0 ? String( s.str() ).trimZerosFromRight()
-                    : String( "( - " + s.str() ).trimZerosFromRight() + " )";
+                    : String( "(- " + s.str() ).trimZerosFromRight() + ")";
 }
 
 void SmtLibWriter::addEquation( const Equation &eq, List<String> &instance, bool assertEquations )
@@ -400,16 +427,16 @@ void SmtLibWriter::addEquation( const Equation &eq, List<String> &instance, bool
     String assertRowLine = "";
 
     if ( assertEquations )
-        assertRowLine += "( assert ";
+        assertRowLine += "(assert ";
 
     if ( eq._type == Equation::EQ )
-        assertRowLine += "( = ";
+        assertRowLine += "(= ";
     else if ( eq._type == Equation::LE )
         // Scalar should be >= than sum of addends
-        assertRowLine += "( >= ";
+        assertRowLine += "(>= ";
     else
         // Scalar should be <= than sum of addends
-        assertRowLine += "( <= ";
+        assertRowLine += "(<= ";
 
     assertRowLine += signedValue( eq._scalar );
 
@@ -419,12 +446,12 @@ void SmtLibWriter::addEquation( const Equation &eq, List<String> &instance, bool
         {
             // If the last addend has coefficient zero, add 0 to close previously opened addition
             if ( addend == eq._addends.back() )
-                assertRowLine += String( " 0 )" );
+                assertRowLine += String( " 0)" );
             continue;
         }
 
         if ( !( addend == eq._addends.back() ) )
-            assertRowLine += String( " ( + " );
+            assertRowLine += String( " (+ " );
         else
             assertRowLine += String( " " );
 
@@ -433,26 +460,26 @@ void SmtLibWriter::addEquation( const Equation &eq, List<String> &instance, bool
         if ( addend._coefficient == 1 )
             assertRowLine += String( "x" ) + std::to_string( addend._variable );
         else if ( addend._coefficient == -1 )
-            assertRowLine += String( "( - x" ) + std::to_string( addend._variable ) + " )";
+            assertRowLine += String( "(- x" ) + std::to_string( addend._variable ) + ")";
         else
-            assertRowLine += String( "( * " ) + signedValue( addend._coefficient ) + " x" +
-                             std::to_string( addend._variable ) + " )";
+            assertRowLine += String( "(* " ) + signedValue( addend._coefficient ) + " x" +
+                             std::to_string( addend._variable ) + ")";
 
         ++counter;
     }
 
     for ( unsigned i = 0; i < counter; ++i )
-        assertRowLine += String( " )" );
+        assertRowLine += String( ")" );
 
-    instance.append( assertRowLine + ( assertEquations ? " ) \n" : " " ) );
+    instance.append( assertRowLine + ( assertEquations ? ")\n" : " " ) );
 }
 
 void SmtLibWriter::addTightening( Tightening bound, List<String> &instance )
 {
     if ( bound._type == Tightening::LB )
-        instance.append( String( "( >= x" ) + std::to_string( bound._variable ) + " " +
-                         signedValue( bound._value ) + " )" );
+        instance.append( String( "(>= x" ) + std::to_string( bound._variable ) + " " +
+                         signedValue( bound._value ) + ")" );
     else
-        instance.append( String( "( <= x" + std::to_string( bound._variable ) ) + String( " " ) +
-                         signedValue( bound._value ) + " )" );
+        instance.append( String( "(<= x" + std::to_string( bound._variable ) ) + String( " " ) +
+                         signedValue( bound._value ) + ")" );
 }

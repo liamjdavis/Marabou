@@ -80,7 +80,7 @@
     LOG( GlobalConfiguration::SEARCH_TREE_HANDLER_LOGGING, "CDSearchTreeHandler: %s\n", x )
 
 class EngineState;
-class Engine;
+class IEngine;
 class String;
 
 class CDSearchTreeHandler
