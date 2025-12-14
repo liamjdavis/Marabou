@@ -61,7 +61,8 @@ public:
     /*
       Register initial SnC split
     */
-    virtual void applySnCSplit( PiecewiseLinearCaseSplit split, String queryId, bool forSplit ) = 0;
+    virtual void
+    applySnCSplit( PiecewiseLinearCaseSplit split, String queryId, bool shouldApplySplit ) = 0;
     virtual bool inSnCMode() const = 0;
 
     /*
