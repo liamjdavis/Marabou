@@ -156,9 +156,9 @@ public:
     void removeLiteralFromPropagations( int literal );
 
     /*
-      Assume valid non zero literal for next call to 'solve'.
+      Add a literal to the constraint clause. 0 indicates the end of the constraint clause.
      */
-    void assume( int literal );
+    void constrain( int literal );
 
     /*
       Check if the solver should stop due to the requested timeout by the user
