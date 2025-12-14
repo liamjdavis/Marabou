@@ -62,6 +62,8 @@ void PolarityBasedDivider::createSubQueries( unsigned numNewSubqueries,
                     *newSplit = *split;
                     for ( const auto &tightening : caseSplit.getBoundTightenings() )
                         newSplit->storeBoundTightening( tightening );
+                    for ( int lit : caseSplit.getCdclLiterals() )
+                        newSplit->addCdclLiteral( lit );
                     newSplits.append( newSplit );
                 }
             }
@@ -96,7 +98,7 @@ PolarityBasedDivider::getPLConstraintToSplit( const PiecewiseLinearCaseSplit &sp
 {
     try
     {
-        _engine->applySnCSplit( split, "" );
+        _engine->applySnCSplit( split, "", true );
     }
     catch ( const InfeasibleQueryException & )
     {

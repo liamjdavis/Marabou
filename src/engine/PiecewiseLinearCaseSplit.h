@@ -53,6 +53,10 @@ public:
     */
     void updateVariableIndex( unsigned oldIndex, unsigned newIndex );
 
+    const List<int> &getCdclLiterals() const;
+
+    void addCdclLiteral( int lit );
+
 private:
     /*
       Bound tightening information.
@@ -63,6 +67,11 @@ private:
       The equation that needs to be added.
     */
     List<Equation> _equations;
+
+    /*
+      CDCL literals to be assigned when applying this split.
+     */
+    List<int> _cdclLiterals;
 };
 
 #endif // __PiecewiseLinearCaseSplit_h__

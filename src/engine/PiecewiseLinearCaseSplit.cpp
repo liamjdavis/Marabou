@@ -83,6 +83,16 @@ void PiecewiseLinearCaseSplit::updateVariableIndex( unsigned oldIndex, unsigned 
         equation.updateVariableIndex( oldIndex, newIndex );
 }
 
+const List<int> &PiecewiseLinearCaseSplit::getCdclLiterals() const
+{
+    return _cdclLiterals;
+}
+
+void PiecewiseLinearCaseSplit::addCdclLiteral( int lit )
+{
+    _cdclLiterals.append( lit );
+}
+
 //
 // Local Variables:
 // compile-command: "make -C ../.. "

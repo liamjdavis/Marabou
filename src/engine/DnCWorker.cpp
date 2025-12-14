@@ -108,7 +108,7 @@ void DnCWorker::popOneSubQueryAndSolve( bool restoreTreeStates )
         // Apply the split and solve
         try
         {
-            _engine->applySnCSplit( *split, queryId );
+            _engine->applySnCSplit( *split, queryId, !_engine->shouldSolveWithCDCL() );
         }
         catch ( const InfeasibleQueryException & )
         {
