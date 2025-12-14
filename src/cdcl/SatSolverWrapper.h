@@ -79,8 +79,6 @@ public:
     virtual bool isSolving() const = 0;
 
     virtual void terminate() = 0;
-
-    virtual void constrain( int lit ) = 0;
 };
 
 

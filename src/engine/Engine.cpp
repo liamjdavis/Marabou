@@ -161,13 +161,8 @@ void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit,
     }
     else
     {
-        const auto &cdclLiteral = sncSplit.getCdclLiterals();
-        if ( !cdclLiteral.empty() )
-        {
-            for ( int lit : cdclLiteral )
-                _cdclCore.constrain( lit );
-            _cdclCore.constrain( 0 );
-        }
+        for ( int lit : sncSplit.getCdclLiterals() )
+            _cdclCore.assume( lit );
     }
 }
 
