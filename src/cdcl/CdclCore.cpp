@@ -764,16 +764,11 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
     _externalClauseToAdd.append( 0 );
 
     // Remove fixed literals as they are redundant
-
-
-    if ( !Set<int>::containedIn(clause, _sncSplitLiterals))
+    for ( int lit : clause )
     {
-        for ( int lit : clause )
-        {
-            _externalClauseToAdd.append( -lit );
-            if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
-                _literalToClauses[-lit].insert( _numOfClauses );
-        }
+        _externalClauseToAdd.append( -lit );
+        if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
+            _literalToClauses[-lit].insert( _numOfClauses );
     }
 
     ++_numOfClauses;
