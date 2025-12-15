@@ -148,10 +148,6 @@ void CdclCore::notify_new_decision_level()
     _engine->preContextPushHook();
     pushContext();
 
-    DEBUG( if ( _context.getLevel() > (int)_sncSplitLiterals.size() ) for ( int lit
-                                                                            : _sncSplitLiterals )
-               ASSERT( isLiteralAssigned( lit ) ); )
-
     if ( _statistics )
     {
         _statistics->incUnsignedAttribute( Statistics::NUM_SPLITS );
