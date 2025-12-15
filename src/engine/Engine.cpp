@@ -1668,7 +1668,7 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                 _cdclCore.initBooleanAbstraction( constraint );
             }
 
-            _cdclCore.initSatSolver();
+//            _cdclCore.initSatSolver();
         }
 #endif
     }
