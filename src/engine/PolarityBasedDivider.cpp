@@ -98,7 +98,7 @@ PolarityBasedDivider::getPLConstraintToSplit( const PiecewiseLinearCaseSplit &sp
 {
     try
     {
-        _engine->applySnCSplit( split, "", true );
+        _engine->applySnCSplit( split, "" );
     }
     catch ( const InfeasibleQueryException & )
     {

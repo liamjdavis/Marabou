@@ -222,6 +222,8 @@ public:
 
     const PiecewiseLinearConstraint *getPlc( unsigned var ) const;
 
+    void clearLiteralsToPropagate();
+
     static std::atomic<unsigned> numCdclCores;
 
     static Map<unsigned, Set<int>> sharedClauses;

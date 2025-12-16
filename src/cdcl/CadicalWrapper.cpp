@@ -22,6 +22,7 @@ CadicalWrapper::CadicalWrapper( CaDiCaL::ExternalPropagator *externalPropagator,
                                 CaDiCaL::Terminator *terminator,
                                 CaDiCaL::FixedAssignmentListener *fixedListener )
     : _solver( new CaDiCaL::Solver() )
+    , _level( 0 )
 {
     _solver->set( "walk", 0 );
     _solver->set( "lucky", 0 );
@@ -123,6 +124,22 @@ bool CadicalWrapper::isSolving() const
 void CadicalWrapper::terminate()
 {
     _solver->terminate();
+}
+
+unsigned CadicalWrapper::getLevel() const
+{
+    return _level;
+}
+
+void CadicalWrapper::push()
+{
+    ++_level;
+}
+
+void CadicalWrapper::popto( unsigned int newLevel )
+{
+    ASSERT( newLevel < _level || ( _level == 0 && newLevel == 0 ) );
+    _level = newLevel;
 }
 
 #endif
