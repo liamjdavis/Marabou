@@ -51,6 +51,11 @@ public:
     void assume( int lit ) override;
 
     /*
+      Reset all asumptions made by assume()
+     */
+    void resetAssumptions() override;
+
+    /*
       Try to solve the current formula.
     */
     int solve() override;

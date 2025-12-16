@@ -142,4 +142,9 @@ void CadicalWrapper::popto( unsigned int newLevel )
     _level = newLevel;
 }
 
+void CadicalWrapper::resetAssumptions()
+{
+    _solver->reset_assumptions();
+}
+
 #endif

@@ -40,6 +40,11 @@ public:
     virtual void assume( int lit ) = 0;
 
     /*
+      Reset all asumptions made by assume()
+     */
+    virtual void resetAssumptions() = 0;
+
+    /*
       Try to solve the current formula.
     */
     virtual int solve() = 0;
