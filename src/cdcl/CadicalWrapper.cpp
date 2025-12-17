@@ -38,6 +38,9 @@ CadicalWrapper::~CadicalWrapper()
     _solver->disconnect_fixed_listener();
     _solver->disconnect_terminator();
     _solver->disconnect_external_propagator();
+
+    if ( _writer )
+        _solver->disconnect_proof_tracer( (CaDiCaL::Tracer *)_writer );
 }
 
 void CadicalWrapper::addLiteral( int lit )
@@ -123,6 +126,12 @@ bool CadicalWrapper::isSolving() const
 void CadicalWrapper::terminate()
 {
     _solver->terminate();
+}
+
+void CadicalWrapper::connectProofWriter( const AletheProofWriter *writer )
+{
+    _writer = writer;
+    _solver->connect_proof_tracer( (CaDiCaL::Tracer *)_writer, true );
 }
 
 #endif

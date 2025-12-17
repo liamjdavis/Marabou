@@ -25,8 +25,13 @@
 #include "Vector.h"
 #include "gmp.h"
 #include "gmpxx.h"
+#include "tracer.hpp"
 
+class CdclCore;
 class AletheProofWriter
+#if BUILD_CADICAL
+    : public CaDiCaL::Tracer
+#endif
 {
 public:
     AletheProofWriter( unsigned explanationSize,
@@ -34,7 +39,12 @@ public:
                        const Vector<double> &lowerBounds,
                        const GroundBoundManager &groundBoundManager,
                        const SparseMatrix *tableau,
-                       const List<PiecewiseLinearConstraint *> &problemConstraints);
+                       const List<PiecewiseLinearConstraint *> &problemConstraints
+#if BUILD_CADICAL
+                       ,
+                       const CdclCore *cdclCore
+#endif
+    );
 
 
     void writeInstanceToFile( IFile &file );
@@ -45,15 +55,36 @@ public:
 
     void writeDelegatedLeaf( const UnsatCertificateNode *node );
 
-    void writeLemma( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &lemmaEntry );
+    void writeLemma( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &lemmaEntry);
 
-    void writeContradiction( const SparseUnsortedList &contradiction, unsigned nodeId );
+    void writeContradiction( const SparseUnsortedList &contradiction, int64_t id );
+
+#if BUILD_CADICAL
+    void writeDelegatedLeaf( int64_t id,
+                                                const std::vector<int> &clause );
+    void add_derived_clause( int64_t id,
+                             bool redundant,
+                             int witness,
+                             const std::vector<int> &clause,
+                             const std::vector<int64_t> &antecedents );
+
+    void add_original_clause( int64_t id,
+                              bool redundant,
+                              const std::vector<int> &clause,
+                              bool restored = false );
+
+    void setLastContradiction( const SparseUnsortedList &contradiction );
+    void addDummyContradiction( );
+
+    void addEntryToStack( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry );
+    void writeLemmaResolution( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry,int64_t id);
+#endif
 
 private:
     const SparseMatrix *_initialTableau;
     Vector<String> _tableauAssumptions; // For easy access
-    Vector<Stack<std::tuple<int, double>>> _currentUpperBounds;
-    Vector<Stack<std::tuple<int, double>>> _currentLowerBounds;
+    Vector<double> _baseUpperBounds;
+    Vector<double> _baseLowerBounds;
     const GroundBoundManager &_groundBoundManager;
     Vector<PiecewiseLinearConstraint *> _plc;
 
@@ -68,15 +99,21 @@ private:
     Map<unsigned, List<Tightening>> _idToSplits;
     Map<unsigned, List<Tightening>> _nodeToSplits;
 
+#if BUILD_CADICAL
+    const CdclCore *_cdclCore;
+    Vector<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> _lastExplainedEntries;
+    SparseUnsortedList _lastContradiction;
+    Map<unsigned, int64_t> _marabouToSATIds;
+#endif
+
     void writeBoundAssumptions();
 
     void writePLCAssumption();
 
     void writeTableauAssumptions();
 
-    void writeReluLemma( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &lemmaEntry, const ReluConstraint *relu );
-
-    void insertCurrentBoundsToVec( bool isUpper, Vector<double> &boundsVec );
+    void writeReluLemma( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &lemmaEntry,
+                         const ReluConstraint *relu );
 
     String getNegatedSplitsClause( const List<PiecewiseLinearCaseSplit> &splits ) const;
 

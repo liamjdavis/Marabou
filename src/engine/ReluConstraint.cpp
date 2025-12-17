@@ -187,7 +187,7 @@ void ReluConstraint::notifyLowerBound( unsigned variable, double newBound )
                 // If we're in the active phase, aux should be 0
                 if ( proofs && _auxVarInUse )
                     _boundManager->addLemmaExplanationAndTightenBound(
-                        _aux, 0, Tightening::UB, { variable }, Tightening::LB, *this, true, 0 );
+                        _aux, 0, Tightening::UB, { variable }, Tightening::LB, *this, true, FloatUtils::min(bound, GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE) );
                 else if ( !proofs && _auxVarInUse )
                     _boundManager->tightenUpperBound( _aux, 0 );
 
@@ -212,7 +212,7 @@ void ReluConstraint::notifyLowerBound( unsigned variable, double newBound )
             {
                 if ( proofs )
                     _boundManager->addLemmaExplanationAndTightenBound(
-                        _f, 0, Tightening::UB, { variable }, Tightening::LB, *this, true, 0 );
+                        _f, 0, Tightening::UB, { variable }, Tightening::LB, *this, true, FloatUtils::min(bound, GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE) );
                 else
                     _boundManager->tightenUpperBound( _f, 0 );
 
@@ -248,7 +248,7 @@ void ReluConstraint::notifyLowerBound( unsigned variable, double newBound )
             {
                 if ( proofs )
                     _boundManager->addLemmaExplanationAndTightenBound(
-                        _f, 0, Tightening::LB, { variable }, Tightening::LB, *this, false, 0 );
+                        _f, 0, Tightening::LB, { variable }, Tightening::LB, *this, false, FloatUtils::max(bound, -GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE) );
                 else
                     _boundManager->tightenLowerBound( _f, 0 );
             }

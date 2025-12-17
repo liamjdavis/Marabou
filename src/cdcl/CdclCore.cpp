@@ -800,6 +800,8 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     //            return false;
 
     _isSolving = true;
+    if ( _engine->shouldProduceProofs() && GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _satSolver->connectProofWriter( _engine->getAletheWriter() );
 
     if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
          Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )

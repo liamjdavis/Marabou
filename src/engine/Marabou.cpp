@@ -225,7 +225,11 @@ void Marabou::solveQuery()
             _engine->solveWithMILPEncoding( timeoutInSeconds );
 #ifdef BUILD_CADICAL
         else if ( _engine->shouldSolveWithCDCL() )
+        {
             _engine->solveWithCDCL( timeoutInSeconds );
+            if ( _engine->shouldProduceProofs() && _engine->getExitCode() == ExitCode::UNSAT )
+                _engine->certifyUNSATCertificate();
+        }
 #endif
         else
         {
