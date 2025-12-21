@@ -181,6 +181,7 @@ void CdclCore::notify_backtrack( size_t new_level )
     CDCL_LOG( Stringf( "%u l%d Backtracking to level %d", _index, _context.getLevel(), new_level )
                   .ascii() )
 
+    ASSERT( !_isSolving || new_level >= _sncSplitLiterals.size() );
     unsigned oldLevel = _context.getLevel();
 
     if ( _isSolving && _shouldRestart )
