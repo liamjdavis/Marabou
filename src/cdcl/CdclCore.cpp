@@ -893,8 +893,6 @@ void CdclCore::addLiteralToPropagate( int literal )
     struct timespec start = TimeUtils::sampleMicro();
 
     ASSERT( literal )
-    if ( _sncSplitLiterals.exists( -literal ) )
-        std::cout << -literal << " assumed" << std::endl;
     if ( !isLiteralAssigned( literal ) && !isLiteralToBePropagated( literal ) )
     {
         ASSERT( !isLiteralAssigned( -literal ) && !isLiteralToBePropagated( -literal ) )
@@ -934,8 +932,6 @@ void CdclCore::addDecisionBasedConflictClause()
         ASSERT( _decisionLiterals.exists( l ) );
         int lit = _decisionLiterals[l];
         ASSERT( lit != 0 );
-        if ( !isDecision( lit ) )
-            std::cout << _index << " l" << _context.getLevel() << " " << lit << std::endl;
         ASSERT( isDecision( lit ) );
         if ( !_fixedCadicalVars.exists( lit ) )
             clause.insert( lit );
@@ -973,12 +969,15 @@ void CdclCore::removeLiteralFromPropagations( int literal )
     _literalsToPropagate.erase( Pair<int, unsigned>( literal, _context.getLevel() ) );
 }
 
-void CdclCore::assume( int literal )
+void CdclCore::constrain( int literal )
 {
-    CDCL_LOG(
-        Stringf( "%u l%d Assuming literal %d", _index, _context.getLevel(), literal ).ascii() )
+    CDCL_LOG( Stringf( "%u l%d Adding literal %d to the constraint clause",
+                       _index,
+                       _context.getLevel(),
+                       literal )
+                  .ascii() )
 
-    _satSolver->assume( literal );
+    _satSolver->constrain( literal );
     _sncSplitLiterals.insert( literal );
 }
 
