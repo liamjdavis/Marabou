@@ -556,7 +556,10 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                 for ( int level = 1; level <= _context.getLevel(); ++level )
                 {
                     if ( !_decisionLiterals.exists( level ) )
+                    {
+                        ASSERT( level == _context.getLevel() )
                         continue;
+                    }
 
                     ASSERT( _decisionLiterals.exists( level ) );
                     int lit = _decisionLiterals[level];
