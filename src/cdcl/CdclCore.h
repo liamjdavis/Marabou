@@ -210,8 +210,6 @@ public:
 
     bool isDecision( int lit );
 
-    void initSatSolver();
-
     void reset();
 
     /*
@@ -296,7 +294,6 @@ private:
     Set<unsigned> _sharedClauseAdded;
 
     Set<int> _sncSplitLiterals;
-    bool _isSolving = false;
 
     /*
       Access info in the internal data structures
