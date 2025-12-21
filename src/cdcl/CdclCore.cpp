@@ -153,10 +153,6 @@ void CdclCore::notify_new_decision_level()
     _engine->preContextPushHook();
     pushContext();
 
-    DEBUG( if ( _satSolver->getLevel() > _sncSplitLiterals.size() ) for ( int lit
-                                                                          : _sncSplitLiterals )
-               ASSERT( isLiteralAssigned( lit ) ) )
-
     if ( _statistics )
     {
         _statistics->incUnsignedAttribute( Statistics::NUM_SPLITS );
@@ -224,9 +220,6 @@ void CdclCore::notify_backtrack( size_t new_level )
         for ( int lit : _fixedCadicalVars )
             if ( !isLiteralAssigned( lit ) )
                 notifySingleAssignment( lit, true );
-
-        if ( new_level < _sncSplitLiterals.size() )
-            _engine->setExitCode( ExitCode::UNSAT );
     }
 
     struct timespec end = TimeUtils::sampleMicro();
@@ -303,9 +296,6 @@ int CdclCore::cb_decide()
     if ( checkIfShouldExitDueToTimeout() )
         return 0;
 
-    if ( _satSolver->getLevel() < _sncSplitLiterals.size() )
-        return 0;
-
     struct timespec start = TimeUtils::sampleMicro();
     CDCL_LOG( Stringf( "%u l%d Callback for decision:", _index, _satSolver->getLevel() ).ascii() )
 
@@ -365,9 +355,6 @@ int CdclCore::cb_propagate()
         return 0;
 
     if ( checkIfShouldExitDueToTimeout() )
-        return 0;
-
-    if ( _satSolver->getLevel() < _sncSplitLiterals.size() )
         return 0;
 
     struct timespec start = {};
@@ -454,9 +441,6 @@ int CdclCore::cb_propagate()
                 }
             }
         }
-
-        if ( _engine->getExitCode() == ExitCode::UNSAT )
-            return 0;
 
         if ( _statistics )
             start = TimeUtils::sampleMicro();
@@ -694,9 +678,6 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
         return false;
 
     if ( checkIfShouldExitDueToTimeout() )
-        return false;
-
-    if ( _satSolver->getLevel() < _sncSplitLiterals.size() )
         return false;
 
     CDCL_LOG( Stringf( "%u l%d Checking if there is a Conflict Clause to add: %d",
