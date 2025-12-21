@@ -145,17 +145,25 @@ void Engine::adjustWorkMemorySize()
         throw MarabouError( MarabouError::ALLOCATION_FAILED, "Engine::work" );
 }
 
-void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
+void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit,
+                            String queryId,
+                            bool shouldApplySplit )
 {
     _sncMode = true;
     _sncSplit = sncSplit;
     _queryId = queryId;
-    preContextPushHook();
-    _searchTreeHandler.pushContext();
-    if ( queryId != "" )
-        _cdclCore.clearLiteralsToPropagate();
-    applySplit( sncSplit );
-    _boundManager.propagateTightenings();
+    if ( shouldApplySplit )
+    {
+        preContextPushHook();
+        _searchTreeHandler.pushContext();
+        applySplit( sncSplit );
+        _boundManager.propagateTightenings();
+    }
+    else
+    {
+        for ( int lit : sncSplit.getCdclLiterals() )
+            _cdclCore.assume( lit );
+    }
 }
 
 bool Engine::inSnCMode() const
@@ -1660,7 +1668,7 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                 _cdclCore.initBooleanAbstraction( constraint );
             }
 
-            _cdclCore.initSatSolver();
+//            _cdclCore.initSatSolver();
         }
 #endif
     }

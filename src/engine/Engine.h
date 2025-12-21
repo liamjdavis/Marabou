@@ -230,7 +230,7 @@ public:
     /*
        Register initial split when in SnC mode
      */
-    void applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId ) override;
+    void applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId, bool shouldApplySplit ) override;
 
     bool inSnCMode() const override;
 

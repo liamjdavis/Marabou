@@ -96,7 +96,7 @@ VsidsBasedDivider::getPLConstraintToSplit( const PiecewiseLinearCaseSplit &split
 {
     try
     {
-        _engine->applySnCSplit( split, "" );
+        _engine->applySnCSplit( split, "", true );
     }
     catch ( const InfeasibleQueryException & )
     {

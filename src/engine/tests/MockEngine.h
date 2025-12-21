@@ -209,7 +209,7 @@ public:
     bool _snc;
     CVC4::context::Context _context;
 
-    void applySnCSplit( PiecewiseLinearCaseSplit, String ) override
+    void applySnCSplit( PiecewiseLinearCaseSplit, String, bool ) override
     {
         _snc = true;
         _context.push();
