@@ -2676,6 +2676,7 @@ void Engine::reset()
     if ( _solveWithCDCL )
     {
         _boundManager.reset();
+        _cdclCore.reset();
         _exitCode = ExitCode::NOT_DONE;
     }
 #endif

@@ -561,9 +561,6 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                     _engine->explainPhaseWithProof( _satSolverVarToPlc[abs( propagated_lit )] );
             else
             {
-                for ( int lit : _sncSplitLiterals )
-                    clause.insert( lit );
-
                 for ( unsigned level = 1; level <= _satSolver->getLevel(); ++level )
                 {
                     if ( !_decisionLiterals.exists( level ) )
@@ -620,7 +617,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
             for ( int lit : clause )
             {
                 // Make sure all clause literals were fixed before the literal to explain
-                ASSERT( isLiteralAssigned( lit ) || _sncSplitLiterals.exists( lit ) );
+                ASSERT( isLiteralAssigned( lit ) );
 
                 ASSERT( !GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES ||
                         _satSolverVarToPlc[abs( propagated_lit )]->getPhaseFixingEntry()->id >
@@ -770,12 +767,6 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
         _literalToClauses.clear();
     }
 
-    if ( Set<int>::containedIn( clause, _sncSplitLiterals ) )
-    {
-        _engine->setExitCode( ExitCode::UNSAT );
-        return;
-    }
-
     _externalClauseToAdd.append( 0 );
 
     // Remove fixed literals as they are redundant
@@ -820,13 +811,9 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     for ( const auto &pair : _literalsToPropagate )
     {
         ASSERT( pair.second() == 0 );
-        int lit = pair.first();
-        _sncSplitLiterals.insert( lit );
-        _fixedCadicalVars.insert( lit );
-        assume( lit );
-        ASSERT( _satSolverVarToPlc[abs( lit )]->propagatePhaseAsLit() == lit );
+        _sncSplitLiterals.insert( pair.first() );
+        _fixedCadicalVars.insert( pair.first() );
     }
-    _literalsToPropagate.clear();
 
     _isSolving = true;
 
@@ -835,7 +822,6 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         if ( _engine->solve( _timeoutInSeconds ) )
         {
             _engine->setExitCode( ExitCode::SAT );
-            _satSolver->resetAssumptions();
             return true;
         }
 
@@ -846,7 +832,6 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     if ( !_externalClauseToAdd.empty() )
     {
         _engine->setExitCode( ExitCode::UNSAT );
-        _satSolver->resetAssumptions();
         return false;
     }
 
@@ -866,6 +851,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     int result = _satSolver->solve();
     _isSolving = false;
 
+    _sncSplitLiterals.clear();
     _satSolver->popto( 0 );
 
     if ( _statistics && _engine->getVerbosity() )
@@ -959,9 +945,6 @@ void CdclCore::addDecisionBasedConflictClause()
     struct timespec start = TimeUtils::sampleMicro();
 
     Set<int> clause = Set<int>();
-
-    for ( int lit : _sncSplitLiterals )
-        clause.insert( lit );
 
     for ( unsigned l = 1; l <= _satSolver->getLevel(); ++l )
     {
@@ -1160,11 +1143,6 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
         if ( !isClauseSatisfied( clause ) )
             _satisfiedClauses.insert( clause );
 
-    if ( originalPlcPhase != PHASE_NOT_FIXED && plc->getPhaseStatus() != originalPlcPhase )
-        std::cout << _index << " l" << _satSolver->getLevel() << " lit " << lit << " isSnc "
-                  << _sncSplitLiterals.exists( lit ) << " isDecision " << isDecision( lit )
-                  << " originalPlcPhase " << originalPlcPhase << " plc->getPhaseStatus() "
-                  << plc->getPhaseStatus() << std::endl;
     ASSERT( originalPlcPhase == PHASE_NOT_FIXED || plc->getPhaseStatus() == originalPlcPhase )
 }
 
@@ -1557,7 +1535,6 @@ Set<int> CdclCore::quickXplain( const Set<int> &currentClause,
 
 void CdclCore::reset()
 {
-    _sncSplitLiterals.clear();
     _fixedCadicalVars.clear();
     _externalClauseToAdd.clear();
     _reasonClauseLiterals.clear();
