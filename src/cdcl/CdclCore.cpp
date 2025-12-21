@@ -577,9 +577,6 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                     _engine->explainPhaseWithProof( _satSolverVarToPlc[abs( propagated_lit )] );
             else
             {
-                for ( int lit : _sncSplitLiterals )
-                    clause.insert( lit );
-
                 for ( unsigned level = 1; level <= _satSolver->getLevel(); ++level )
                 {
                     if ( !_decisionLiterals.exists( level ) )
@@ -970,9 +967,6 @@ void CdclCore::addDecisionBasedConflictClause()
     struct timespec start = TimeUtils::sampleMicro();
 
     Set<int> clause = Set<int>();
-
-    for ( int lit : _sncSplitLiterals )
-        clause.insert( lit );
 
     for ( unsigned l = 1; l <= _satSolver->getLevel(); ++l )
     {
