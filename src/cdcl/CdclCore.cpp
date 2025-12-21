@@ -942,6 +942,14 @@ void CdclCore::addLiteralToPropagate( int literal )
     ASSERT( literal )
     if ( !isLiteralAssigned( literal ) && !isLiteralToBePropagated( literal ) )
     {
+        if ( isLiteralAssigned( -literal ) || isLiteralToBePropagated( -literal ) )
+        {
+            std::cout << _index << " l" << _satSolver->getLevel() << " literal " << literal
+                      << " isLiteralAssigned(-literal) " << isLiteralAssigned( -literal )
+                      << " isLiteralToBePropagated( -literal ) "
+                      << isLiteralToBePropagated( -literal ) << std::endl;
+            empty();
+        }
         ASSERT( !isLiteralAssigned( -literal ) && !isLiteralToBePropagated( -literal ) )
         _literalsToPropagate.append( Pair<int, unsigned>( literal, _satSolver->getLevel() ) );
     }
@@ -1171,6 +1179,11 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
         if ( !isClauseSatisfied( clause ) )
             _satisfiedClauses.insert( clause );
 
+    if ( originalPlcPhase != PHASE_NOT_FIXED && plc->getPhaseStatus() != originalPlcPhase )
+        std::cout << _index << " l" << _satSolver->getLevel() << " lit " << lit << " isSnc "
+                  << _sncSplitLiterals.exists( lit ) << " isDecision " << isDecision( lit )
+                  << " originalPlcPhase " << originalPlcPhase << " plc->getPhaseStatus() "
+                  << plc->getPhaseStatus() << std::endl;
     ASSERT( originalPlcPhase == PHASE_NOT_FIXED || plc->getPhaseStatus() == originalPlcPhase )
 }
 
