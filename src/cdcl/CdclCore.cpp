@@ -1530,6 +1530,7 @@ Set<int> CdclCore::quickXplain( const Set<int> &currentClause,
 
 void CdclCore::reset()
 {
+    delete _satSolver;
     _satSolver = new CadicalWrapper( this, this, this );
 
     for ( unsigned var : _satSolverVarToPlc.keys() )
