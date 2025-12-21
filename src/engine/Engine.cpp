@@ -145,25 +145,15 @@ void Engine::adjustWorkMemorySize()
         throw MarabouError( MarabouError::ALLOCATION_FAILED, "Engine::work" );
 }
 
-void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit,
-                            String queryId,
-                            bool shouldApplySplit )
+void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
 {
     _sncMode = true;
     _sncSplit = sncSplit;
     _queryId = queryId;
-    if ( shouldApplySplit )
-    {
-        preContextPushHook();
-        _searchTreeHandler.pushContext();
-        applySplit( sncSplit );
-        _boundManager.propagateTightenings();
-    }
-    else
-    {
-        for ( int lit : sncSplit.getCdclLiterals() )
-            _cdclCore.assume( lit );
-    }
+    preContextPushHook();
+    _searchTreeHandler.pushContext();
+    applySplit( sncSplit );
+    _boundManager.propagateTightenings();
 }
 
 bool Engine::inSnCMode() const
@@ -4287,8 +4277,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         Set<int> subClause = {};
 
         ASSERT( entry->id < id );
-        // If a decision is required, we can stop analysing derived literals only after a decision
-        // was added to the clause.
+        // If a decision is required, we can stop analysing derived literals only after a decision was added to the clause.
         if ( ( !reqDecision || decisionCounter || !entry->lemma ) && entry->isPhaseFixing &&
              _solveWithCDCL )
             subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };

@@ -79,6 +79,12 @@ public:
     virtual bool isSolving() const = 0;
 
     virtual void terminate() = 0;
+
+    virtual unsigned getLevel() = 0;
+
+    virtual void push() = 0;
+
+    virtual void popto( unsigned newLevel ) = 0;
 };
 
 

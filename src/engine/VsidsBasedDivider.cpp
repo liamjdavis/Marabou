@@ -60,9 +60,6 @@ void VsidsBasedDivider::createSubQueries( unsigned int numNewSubQueries,
                     for ( const auto &tightening : caseSplit.getBoundTightenings() )
                         newSplit->storeBoundTightening( tightening );
                     newSplits.append( newSplit );
-
-                    for ( int lit : caseSplit.getCdclLiterals() )
-                        newSplit->addCdclLiteral( lit );
                 }
             }
             delete split;
@@ -96,7 +93,7 @@ VsidsBasedDivider::getPLConstraintToSplit( const PiecewiseLinearCaseSplit &split
 {
     try
     {
-        _engine->applySnCSplit( split, "", true );
+        _engine->applySnCSplit( split, "" );
     }
     catch ( const InfeasibleQueryException & )
     {
