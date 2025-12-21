@@ -148,10 +148,6 @@ void CdclCore::notify_new_decision_level()
     _engine->preContextPushHook();
     pushContext();
 
-    DEBUG( if ( _context.getLevel() > (int)_sncSplitLiterals.size() ) for ( int lit
-                                                                            : _sncSplitLiterals )
-               ASSERT( isLiteralAssigned( lit ) ); )
-
     if ( _statistics )
     {
         _statistics->incUnsignedAttribute( Statistics::NUM_SPLITS );
@@ -665,7 +661,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
     return lit;
 }
 
-bool CdclCore::cb_has_external_clause( bool &is_forgettable )
+bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
 {
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return false;
@@ -680,10 +676,7 @@ bool CdclCore::cb_has_external_clause( bool &is_forgettable )
                   .ascii() )
 
     if ( !_externalClauseToAdd.empty() )
-    {
-        is_forgettable = true;
         return true;
-    }
 
     while ( _lastSharedClauseIndexAdded < CdclCore::sharedClauses.size() )
     {
@@ -768,13 +761,12 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
     _externalClauseToAdd.append( 0 );
 
     // Remove fixed literals as they are redundant
-    if ( !Set<int>::containedIn( clause, _sncSplitLiterals ) )
-        for ( int lit : clause )
-        {
-            _externalClauseToAdd.append( -lit );
-            if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
-                _literalToClauses[-lit].insert( _numOfClauses );
-        }
+    for ( int lit : clause )
+    {
+        _externalClauseToAdd.append( -lit );
+        if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
+            _literalToClauses[-lit].insert( _numOfClauses );
+    }
 
     ++_numOfClauses;
 
@@ -841,8 +833,6 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
     CDCL_LOG( Stringf( "%u l%d Start solving", _index, _context.getLevel() ).ascii() )
     int result = _satSolver->solve();
-    delete _satSolver;
-    _satSolver = new CadicalWrapper( this, this, this );
     _isSolving = false;
 
     _sncSplitLiterals.clear();
@@ -900,6 +890,8 @@ void CdclCore::addLiteralToPropagate( int literal )
     struct timespec start = TimeUtils::sampleMicro();
 
     ASSERT( literal )
+    if ( _sncSplitLiterals.exists( -literal ) )
+        std::cout << -literal << " assumed" << std::endl;
     if ( !isLiteralAssigned( literal ) && !isLiteralToBePropagated( literal ) )
     {
         ASSERT( !isLiteralAssigned( -literal ) && !isLiteralToBePropagated( -literal ) )
@@ -1519,8 +1511,6 @@ Set<int> CdclCore::quickXplain( const Set<int> &currentClause,
 
 void CdclCore::reset()
 {
-    initSatSolver();
-
     _literalsToPropagate.clear();
     _fixedCadicalVars.clear();
     _externalClauseToAdd.clear();
