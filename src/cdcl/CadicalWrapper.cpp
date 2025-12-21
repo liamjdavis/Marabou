@@ -125,9 +125,4 @@ void CadicalWrapper::terminate()
     _solver->terminate();
 }
 
-void CadicalWrapper::constrain( int lit )
-{
-    _solver->constrain( lit );
-}
-
 #endif

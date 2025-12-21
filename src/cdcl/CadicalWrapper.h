@@ -91,8 +91,6 @@ public:
 
     void terminate() override;
 
-    void constrain( int lit ) override;
-
 private:
     std::shared_ptr<CaDiCaL::Solver> _solver;
 };
