@@ -289,6 +289,7 @@ private:
     std::shared_ptr<PLConstraintScoreTracker> _scoreTracker;
 
     Map<unsigned, int> _decisionLiterals;
+    unsigned _decisionIndex;
     Map<int, double> _decisionScores;
 
     unsigned _lastSharedClauseIndexAdded;
