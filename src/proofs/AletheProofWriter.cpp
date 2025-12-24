@@ -214,7 +214,8 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
                    farkasParticipants,
                    negatedSplitsClause,
                    -id,
-                   true );
+                   true,
+                   {} );
 
     farkasClause += ")";
     farkasArgs += "))\n";
@@ -468,7 +469,8 @@ bool AletheProofWriter::writeReluLemma(
                    farkasParticipants,
                    negatedSplitsClause,
                    causingVar,
-                   causingVarBound == Tightening::UB );
+                   causingVarBound == Tightening::UB,
+                   lemmaEntry->deps );
 #ifdef BUILD_CADICAL
     if ( _cdclCore )
     {
@@ -686,14 +688,16 @@ void AletheProofWriter::linearCombinationMpq( const std::vector<mpq_t> &explaine
     }
 }
 
-void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
-                                       unsigned entryId,
-                                       String &farkasArgs,
-                                       String &farkasClause,
-                                       String &farkasParticipants,
-                                       String &negatedSplitClause,
-                                       int explainedVar,
-                                       bool isUpper )
+void AletheProofWriter::farkasStrings(
+    const SparseUnsortedList &expl,
+    unsigned entryId,
+    String &farkasArgs,
+    String &farkasClause,
+    String &farkasParticipants,
+    String &negatedSplitClause,
+    int explainedVar,
+    bool isUpper,
+    const Set<int> &deps )
 {
     std::vector<mpq_t> explainedRow = std::vector<mpq_t>( _n );
     for ( const auto num : explainedRow )
@@ -746,8 +750,9 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
 
         int lemId = gbEntry->lemma ? gbEntry->lemma->getId() : -1;
         double bound = gbEntry->val;
-        bool isLemmaIncluded =
-            lemId >= 0 && gbEntry->lemma->getToCheck() && gbEntry->lemma->wasWritten();
+        bool isLemmaIncluded = lemId >= 0 && gbEntry->lemma->getToCheck() &&
+                               gbEntry->lemma->wasWritten() &&
+                               ( !isLemma || deps.exists( lemId ) );
         bool useSplitBound = ( lemId < 0 && gbEntry->isPhaseFixing );
 
         farkasArgs += temp.get_str() + " ";

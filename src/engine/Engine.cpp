@@ -3642,9 +3642,9 @@ void Engine::explainSimplexFailure()
             ? sparseContradictionToAnalyse.initializeToEmpty()
             : sparseContradictionToAnalyse.initialize( leafContradictionVec.data(),
                                                        leafContradictionVec.size() );
-
+        Set<int> dummy = {};
         clause = analyseExplanationDependencies(
-            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0 );
+            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0, dummy );
 
         if ( !_solveWithCDCL )
         {
@@ -4262,11 +4262,13 @@ bool Engine::shouldSolveWithCDCL() const
     return _solveWithCDCL;
 }
 
-Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &explanation,
-                                                 unsigned id,
-                                                 int explainedVar,
-                                                 bool isUpper,
-                                                 double targetBound )
+Set<int> Engine::analyseExplanationDependencies(
+    const SparseUnsortedList &explanation,
+    unsigned id,
+    int explainedVar,
+    bool isUpper,
+    double targetBound,
+    Set<int> &deps )
 {
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
@@ -4358,6 +4360,13 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         }
     }
 
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && explainedVar >= 0 )
+    {
+        for ( const auto &entry : entries )
+            if ( entry->lemma )
+                deps.insert( entry->lemma->getId() );
+    }
+
     for ( const auto &entry : entries )
     {
         Set<int> subClause = {};
@@ -4382,7 +4391,8 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                     entry->id,
                     *it,
                     entry->lemma->getCausingVarBound() == Tightening::UB,
-                    entry->lemma->getMinTargetBound() ) );
+                    entry->lemma->getMinTargetBound(),
+                    entry->deps ) );
 
                 std::advance( it, 1 );
 
@@ -4458,7 +4468,8 @@ Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litCons
                                         phaseFixingEntry->id,
                                         phaseFixingEntry->lemma->getCausingVars().back(),
                                         phaseFixingEntry->lemma->getCausingVarBound(),
-                                        phaseFixingEntry->lemma->getBound() );
+                                        phaseFixingEntry->lemma->getBound(),
+                                        phaseFixingEntry->deps );
     phaseFixingEntry->clause = clause;
 #ifdef BUILD_CADICAL
     if ( _solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )

@@ -153,7 +153,8 @@ private:
                         String &farkasParticipants,
                         String &negatedSplitClause,
                         int explainerVar,
-                        bool isUpper );
+                        bool isUpper,
+                        const Set<int> &deps);
 };
 
 #endif // __AletheProofWriter_h__

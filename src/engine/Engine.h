@@ -230,7 +230,9 @@ public:
     /*
        Register initial split when in SnC mode
      */
-    void applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId, bool shouldApplySplit ) override;
+    void applySnCSplit( PiecewiseLinearCaseSplit sncSplit,
+                        String queryId,
+                        bool shouldApplySplit ) override;
 
     bool inSnCMode() const override;
 
@@ -682,7 +684,7 @@ private:
      */
     bool _initialized;
 
-    Map<unsigned, PiecewiseLinearConstraint*> _varToPLC;
+    Map<unsigned, PiecewiseLinearConstraint *> _varToPLC;
 
     /*
       Perform a simplex step: compute the cost function, pick the
@@ -1041,7 +1043,8 @@ private:
                                              unsigned id,
                                              int explainedVar,
                                              bool isUpper,
-                                             double targetBound );
+                                             double targetBound,
+                                             Set<int> &deps );
 #ifdef BUILD_CADICAL
     void removeLiteralFromPropagations( int literal ) override;
 #endif

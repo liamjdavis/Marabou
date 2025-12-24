@@ -34,12 +34,14 @@ public:
                           unsigned var,
                           const std::shared_ptr<PLCLemma> &lemma,
                           const Set<int> &clause,
+                          const Set<int> &deps,
                           bool isPhaseFixing )
             : id( id )
             , val( val )
             , var( var )
             , lemma( lemma )
             , clause( clause )
+            , deps( deps )
             , isPhaseFixing( isPhaseFixing )
         {
         }
@@ -48,6 +50,7 @@ public:
         unsigned var;
         const std::shared_ptr<PLCLemma> lemma;
         Set<int> clause;
+        Set<int> deps;
         bool isPhaseFixing;
     };
 
