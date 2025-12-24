@@ -20,7 +20,7 @@
 #include "gmpxx.h"
 
 const unsigned SmtLibWriter::SMTLIBWRITER_PRECISION =
-    (unsigned)std::log10( 1 / GlobalConfiguration::DEFAULT_EPSILON_FOR_COMPARISONS );
+    (unsigned)std::log10( 1 / GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE );
 
 List<String>
 SmtLibWriter::convertToSmtLib( unsigned numOfTableauRows,
@@ -163,7 +163,7 @@ void SmtLibWriter::addReLUConstraint( unsigned b,
 {
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF || status == PHASE_NOT_FIXED )
     {
-        instance.append( "(assert (or (and (>= x" + std::to_string( b ) + " 0.0) (<= x" +
+        instance.append( "(assert (xor (and (>= x" + std::to_string( b ) + " 0.0) (<= x" +
                          std::to_string( aux ) + " 0.0)) (and (<= x" + std::to_string( b ) +
                          " 0.0) (<= x" + std::to_string( f ) + " 0.0))))\n" );
         instance.append( "(assert (= (>= x" + std::to_string( b ) + " 0.0) (<= x" +

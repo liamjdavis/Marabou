@@ -34,6 +34,8 @@ class AletheProofWriter
 #endif
 {
 public:
+    static const unsigned ALETHE_WRITER_PRECISION;
+
     AletheProofWriter( unsigned explanationSize,
                        const Vector<double> &upperBounds,
                        const Vector<double> &lowerBounds,
@@ -55,13 +57,12 @@ public:
 
     void writeDelegatedLeaf( const UnsatCertificateNode *node );
 
-    void writeLemma( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &lemmaEntry);
+    void writeLemma( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &lemmaEntry );
 
     void writeContradiction( const SparseUnsortedList &contradiction, int64_t id );
 
 #if BUILD_CADICAL
-    void writeDelegatedLeaf( int64_t id,
-                                                const std::vector<int> &clause );
+    void writeDelegatedLeaf( int64_t id, const std::vector<int> &clause );
     void add_derived_clause( int64_t id,
                              bool redundant,
                              int witness,
@@ -74,10 +75,19 @@ public:
                               bool restored = false );
 
     void setLastContradiction( const SparseUnsortedList &contradiction );
-    void addDummyContradiction( );
+    const Set<int>&getLastContradictionClause() const;
+
+    void setLastContradictionClause( Set<int> &clause );
+
+    void addDummyContradiction();
 
     void addEntryToStack( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry );
-    void writeLemmaResolution( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry,int64_t id);
+    void writeLemmaResolution( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry,
+                               int64_t id );
+    bool hasInfo() const;
+    bool lemmaExistsAsReasonClause(int64_t id) const;
+
+
 #endif
 
 private:
@@ -103,7 +113,9 @@ private:
     const CdclCore *_cdclCore;
     Vector<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> _lastExplainedEntries;
     SparseUnsortedList _lastContradiction;
-    Map<unsigned, int64_t> _marabouToSATIds;
+    Set<int> _lastContradictionClause;
+    Map<int64_t, unsigned> _satIdToCdclVar;
+    String clauseToPhases( const std::vector<int> &clause );
 #endif
 
     void writeBoundAssumptions();
@@ -112,7 +124,7 @@ private:
 
     void writeTableauAssumptions();
 
-    void writeReluLemma( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &lemmaEntry,
+    bool writeReluLemma( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &lemmaEntry,
                          const ReluConstraint *relu );
 
     String getNegatedSplitsClause( const List<PiecewiseLinearCaseSplit> &splits ) const;

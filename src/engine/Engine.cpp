@@ -3644,7 +3644,7 @@ void Engine::explainSimplexFailure()
                                                        leafContradictionVec.size() );
 
         clause = analyseExplanationDependencies(
-            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0, true );
+            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0 );
 
         if ( !_solveWithCDCL )
         {
@@ -3654,19 +3654,20 @@ void Engine::explainSimplexFailure()
             return;
         }
         else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        {
             _aletheWriter->setLastContradiction( sparseContradictionToAnalyse );
+            _aletheWriter->setLastContradictionClause( clause );
+        }
     }
 
 #ifdef BUILD_CADICAL
     // If both bounds are ground bounds, explanation would be empty and the clause trivial
-    if ( _boundManager.getUpperBound( infeasibleVar ) ==
+    if ( !GlobalConfiguration::WRITE_ALETHE_PROOF &&
+         _boundManager.getUpperBound( infeasibleVar ) ==
              getGroundBound( infeasibleVar, Tightening::UB ) &&
          _boundManager.getLowerBound( infeasibleVar ) ==
              getGroundBound( infeasibleVar, Tightening::LB ) )
     {
-        if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
-            _aletheWriter->addDummyContradiction();
-
         _cdclCore.addDecisionBasedConflictClause();
         return;
     }
@@ -3944,8 +3945,9 @@ bool Engine::certifyUNSATCertificate()
 
     for ( unsigned i = 0; i < _tableau->getN(); ++i )
     {
-        groundUpperBounds[i] = _preprocessedQuery->getUpperBound(i);
-        groundLowerBounds[i] = _preprocessedQuery->getLowerBound(i);;
+        groundUpperBounds[i] = _preprocessedQuery->getUpperBound( i );
+        groundLowerBounds[i] = _preprocessedQuery->getLowerBound( i );
+        ;
     }
 
     struct timespec certificationStart = TimeUtils::sampleMicro();
@@ -3975,6 +3977,16 @@ bool Engine::certifyUNSATCertificate()
 
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
     {
+        if ( _aletheWriter->hasInfo() )
+        {
+            std::vector<int> clause( _aletheWriter->getLastContradictionClause().begin(),
+                                     _aletheWriter->getLastContradictionClause().end() );
+            _aletheWriter->add_original_clause(
+                _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES ),
+                false,
+                clause );
+        }
+
         String pref =
             Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
             Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
@@ -3987,7 +3999,6 @@ bool Engine::certifyUNSATCertificate()
                                          _tableau->getSparseA(),
                                          List<Equation>(),
                                          _plConstraints );
-
 
         _aletheWriter->writeInstanceToFile( file );
         printf( "proof written to Alethe format and needs to be certified separately\n" );
@@ -4255,8 +4266,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                                                  unsigned id,
                                                  int explainedVar,
                                                  bool isUpper,
-                                                 double targetBound,
-                                                 bool reqDecision )
+                                                 double targetBound )
 {
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
@@ -4348,7 +4358,6 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         }
     }
 
-    int decisionCounter = 0;
     for ( const auto &entry : entries )
     {
         Set<int> subClause = {};
@@ -4356,10 +4365,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         ASSERT( entry->id < id );
         // If a decision is required, we can stop analysing derived literals only after a decision
         // was added to the clause.
-        if ( ( !reqDecision || decisionCounter || !entry->lemma ) && entry->isPhaseFixing &&
-             _solveWithCDCL )
-            subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
-        else if ( entry->lemma && entry->lemma->getToCheck() )
+        if ( entry->lemma && entry->lemma->getToCheck() )
             subClause = entry->clause;
         else if ( entry->lemma && !entry->lemma->getExplanations().empty() &&
                   !entry->lemma->getToCheck() )
@@ -4376,8 +4382,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                     entry->id,
                     *it,
                     entry->lemma->getCausingVarBound() == Tightening::UB,
-                    entry->lemma->getMinTargetBound(),
-                    !decisionCounter && reqDecision ) );
+                    entry->lemma->getMinTargetBound() ) );
 
                 std::advance( it, 1 );
 
@@ -4390,16 +4395,11 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
             }
             entry->clause = subClause;
         }
+        else if ( !entry->lemma && entry->isPhaseFixing )
+            subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
 #ifdef BUILD_CADICAL
-
         if ( _solveWithCDCL )
-        {
             clause.insert( subClause );
-
-            for ( int lit : subClause )
-                if ( _cdclCore.isDecision( lit ) && !clause.exists( lit ) )
-                    ++decisionCounter;
-        }
 #endif
     }
 
@@ -4446,7 +4446,8 @@ Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litCons
     // Return a clause explaining the phase-fixing GroundBound entry
     ASSERT( phaseFixingEntry && phaseFixingEntry->lemma && phaseFixingEntry->isPhaseFixing );
 
-    if ( phaseFixingEntry->lemma->getToCheck() )
+    if ( phaseFixingEntry->lemma->getToCheck() &&
+         _aletheWriter->lemmaExistsAsReasonClause( phaseFixingEntry->lemma->getId() ) )
         return phaseFixingEntry->clause;
 
     phaseFixingEntry->lemma->setToCheck();
@@ -4457,8 +4458,7 @@ Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litCons
                                         phaseFixingEntry->id,
                                         phaseFixingEntry->lemma->getCausingVars().back(),
                                         phaseFixingEntry->lemma->getCausingVarBound(),
-                                        phaseFixingEntry->lemma->getBound(),
-                                        false );
+                                        phaseFixingEntry->lemma->getBound() );
     phaseFixingEntry->clause = clause;
 #ifdef BUILD_CADICAL
     if ( _solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )

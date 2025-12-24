@@ -143,7 +143,7 @@ public:
 
         // Relu
         line = file->readLine( '\n' );
-        expectedLine = "(assert (or (and (>= x0 0.0) (<= x2 0.0)) (and (<= x0 0.0) (<= x1 0.0))))";
+        expectedLine = "(assert (xor (and (>= x0 0.0) (<= x2 0.0)) (and (<= x0 0.0) (<= x1 0.0))))";
         TS_ASSERT_EQUALS( line, expectedLine );
 
         line = file->readLine( '\n' );

@@ -32,6 +32,7 @@ PLCLemma::PLCLemma( const List<unsigned> &causingVars,
     , _affectedVarBound( affectedVarBound )
     , _constraintType( constraintType )
     , _toCheck( false )
+    , _written( false )
     , _minTargetBound( minTargetBound )
     , _id( id )
 {
@@ -122,4 +123,14 @@ void PLCLemma::setToCheck()
 unsigned PLCLemma::getId() const
 {
     return _id;
+}
+
+bool PLCLemma::wasWritten() const
+{
+    return _written;
+}
+
+void PLCLemma::setWritten()
+{
+    _written = true;
 }

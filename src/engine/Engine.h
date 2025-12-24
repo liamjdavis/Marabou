@@ -1041,8 +1041,7 @@ private:
                                              unsigned id,
                                              int explainedVar,
                                              bool isUpper,
-                                             double targetBound,
-                                             bool reqDecision );
+                                             double targetBound );
 #ifdef BUILD_CADICAL
     void removeLiteralFromPropagations( int literal ) override;
 #endif

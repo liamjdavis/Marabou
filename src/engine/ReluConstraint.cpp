@@ -182,12 +182,20 @@ void ReluConstraint::notifyLowerBound( unsigned variable, double newBound )
                 createTighteningRow();
 
             // A positive lower bound is always propagated between f and b
-            if ( ( variable == _f || variable == _b ) && bound > 0 )
+            if ( ( variable == _f || variable == _b ) && FloatUtils::isPositive( bound ) )
             {
                 // If we're in the active phase, aux should be 0
                 if ( proofs && _auxVarInUse )
                     _boundManager->addLemmaExplanationAndTightenBound(
-                        _aux, 0, Tightening::UB, { variable }, Tightening::LB, *this, true, FloatUtils::min(bound, GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE) );
+                        _aux,
+                        0,
+                        Tightening::UB,
+                        { variable },
+                        Tightening::LB,
+                        *this,
+                        true,
+                        GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE );
+
                 else if ( !proofs && _auxVarInUse )
                     _boundManager->tightenUpperBound( _aux, 0 );
 
@@ -208,11 +216,18 @@ void ReluConstraint::notifyLowerBound( unsigned variable, double newBound )
 
             // A positive lower bound for aux means we're inactive: f is 0, b is
             // non-positive When inactive, b = -aux
-            else if ( _auxVarInUse && variable == _aux && bound > 0 )
+            else if ( _auxVarInUse && variable == _aux && FloatUtils::isPositive( bound ) )
             {
                 if ( proofs )
                     _boundManager->addLemmaExplanationAndTightenBound(
-                        _f, 0, Tightening::UB, { variable }, Tightening::LB, *this, true, FloatUtils::min(bound, GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE) );
+                        _f,
+                        0,
+                        Tightening::UB,
+                        { variable },
+                        Tightening::LB,
+                        *this,
+                        true,
+                                         GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE  );
                 else
                     _boundManager->tightenUpperBound( _f, 0 );
 
@@ -221,7 +236,7 @@ void ReluConstraint::notifyLowerBound( unsigned variable, double newBound )
             }
 
             // A negative lower bound for b could tighten aux's upper bound
-            else if ( _auxVarInUse && variable == _b && bound < 0 )
+            else if ( _auxVarInUse && variable == _b && FloatUtils::isNegative( bound ) )
             {
                 if ( proofs )
                 {
@@ -244,11 +259,18 @@ void ReluConstraint::notifyLowerBound( unsigned variable, double newBound )
 
             // Also, if for some reason we only know a negative lower bound for
             // f, we attempt to tighten it to 0
-            else if ( bound < 0 && variable == _f )
+            else if ( FloatUtils::isNegative( bound ) && variable == _f )
             {
                 if ( proofs )
                     _boundManager->addLemmaExplanationAndTightenBound(
-                        _f, 0, Tightening::LB, { variable }, Tightening::LB, *this, false, FloatUtils::max(bound, -GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE) );
+                        _f,
+                        0,
+                        Tightening::LB,
+                        { variable },
+                        Tightening::LB,
+                        *this,
+                        false,
+                                         -GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE  );
                 else
                     _boundManager->tightenLowerBound( _f, 0 );
             }
