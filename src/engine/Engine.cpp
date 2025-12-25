@@ -4065,7 +4065,7 @@ void Engine::markLeafToDelegate()
     if ( !_solveWithCDCL && currentUnsatCertificateNode->getChildren().empty() )
         currentUnsatCertificateNode->makeLeaf();
 
-    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && _solveWithCDCL )
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && !_solveWithCDCL )
         _aletheWriter->writeDelegatedLeaf( _UNSATCertificateCurrentPointer->get() );
     else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
         _aletheWriter->addDummyContradiction();
