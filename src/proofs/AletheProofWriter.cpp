@@ -257,6 +257,19 @@ void AletheProofWriter::writeInstanceToFile( IFile &file )
     for ( const String &s : _assumptions )
         file.write( s );
 
+    for ( auto stepEntry : _proofEntries )
+    {
+        // Lemma Resolution
+        if ( stepEntry.gbEntry && stepEntry.id >= 0 )
+            writeLemmaResolution( stepEntry.gbEntry, stepEntry.propagatedLit, stepEntry.id );
+        // Delegation Leaf
+        else if ( stepEntry.contradiction.getSize() && stepEntry.contradiction.empty() )
+            writeDelegatedLeaf( stepEntry.id, stepEntry.clause );
+        // Derived Clauses
+        else if ( stepEntry.id >= 0 )
+            writeDerivedClauseContent( stepEntry.id, stepEntry.clause, stepEntry.antecedents );
+    }
+
     for ( const String &s : _proof )
         file.write( s );
 
@@ -874,30 +887,10 @@ void AletheProofWriter::add_derived_clause( int64_t id,
                                             const std::vector<int> &clause,
                                             const std::vector<int64_t> &antecedents )
 {
-    String splitsClause = "";
-    for ( int lit : clause )
-    {
-        const PiecewiseLinearConstraint *plc = _cdclCore->getConstraintFromLit( lit );
-        String isActive = lit > 0 ? "a" : "(not a";
-        int constraintInt = plc->getVariableForDecision();
-        splitsClause +=
-            String( " " ) + isActive + std::to_string( constraintInt ) + ( lit > 0 ? "" : ")" );
-    }
-
-
-    String resLine = String( "(step r" + std::to_string( id ) + " (cl" ) + splitsClause +
-                     "):rule resolution :premises(";
-
-    for ( int64_t step : antecedents )
-        resLine += " r" + std::to_string( step );
-
-    for ( int lit : clause )
-        resLine += " s" + std::to_string( abs( lit ) );
-
-    resLine += "))\n";
-
-    _proof.append( resLine );
+    _proofEntries.append(
+        AletheStepEntry( id, clause, antecedents, NULL, SparseUnsortedList(), 0 ) );
 }
+
 
 void AletheProofWriter::add_original_clause( int64_t id,
                                              bool /*redundant*/,
@@ -909,6 +902,7 @@ void AletheProofWriter::add_original_clause( int64_t id,
         _lastExplainedEntries.end(),
         []( std::shared_ptr<GroundBoundManager::GroundBoundEntry> a,
             std::shared_ptr<GroundBoundManager::GroundBoundEntry> b ) { return a->id < b->id; } );
+
     for ( auto entry : _lastExplainedEntries )
         writeLemma( entry );
 
@@ -929,10 +923,16 @@ void AletheProofWriter::add_original_clause( int64_t id,
         _satIdToCdclVar.insert( id,
                                 _varToPlc[_lastExplainedEntries.last()->lemma->getAffectedVar()]
                                     ->getVariableForDecision() );
-
-        writeLemmaResolution( _lastExplainedEntries.last(), id );
+        PiecewiseLinearConstraint *plc =
+            _varToPlc[_lastExplainedEntries.last()->lemma->getAffectedVar()];
+        // Add as minus, as the literal will be negated
+        _proofEntries.append( AletheStepEntry( id,
+                                               {},
+                                               {},
+                                               _lastExplainedEntries.last(),
+                                               SparseUnsortedList(),
+                                               -plc->propagatePhaseAsLit() ) );
     }
-
     _lastExplainedEntries.clear();
 }
 
@@ -972,19 +972,18 @@ void AletheProofWriter::writeDelegatedLeaf( int64_t id, const std::vector<int> &
 
 void AletheProofWriter::writeLemmaResolution(
     const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry,
+    int propagatedLit,
     int64_t id )
 {
     ASSERT( entry->lemma && entry->isPhaseFixing );
     unsigned lemId = entry->lemma->getId();
-    PiecewiseLinearConstraint *plc = _varToPlc[entry->lemma->getAffectedVar()];
-    String constraintId = std::to_string( plc->getVariableForDecision() );
+    String constraintId = std::to_string( abs( propagatedLit ) );
 
     std::vector<int> entryClause = std::vector<int>( entry->clause.begin(), entry->clause.end() );
     // Add as minus, as the literal will be negated
-    entryClause.insert( entryClause.end(), -plc->propagatePhaseAsLit() );
+    entryClause.insert( entryClause.end(), propagatedLit );
 
-    ASSERT( plc->phaseFixed() );
-    String isActive = plc->propagatePhaseAsLit() > 0 ? "a" : "i";
+    String isActive = -propagatedLit > 0 ? "a" : "i";
     String proofRule = String( "(step r" + std::to_string( id ) + "(cl " ) +
                        clauseToPhases( entryClause ) + "):rule resolution :premises( eq" +
                        constraintId + "_" + isActive + "0 eq" + constraintId + "_" + isActive +
@@ -1021,4 +1020,32 @@ bool AletheProofWriter::lemmaExistsAsReasonClause( int64_t id ) const
     return _satIdToCdclVar.exists( id );
 }
 
+void AletheProofWriter::writeDerivedClauseContent( int64_t id,
+                                                   const std::vector<int> &clause,
+                                                   const std::vector<int64_t> &antecedents )
+{
+    String splitsClause = "";
+    for ( int lit : clause )
+    {
+        const PiecewiseLinearConstraint *plc = _cdclCore->getConstraintFromLit( lit );
+        String isActive = lit > 0 ? "a" : "(not a";
+        int constraintInt = plc->getVariableForDecision();
+        splitsClause +=
+            String( " " ) + isActive + std::to_string( constraintInt ) + ( lit > 0 ? "" : ")" );
+    }
+
+
+    String resLine = String( "(step r" + std::to_string( id ) + " (cl" ) + splitsClause +
+                     "):rule resolution :premises(";
+
+    for ( int64_t step : antecedents )
+        resLine += " r" + std::to_string( step );
+
+    for ( int lit : clause )
+        resLine += " s" + std::to_string( abs( lit ) );
+
+    resLine += "))\n";
+
+    _proof.append( resLine );
+}
 #endif

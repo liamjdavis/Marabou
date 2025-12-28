@@ -4469,7 +4469,7 @@ Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litCons
     // Return a clause explaining the phase-fixing GroundBound entry
     ASSERT( phaseFixingEntry && phaseFixingEntry->lemma && phaseFixingEntry->isPhaseFixing );
 
-    if ( phaseFixingEntry->lemma->getToCheck() &&
+    if ( phaseFixingEntry->lemma->getToCheck() && GlobalConfiguration::WRITE_ALETHE_PROOF &&
          _aletheWriter->lemmaExistsAsReasonClause( phaseFixingEntry->lemma->getId() ) )
         return phaseFixingEntry->clause;
 

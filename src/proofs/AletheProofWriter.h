@@ -40,12 +40,14 @@ public:
                          std::vector<int> clause,
                          std::vector<int64_t> antecedents,
                          std::shared_ptr<GroundBoundManager::GroundBoundEntry> gbEntry,
-                         SparseUnsortedList contradiction )
+                         SparseUnsortedList contradiction,
+                         int propagatedLit )
             : id( id )
             , clause( clause )
             , antecedents( antecedents )
             , gbEntry( gbEntry )
             , contradiction( contradiction )
+            , propagatedLit( propagatedLit )
         {
         }
         int64_t id;
@@ -53,6 +55,7 @@ public:
         std::vector<int64_t> antecedents;
         std::shared_ptr<GroundBoundManager::GroundBoundEntry> gbEntry;
         SparseUnsortedList contradiction;
+        int propagatedLit;
     };
 
 
@@ -110,6 +113,7 @@ public:
 
     void addEntryToStack( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry );
     void writeLemmaResolution( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry,
+                               int propagatedLit,
                                int64_t id );
     bool hasInfo() const;
     bool lemmaExistsAsReasonClause( int64_t id ) const;
@@ -145,6 +149,10 @@ private:
     Set<int> _lastContradictionClause;
     Map<int64_t, unsigned> _satIdToCdclVar;
     String clauseToPhases( const std::vector<int> &clause );
+    void writeDerivedClauseContent( int64_t id,
+                                    const std::vector<int> &clause,
+                                    const std::vector<int64_t> &antecedents );
+
 #endif
 
     void writeBoundAssumptions();
