@@ -136,6 +136,8 @@ private:
     Map<unsigned, List<Tightening>> _idToSplits;
     Map<unsigned, List<Tightening>> _nodeToSplits;
 
+    File _proofFile;
+    List<AletheStepEntry> _proofEntries;
 #if BUILD_CADICAL
     const CdclCore *_cdclCore;
     Vector<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> _lastExplainedEntries;
