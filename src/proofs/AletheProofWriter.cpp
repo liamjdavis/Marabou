@@ -27,7 +27,8 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const Vector<double> &lowerBounds,
                                       const GroundBoundManager &groundBoundManager,
                                       const SparseMatrix *tableau,
-                                      const List<PiecewiseLinearConstraint *> &problemConstraints
+                                      const List<PiecewiseLinearConstraint *> &problemConstraints,
+                                      File proofFile
 #if BUILD_CADICAL
                                       ,
                                       const CdclCore *cdclCore
@@ -44,6 +45,8 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
     , _varToPlc()
     , _idToSplits()
     , _nodeToSplits()
+    , _proofFile( proofFile )
+    , _proofEntries( {} )
 #if BUILD_CADICAL
     , _cdclCore( cdclCore )
     , _lastExplainedEntries( {} )
@@ -688,16 +691,15 @@ void AletheProofWriter::linearCombinationMpq( const std::vector<mpq_t> &explaine
     }
 }
 
-void AletheProofWriter::farkasStrings(
-    const SparseUnsortedList &expl,
-    unsigned entryId,
-    String &farkasArgs,
-    String &farkasClause,
-    String &farkasParticipants,
-    String &negatedSplitClause,
-    int explainedVar,
-    bool isUpper,
-    const Set<int> &deps )
+void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
+                                       unsigned entryId,
+                                       String &farkasArgs,
+                                       String &farkasClause,
+                                       String &farkasParticipants,
+                                       String &negatedSplitClause,
+                                       int explainedVar,
+                                       bool isUpper,
+                                       const Set<int> &deps )
 {
     std::vector<mpq_t> explainedRow = std::vector<mpq_t>( _n );
     for ( const auto num : explainedRow )
@@ -751,8 +753,7 @@ void AletheProofWriter::farkasStrings(
         int lemId = gbEntry->lemma ? gbEntry->lemma->getId() : -1;
         double bound = gbEntry->val;
         bool isLemmaIncluded = lemId >= 0 && gbEntry->lemma->getToCheck() &&
-                               gbEntry->lemma->wasWritten() &&
-                               ( !isLemma || deps.exists( lemId ) );
+                               gbEntry->lemma->wasWritten() && ( !isLemma || deps.exists( lemId ) );
         bool useSplitBound = ( lemId < 0 && gbEntry->isPhaseFixing );
 
         farkasArgs += temp.get_str() + " ";
@@ -844,6 +845,28 @@ unsigned AletheProofWriter::assignId()
     return _stepCounter++;
 }
 
+void AletheProofWriter::flushAssumptions()
+{
+    _proofFile.open( File::MODE_WRITE_TRUNCATE );
+    writeBoundAssumptions();
+    writePLCAssumption();
+    for ( const String &s : _assumptions )
+        _proofFile.write( s );
+
+    _proofFile.close();
+}
+
+void AletheProofWriter::flushProof()
+{
+    _proofFile.open( File::MODE_WRITE_APPEND );
+    for ( const String &s : _proof )
+        _proofFile.write( s );
+
+    _proof.clear();
+
+    _proofFile.close();
+}
+
 #if BUILD_CADICAL
 void AletheProofWriter::add_derived_clause( int64_t id,
                                             bool /*redundant*/,
@@ -889,7 +912,7 @@ void AletheProofWriter::add_original_clause( int64_t id,
     for ( auto entry : _lastExplainedEntries )
         writeLemma( entry );
 
-    if ( !_lastContradiction.empty() && _lastContradiction.getSize() )
+    if ( _lastContradiction.getSize() )
     {
         if ( _lastContradiction.empty() )
             writeDelegatedLeaf( id, clause );

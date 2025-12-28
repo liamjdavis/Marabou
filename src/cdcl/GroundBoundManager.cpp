@@ -26,6 +26,7 @@ GroundBoundManager::GroundBoundManager( CVC4::context::Context &ctx )
 {
     _counter = new ( true ) CVC4::context::CDO<unsigned>( &_context, 0 );
 }
+
 GroundBoundManager::~GroundBoundManager()
 {
     _counter->deleteSelf();

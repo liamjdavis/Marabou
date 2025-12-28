@@ -34,6 +34,28 @@ class AletheProofWriter
 #endif
 {
 public:
+    struct AletheStepEntry
+    {
+        AletheStepEntry( int64_t id,
+                         std::vector<int> clause,
+                         std::vector<int64_t> antecedents,
+                         std::shared_ptr<GroundBoundManager::GroundBoundEntry> gbEntry,
+                         SparseUnsortedList contradiction )
+            : id( id )
+            , clause( clause )
+            , antecedents( antecedents )
+            , gbEntry( gbEntry )
+            , contradiction( contradiction )
+        {
+        }
+        int64_t id;
+        std::vector<int> clause;
+        std::vector<int64_t> antecedents;
+        std::shared_ptr<GroundBoundManager::GroundBoundEntry> gbEntry;
+        SparseUnsortedList contradiction;
+    };
+
+
     static const unsigned ALETHE_WRITER_PRECISION;
 
     AletheProofWriter( unsigned explanationSize,
@@ -41,7 +63,8 @@ public:
                        const Vector<double> &lowerBounds,
                        const GroundBoundManager &groundBoundManager,
                        const SparseMatrix *tableau,
-                       const List<PiecewiseLinearConstraint *> &problemConstraints
+                       const List<PiecewiseLinearConstraint *> &problemConstraints,
+                       File proofFile
 #if BUILD_CADICAL
                        ,
                        const CdclCore *cdclCore
@@ -61,6 +84,10 @@ public:
 
     void writeContradiction( const SparseUnsortedList &contradiction, int64_t id );
 
+    void flushAssumptions();
+
+    void flushProof();
+
 #if BUILD_CADICAL
     void writeDelegatedLeaf( int64_t id, const std::vector<int> &clause );
     void add_derived_clause( int64_t id,
@@ -75,7 +102,7 @@ public:
                               bool restored = false );
 
     void setLastContradiction( const SparseUnsortedList &contradiction );
-    const Set<int>&getLastContradictionClause() const;
+    const Set<int> &getLastContradictionClause() const;
 
     void setLastContradictionClause( Set<int> &clause );
 
@@ -85,7 +112,7 @@ public:
     void writeLemmaResolution( const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &entry,
                                int64_t id );
     bool hasInfo() const;
-    bool lemmaExistsAsReasonClause(int64_t id) const;
+    bool lemmaExistsAsReasonClause( int64_t id ) const;
 
 
 #endif
@@ -154,7 +181,7 @@ private:
                         String &negatedSplitClause,
                         int explainerVar,
                         bool isUpper,
-                        const Set<int> &deps);
+                        const Set<int> &deps );
 };
 
 #endif // __AletheProofWriter_h__

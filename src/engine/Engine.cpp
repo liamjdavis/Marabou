@@ -1597,18 +1597,32 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                 }
 
                 if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+                {
+                    String pref = Options::get()
+                                      ->getString( Options::INPUT_FILE_PATH )
+                                      .tokenize( "/" )
+                                      .back() +
+                                  Options::get()
+                                      ->getString( Options::PROPERTY_FILE_PATH )
+                                      .tokenize( "/" )
+                                      .back();
+                    File file( pref + ".smt2.alethe" );
+
                     _aletheWriter = new AletheProofWriter(
                         _tableau->getM(),
                         _groundBoundManager.getAllGroundBounds( Tightening::UB ),
                         _groundBoundManager.getAllGroundBounds( Tightening::LB ),
                         _groundBoundManager,
                         _tableau->getSparseA(),
-                        _plConstraints
+                        _plConstraints,
+                        file
+
 #if BUILD_CADICAL
                         ,
                         &_cdclCore
 #endif
                     );
+                }
 
                 unsigned id =
                     GlobalConfiguration::WRITE_ALETHE_PROOF ? _aletheWriter->assignId() : 0;
@@ -4262,13 +4276,12 @@ bool Engine::shouldSolveWithCDCL() const
     return _solveWithCDCL;
 }
 
-Set<int> Engine::analyseExplanationDependencies(
-    const SparseUnsortedList &explanation,
-    unsigned id,
-    int explainedVar,
-    bool isUpper,
-    double targetBound,
-    Set<int> &deps )
+Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &explanation,
+                                                 unsigned id,
+                                                 int explainedVar,
+                                                 bool isUpper,
+                                                 double targetBound,
+                                                 Set<int> &deps )
 {
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
