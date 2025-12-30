@@ -845,6 +845,9 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         _statistics->print();
     }
 
+    if ( result != 20 && GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _engine->deleteProofIfExists();
+
     if ( result == 0 )
     {
         if ( _engine->getExitCode() == ExitCode::SAT )

@@ -401,8 +401,15 @@ public:
      Configure the engine to allow solving with CDCL, used for testing only.
     */
     void configureForCDCL();
-
+    /*
+     Get CDCLCore
+     */
     const CdclCore *getCdclCore() const override;
+
+    /*
+     Empty Alethe proof trace, if created
+    */
+    void deleteProofIfExists() const override;
 #endif
 
     /*

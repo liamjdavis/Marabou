@@ -436,6 +436,10 @@ public:
     {
         return nullptr;
     }
+
+    void deleteProofIfExists() const override
+    {
+    }
 #endif
 };
 

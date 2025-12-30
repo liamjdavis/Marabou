@@ -67,13 +67,12 @@ public:
                        const GroundBoundManager &groundBoundManager,
                        const SparseMatrix *tableau,
                        const List<PiecewiseLinearConstraint *> &problemConstraints,
-                       File proofFile
+                       const String &proofFileName
 #if BUILD_CADICAL
                        ,
                        const CdclCore *cdclCore
 #endif
     );
-
 
     void writeInstanceToFile( IFile &file );
 
@@ -90,6 +89,12 @@ public:
     void flushAssumptions();
 
     void flushProof();
+
+    void finalizeProof();
+
+    void deleteProof();
+
+    String getFileName() const;
 
 #if BUILD_CADICAL
     void writeDelegatedLeaf( int64_t id, const std::vector<int> &clause );
@@ -117,8 +122,6 @@ public:
                                int64_t id );
     bool hasInfo() const;
     bool lemmaExistsAsReasonClause( int64_t id ) const;
-
-
 #endif
 
 private:
@@ -141,7 +144,9 @@ private:
     Map<unsigned, List<Tightening>> _nodeToSplits;
 
     File _proofFile;
+    String _proofFileName;
     List<AletheStepEntry> _proofEntries;
+
 #if BUILD_CADICAL
     const CdclCore *_cdclCore;
     Vector<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> _lastExplainedEntries;

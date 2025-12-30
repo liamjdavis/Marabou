@@ -1606,7 +1606,6 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                                       ->getString( Options::PROPERTY_FILE_PATH )
                                       .tokenize( "/" )
                                       .back();
-                    File file( pref + ".smt2.alethe" );
 
                     _aletheWriter = new AletheProofWriter(
                         _tableau->getM(),
@@ -1615,7 +1614,7 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                         _groundBoundManager,
                         _tableau->getSparseA(),
                         _plConstraints,
-                        file
+                        pref + ".smt2.alethe"
 
 #if BUILD_CADICAL
                         ,
@@ -1709,6 +1708,8 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
             _cdclCore.initSatSolver();
         }
 #endif
+        if ( _produceUNSATProofs && GlobalConfiguration::WRITE_ALETHE_PROOF )
+            _aletheWriter->flushAssumptions();
     }
     catch ( const InfeasibleQueryException & )
     {
@@ -2706,6 +2707,12 @@ void Engine::postContextPopHook()
         _tableau->postContextPopHook();
         _costFunctionManager->computeCoreCostFunction();
     }
+
+    if ( _produceUNSATProofs && GlobalConfiguration::WRITE_ALETHE_PROOF &&
+         _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES ) %
+                 GlobalConfiguration::ALETHE_PROOF_FLUSHING_FREQUENCY ==
+             0 )
+        _aletheWriter->flushProof();
 
     struct timespec end = TimeUtils::sampleMicro();
     _statistics.incLongAttribute( Statistics::TIME_CONTEXT_POP_HOOK,
@@ -3999,13 +4006,14 @@ bool Engine::certifyUNSATCertificate()
                 _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES ),
                 false,
                 clause );
+            _aletheWriter->flushProof();
         }
 
-        String pref =
-            Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
-            Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
-        File file( pref + ".smt2.alethe" );
-        SmtLibWriter::writeToSmtLibFile( pref + ".smt2",
+        // Trim out the suffix ".alethe"
+        String alethePref =
+            _aletheWriter->getFileName().substring( 0, _aletheWriter->getFileName().length() - 7 );
+
+        SmtLibWriter::writeToSmtLibFile( alethePref,
                                          _tableau->getM(),
                                          _tableau->getN(),
                                          groundUpperBounds,
@@ -4014,7 +4022,7 @@ bool Engine::certifyUNSATCertificate()
                                          List<Equation>(),
                                          _plConstraints );
 
-        _aletheWriter->writeInstanceToFile( file );
+        _aletheWriter->finalizeProof();
         printf( "proof written to Alethe format and needs to be certified separately\n" );
         certificationSucceeded = true;
     }
@@ -4611,5 +4619,11 @@ AletheProofWriter *Engine::getAletheWriter() const
 unsigned Engine::getNumOfLemmas() const
 {
     return _statistics.getUnsignedAttribute( Statistics::NUM_LEMMAS );
+}
+
+void Engine::deleteProofIfExists() const
+{
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _aletheWriter->deleteProof();
 }
 #endif

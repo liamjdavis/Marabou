@@ -263,6 +263,10 @@ public:
      */
     static const bool WRITE_ALETHE_PROOF;
 
+    /* The frequenct (in number of leaves) to flush ALethe Proof
+     */
+    static const unsigned ALETHE_PROOF_FLUSHING_FREQUENCY;
+
     /* How many layers after the current layer do we encode in backward analysis.
      */
     static const unsigned BACKWARD_BOUND_PROPAGATION_DEPTH;

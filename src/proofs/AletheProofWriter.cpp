@@ -28,7 +28,7 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const GroundBoundManager &groundBoundManager,
                                       const SparseMatrix *tableau,
                                       const List<PiecewiseLinearConstraint *> &problemConstraints,
-                                      File proofFile
+                                      const String &proofFileName
 #if BUILD_CADICAL
                                       ,
                                       const CdclCore *cdclCore
@@ -45,7 +45,8 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
     , _varToPlc()
     , _idToSplits()
     , _nodeToSplits()
-    , _proofFile( proofFile )
+    , _proofFile(proofFileName)
+    , _proofFileName( proofFileName )
     , _proofEntries( {} )
 #if BUILD_CADICAL
     , _cdclCore( cdclCore )
@@ -247,6 +248,36 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
                  "))\n";
 
     _proof.append( { laGeneric, res } );
+}
+
+void AletheProofWriter::finalizeProof()
+{
+    _proofFile.open( File::MODE_WRITE_APPEND );
+    for ( auto stepEntry : _proofEntries )
+    {
+        // Lemma Resolution
+        if ( stepEntry.gbEntry && stepEntry.id >= 0 )
+            writeLemmaResolution( stepEntry.gbEntry, stepEntry.propagatedLit, stepEntry.id );
+        // Delegation Leaf
+        else if ( stepEntry.contradiction.getSize() && stepEntry.contradiction.empty() )
+            writeDelegatedLeaf( stepEntry.id, stepEntry.clause );
+        // Derived Clauses
+        else if ( stepEntry.id >= 0 )
+            writeDerivedClauseContent( stepEntry.id, stepEntry.clause, stepEntry.antecedents );
+    }
+
+    for ( const String &s : _proof )
+        _proofFile.write( s );
+
+    _proofFile.close();
+}
+
+void AletheProofWriter::deleteProof()
+{
+    _proofFile.open( File::MODE_WRITE_TRUNCATE );
+    _proofFile.write( "" );
+    _proofFile.close();
+    std::remove( _proofFileName.ascii() );
 }
 
 void AletheProofWriter::writeInstanceToFile( IFile &file )
@@ -909,7 +940,7 @@ void AletheProofWriter::add_original_clause( int64_t id,
     if ( _lastContradiction.getSize() )
     {
         if ( _lastContradiction.empty() )
-            writeDelegatedLeaf( id, clause );
+            _proofEntries.append( AletheStepEntry( id, clause, {}, NULL, _lastContradiction, 0 ) );
         else
             writeContradiction( _lastContradiction, id );
 
@@ -962,7 +993,7 @@ void AletheProofWriter::writeDelegatedLeaf( int64_t id, const std::vector<int> &
     String proofHole = String( "(step r" + std::to_string( id ) ) + " (cl ";
     for ( int lit : clause )
     {
-        String isActive = lit > 0 ? "a" : "(not a_";
+        String isActive = lit > 0 ? "a" : "(not a";
         String plcNum = std::to_string( abs( lit ) );
         proofHole += String( " " ) + isActive + plcNum + ( lit > 0 ? "" : ")" );
     }
@@ -1015,6 +1046,7 @@ const Set<int> &AletheProofWriter::getLastContradictionClause() const
 {
     return _lastContradictionClause;
 }
+
 bool AletheProofWriter::lemmaExistsAsReasonClause( int64_t id ) const
 {
     return _satIdToCdclVar.exists( id );
@@ -1047,5 +1079,11 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
     resLine += "))\n";
 
     _proof.append( resLine );
+}
+
+
+String AletheProofWriter::getFileName() const
+{
+    return _proofFileName;
 }
 #endif

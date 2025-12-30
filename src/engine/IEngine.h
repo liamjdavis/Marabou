@@ -52,7 +52,7 @@ class UnsatCertificateNode;
 class IEngine
 {
 public:
-    virtual ~IEngine() {};
+    virtual ~IEngine(){};
 
     /*
       Add equations and apply tightenings from a PL case split.
@@ -307,7 +307,15 @@ public:
      */
     virtual void removeLiteralFromPropagations( int literal ) = 0;
 
+    /*
+     Get CDCLCore
+     */
     virtual const CdclCore *getCdclCore() const = 0;
+
+    /*
+     Empty Alethe proof trace, if created
+    */
+    virtual void deleteProofIfExists() const = 0;
 #endif
 };
 
