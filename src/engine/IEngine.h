@@ -16,6 +16,7 @@
 #ifndef __IEngine_h__
 #define __IEngine_h__
 
+#include "AletheProofWriter.h"
 #include "BoundExplainer.h"
 #include "DivideStrategy.h"
 #include "ExitCode.h"
@@ -260,14 +261,24 @@ public:
     virtual SymbolicBoundTighteningType getSymbolicBoundTighteningType() const = 0;
 
     /*
-      Returns the bound manager
-     */
+     Returns the bound manager
+    */
     virtual const IBoundManager *getBoundManager() const = 0;
 
     /*
-      Returns the input query.
-     */
+     Returns the input query.
+    */
     virtual std::shared_ptr<Query> getInputQuery() const = 0;
+
+    /*
+     Returns the Alethe proof writer.
+    */
+    virtual AletheProofWriter *getAletheWriter() const = 0;
+
+    /*
+     Returns the number of lemmas
+    */
+    virtual unsigned getNumOfLemmas() const = 0;
 
 #ifdef BUILD_CADICAL
     /*
@@ -295,7 +306,15 @@ public:
      */
     virtual void removeLiteralFromPropagations( int literal ) = 0;
 
+    /*
+     Get CDCLCore
+     */
     virtual const CdclCore *getCdclCore() const = 0;
+
+    /*
+     Empty Alethe proof trace, if created
+    */
+    virtual void deleteProofIfExists() const = 0;
 #endif
 };
 

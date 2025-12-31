@@ -16,7 +16,6 @@
 
 #include "Debug.h"
 
-
 PLCLemma::PLCLemma( const List<unsigned> &causingVars,
                     unsigned affectedVar,
                     double bound,
@@ -24,7 +23,8 @@ PLCLemma::PLCLemma( const List<unsigned> &causingVars,
                     Tightening::BoundType affectedVarBound,
                     const Vector<SparseUnsortedList> &explanations,
                     PiecewiseLinearFunctionType constraintType,
-                    double minTargetBound )
+                    double minTargetBound,
+                    unsigned id )
     : _causingVars( causingVars )
     , _affectedVar( affectedVar )
     , _bound( bound )
@@ -32,7 +32,9 @@ PLCLemma::PLCLemma( const List<unsigned> &causingVars,
     , _affectedVarBound( affectedVarBound )
     , _constraintType( constraintType )
     , _toCheck( false )
+    , _written( false )
     , _minTargetBound( minTargetBound )
+    , _id( id )
 {
     if ( explanations.empty() )
         _explanations = List<SparseUnsortedList>();
@@ -113,8 +115,22 @@ double PLCLemma::getMinTargetBound() const
     return _minTargetBound;
 }
 
-
 void PLCLemma::setToCheck()
 {
     _toCheck = true;
+}
+
+unsigned PLCLemma::getId() const
+{
+    return _id;
+}
+
+bool PLCLemma::wasWritten() const
+{
+    return _written;
+}
+
+void PLCLemma::setWritten()
+{
+    _written = true;
 }

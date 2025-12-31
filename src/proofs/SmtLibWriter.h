@@ -49,7 +49,7 @@ public:
       Adds a line representing a ReLU constraint, in SMTLIB format, to the SMTLIB instance
     */
     static void
-    addReLUConstraint( unsigned b, unsigned f, const PhaseStatus status, List<String> &instance );
+    addReLUConstraint( unsigned b, unsigned f, unsigned aux, const PhaseStatus status, List<String> &instance );
 
     /*
       Adds a line representing a sign constraint, in SMTLIB format, to the SMTLIB instance
@@ -121,9 +121,19 @@ public:
       Returns a string representing the value of a double
      */
     static String signedValue( double val );
+
     /*
-      A wrapper function calling all previous functions
+      Wrapper functions calling all previous functions
     */
+    static List<String> convertToSmtLib( unsigned numOfTableauRows,
+                                         unsigned numOfVariables,
+                                         const Vector<double> &upperBounds,
+                                         const Vector<double> &lowerBounds,
+                                         const SparseMatrix *tableau,
+                                         const List<Equation> &additionalEquations,
+                                         const List<PiecewiseLinearConstraint *> &problemConstraints );
+
+
     static void writeToSmtLibFile( const String &fileName,
                                    unsigned numOfTableauRows,
                                    unsigned numOfVariables,

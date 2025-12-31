@@ -364,6 +364,16 @@ public:
 
     List<unsigned> getOutputVariables() const override;
 
+    /*
+     Returns the Alethe proof writer.
+    */
+    AletheProofWriter *getAletheWriter() const override;
+
+    /*
+     Returns the number of lemmas
+    */
+    unsigned getNumOfLemmas() const override;
+
 #ifdef BUILD_CADICAL
     /*
       Solve the input query with CDCL
@@ -389,8 +399,15 @@ public:
      Configure the engine to allow solving with CDCL, used for testing only.
     */
     void configureForCDCL();
-
+    /*
+     Get CDCLCore
+     */
     const CdclCore *getCdclCore() const override;
+
+    /*
+     Empty Alethe proof trace, if created
+    */
+    void deleteProofIfExists() const override;
 #endif
 
     /*
@@ -659,6 +676,8 @@ private:
     GroundBoundManager _groundBoundManager;
     UnsatCertificateNode *_UNSATCertificate;
     CVC4::context::CDO<UnsatCertificateNode *> *_UNSATCertificateCurrentPointer;
+    AletheProofWriter *_aletheWriter;
+
 
     /*
       Solve the query with CDCL
@@ -670,7 +689,7 @@ private:
      */
     bool _initialized;
 
-    Map<unsigned, PiecewiseLinearConstraint*> _varToPLC;
+    Map<unsigned, PiecewiseLinearConstraint *> _varToPLC;
 
     /*
       Perform a simplex step: compute the cost function, pick the
@@ -1030,7 +1049,7 @@ private:
                                              int explainedVar,
                                              bool isUpper,
                                              double targetBound,
-                                             bool reqDecision );
+                                             Set<int> &deps );
 #ifdef BUILD_CADICAL
     void removeLiteralFromPropagations( int literal ) override;
 #endif

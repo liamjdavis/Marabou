@@ -77,6 +77,7 @@ Engine::Engine()
     , _produceUNSATProofs( Options::get()->getBool( Options::PRODUCE_PROOFS ) )
     , _groundBoundManager( _context )
     , _UNSATCertificate( NULL )
+    , _aletheWriter( NULL )
 #ifdef BUILD_CADICAL
     , _solveWithCDCL( Options::get()->getBool( Options::SOLVE_WITH_CDCL ) )
 #else
@@ -125,6 +126,12 @@ Engine::~Engine()
 
     if ( _produceUNSATProofs && _UNSATCertificateCurrentPointer )
         _UNSATCertificateCurrentPointer->deleteSelf();
+
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && _aletheWriter )
+    {
+        delete _aletheWriter;
+        _aletheWriter = NULL;
+    }
 }
 
 void Engine::setVerbosity( unsigned verbosity )
@@ -145,15 +152,25 @@ void Engine::adjustWorkMemorySize()
         throw MarabouError( MarabouError::ALLOCATION_FAILED, "Engine::work" );
 }
 
-void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
+void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit,
+                            String queryId,
+                            bool shouldApplySplit )
 {
     _sncMode = true;
     _sncSplit = sncSplit;
     _queryId = queryId;
-    preContextPushHook();
-    _searchTreeHandler.pushContext();
-    applySplit( sncSplit );
-    _boundManager.propagateTightenings();
+    if ( shouldApplySplit )
+    {
+        preContextPushHook();
+        _searchTreeHandler.pushContext();
+        applySplit( sncSplit );
+        _boundManager.propagateTightenings();
+    }
+    else
+    {
+        for ( int lit : sncSplit.getCdclLiterals() )
+            _cdclCore.assume( lit );
+    }
 }
 
 bool Engine::inSnCMode() const
@@ -1570,11 +1587,7 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
 
             if ( _produceUNSATProofs )
             {
-                _UNSATCertificate = new UnsatCertificateNode( NULL, PiecewiseLinearCaseSplit() );
-                _UNSATCertificateCurrentPointer->set( _UNSATCertificate );
-                _UNSATCertificate->setVisited();
                 _groundBoundManager.initialize( n );
-
                 for ( unsigned i = 0; i < n; ++i )
                 {
                     _groundBoundManager.addGroundBound(
@@ -1582,6 +1595,40 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                     _groundBoundManager.addGroundBound(
                         i, _preprocessedQuery->getLowerBound( i ), Tightening::LB, false );
                 }
+
+                if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+                {
+                    String pref = Options::get()
+                                      ->getString( Options::INPUT_FILE_PATH )
+                                      .tokenize( "/" )
+                                      .back() +
+                                  Options::get()
+                                      ->getString( Options::PROPERTY_FILE_PATH )
+                                      .tokenize( "/" )
+                                      .back();
+
+                    _aletheWriter = new AletheProofWriter(
+                        _tableau->getM(),
+                        _groundBoundManager.getAllGroundBounds( Tightening::UB ),
+                        _groundBoundManager.getAllGroundBounds( Tightening::LB ),
+                        _groundBoundManager,
+                        _tableau->getSparseA(),
+                        _plConstraints,
+                        pref + ".smt2.alethe"
+
+#if BUILD_CADICAL
+                        ,
+                        &_cdclCore
+#endif
+                    );
+                }
+
+                unsigned id =
+                    GlobalConfiguration::WRITE_ALETHE_PROOF ? _aletheWriter->assignId() : 0;
+                _UNSATCertificate =
+                    new UnsatCertificateNode( NULL, PiecewiseLinearCaseSplit(), 0, id );
+                _UNSATCertificateCurrentPointer->set( _UNSATCertificate );
+                _UNSATCertificate->setVisited();
             }
         }
         else
@@ -1659,6 +1706,8 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
             }
         }
 #endif
+        if ( _produceUNSATProofs && GlobalConfiguration::WRITE_ALETHE_PROOF )
+            _aletheWriter->flushAssumptions();
     }
     catch ( const InfeasibleQueryException & )
     {
@@ -2657,6 +2706,12 @@ void Engine::postContextPopHook()
         _costFunctionManager->computeCoreCostFunction();
     }
 
+    if ( _produceUNSATProofs && GlobalConfiguration::WRITE_ALETHE_PROOF &&
+         _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES ) %
+                 GlobalConfiguration::ALETHE_PROOF_FLUSHING_FREQUENCY ==
+             0 )
+        _aletheWriter->flushProof();
+
     struct timespec end = TimeUtils::sampleMicro();
     _statistics.incLongAttribute( Statistics::TIME_CONTEXT_POP_HOOK,
                                   TimeUtils::timePassed( start, end ) );
@@ -3606,18 +3661,28 @@ void Engine::explainSimplexFailure()
             ? sparseContradictionToAnalyse.initializeToEmpty()
             : sparseContradictionToAnalyse.initialize( leafContradictionVec.data(),
                                                        leafContradictionVec.size() );
-
+        Set<int> dummy = {};
         clause = analyseExplanationDependencies(
-            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0, true );
-
+            sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0, dummy );
 
         if ( !_solveWithCDCL )
+        {
+            if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+                _aletheWriter->writeContradiction(
+                    sparseContradictionToAnalyse, _UNSATCertificateCurrentPointer->get()->getId() );
             return;
+        }
+        else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        {
+            _aletheWriter->setLastContradiction( sparseContradictionToAnalyse );
+            _aletheWriter->setLastContradictionClause( clause );
+        }
     }
 
 #ifdef BUILD_CADICAL
     // If both bounds are ground bounds, explanation would be empty and the clause trivial
-    if ( _boundManager.getUpperBound( infeasibleVar ) ==
+    if ( !GlobalConfiguration::WRITE_ALETHE_PROOF &&
+         _boundManager.getUpperBound( infeasibleVar ) ==
              getGroundBound( infeasibleVar, Tightening::UB ) &&
          _boundManager.getLowerBound( infeasibleVar ) ==
              getGroundBound( infeasibleVar, Tightening::LB ) )
@@ -3882,9 +3947,7 @@ const UnsatCertificateNode *Engine::getUNSATCertificateRoot() const
 
 bool Engine::certifyUNSATCertificate()
 {
-    ASSERT( _produceUNSATProofs && _UNSATCertificate && !_searchTreeHandler.getStackDepth() &&
-            !_solveWithCDCL );
-
+    ASSERT( _produceUNSATProofs && _UNSATCertificate && !_searchTreeHandler.getStackDepth() );
     for ( auto &constraint : _plConstraints )
     {
         if ( !UNSATCertificateUtils::getSupportedActivations().exists( constraint->getType() ) )
@@ -3896,68 +3959,110 @@ bool Engine::certifyUNSATCertificate()
             return false;
         }
     }
-    _UNSATCertificateCurrentPointer->get()->deleteUnusedLemmas();
-    struct timespec certificationStart = TimeUtils::sampleMicro();
-    _precisionRestorer.restoreInitialEngineState( *this );
-
     Vector<double> groundUpperBounds( _tableau->getN(), 0 );
     Vector<double> groundLowerBounds( _tableau->getN(), 0 );
 
     for ( unsigned i = 0; i < _tableau->getN(); ++i )
     {
-        groundUpperBounds[i] = _groundBoundManager.getGroundBound( i, Tightening::UB );
-        groundLowerBounds[i] = _groundBoundManager.getGroundBound( i, Tightening::LB );
+        groundUpperBounds[i] = _preprocessedQuery->getUpperBound( i );
+        groundLowerBounds[i] = _preprocessedQuery->getLowerBound( i );
+        ;
     }
 
-    if ( GlobalConfiguration::WRITE_JSON_PROOF )
+    struct timespec certificationStart = TimeUtils::sampleMicro();
+    if ( !_solveWithCDCL )
     {
-        File file( JsonWriter::PROOF_FILENAME );
-        JsonWriter::writeProofToJson( _UNSATCertificate,
-                                      _tableau->getM(),
-                                      _tableau->getSparseA(),
-                                      groundUpperBounds,
-                                      groundLowerBounds,
-                                      _plConstraints,
-                                      file );
-    }
+        _UNSATCertificateCurrentPointer->get()->deleteUnusedLemmas();
+        if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+            _aletheWriter->writeChildrenConclusion( _UNSATCertificateCurrentPointer->get() );
 
-    Checker unsatCertificateChecker( _UNSATCertificate,
-                                     _tableau->getM(),
-                                     _tableau->getSparseA(),
-                                     groundUpperBounds,
-                                     groundLowerBounds,
-                                     _plConstraints );
-    bool certificationSucceeded = unsatCertificateChecker.check();
+        _precisionRestorer.restoreInitialEngineState( *this );
 
-    _statistics.setLongAttribute(
-        Statistics::TOTAL_CERTIFICATION_TIME,
-        TimeUtils::timePassed( certificationStart, TimeUtils::sampleMicro() ) );
-    printf( "Certification time: " );
-    _statistics.printLongAttributeAsTime(
-        _statistics.getLongAttribute( Statistics::TOTAL_CERTIFICATION_TIME ) );
 
-    if ( certificationSucceeded )
-    {
-        printf( "Certified\n" );
-        _statistics.incUnsignedAttribute( Statistics::CERTIFIED_UNSAT );
-        if ( _statistics.getUnsignedAttribute( Statistics::NUM_DELEGATED_LEAVES ) )
-            printf( "Some leaves were delegated and need to be certified separately by an SMT "
-                    "solver\n" );
-    }
-    else
-        printf( "Error certifying UNSAT certificate\n" );
-
-    DEBUG( {
-        ASSERT( certificationSucceeded );
-        if ( _statistics.getUnsignedAttribute( Statistics::NUM_POPS ) )
+        if ( GlobalConfiguration::WRITE_JSON_PROOF )
         {
-            double delegationRatio =
-                _statistics.getUnsignedAttribute( Statistics::NUM_DELEGATED_LEAVES ) /
-                _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES );
-            ASSERT( FloatUtils::lt( delegationRatio, 0.01 ) );
+            File file( JsonWriter::PROOF_FILENAME );
+            JsonWriter::writeProofToJson( _UNSATCertificate,
+                                          _tableau->getM(),
+                                          _tableau->getSparseA(),
+                                          groundUpperBounds,
+                                          groundLowerBounds,
+                                          _plConstraints,
+                                          file );
         }
-    } );
+    }
 
+    bool certificationSucceeded = false;
+
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+    {
+        if ( _aletheWriter->hasInfo() )
+        {
+            std::vector<int> clause( _aletheWriter->getLastContradictionClause().begin(),
+                                     _aletheWriter->getLastContradictionClause().end() );
+            _aletheWriter->add_original_clause(
+                _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES ),
+                false,
+                clause );
+            _aletheWriter->flushProof();
+        }
+
+        // Trim out the suffix ".alethe"
+        String alethePref =
+            _aletheWriter->getFileName().substring( 0, _aletheWriter->getFileName().length() - 7 );
+
+        SmtLibWriter::writeToSmtLibFile( alethePref,
+                                         _tableau->getM(),
+                                         _tableau->getN(),
+                                         groundUpperBounds,
+                                         groundLowerBounds,
+                                         _tableau->getSparseA(),
+                                         List<Equation>(),
+                                         _plConstraints );
+
+        _aletheWriter->finalizeProof();
+        printf( "proof written to Alethe format and needs to be certified separately\n" );
+        certificationSucceeded = true;
+    }
+    else if ( !_solveWithCDCL )
+    {
+        Checker unsatCertificateChecker( _UNSATCertificate,
+                                         _tableau->getM(),
+                                         _tableau->getSparseA(),
+                                         groundUpperBounds,
+                                         groundLowerBounds,
+                                         _plConstraints );
+        certificationSucceeded = unsatCertificateChecker.check();
+
+        _statistics.setLongAttribute(
+            Statistics::TOTAL_CERTIFICATION_TIME,
+            TimeUtils::timePassed( certificationStart, TimeUtils::sampleMicro() ) );
+        printf( "Certification time: " );
+        _statistics.printLongAttributeAsTime(
+            _statistics.getLongAttribute( Statistics::TOTAL_CERTIFICATION_TIME ) );
+
+        if ( certificationSucceeded && !GlobalConfiguration::WRITE_ALETHE_PROOF )
+        {
+            printf( "Certified\n" );
+            _statistics.incUnsignedAttribute( Statistics::CERTIFIED_UNSAT );
+            if ( _statistics.getUnsignedAttribute( Statistics::NUM_DELEGATED_LEAVES ) )
+                printf( "Some leaves were delegated and need to be certified separately by an SMT "
+                        "solver\n" );
+        }
+        else if ( !GlobalConfiguration::WRITE_ALETHE_PROOF )
+            printf( "Error certifying UNSAT certificate\n" );
+
+        DEBUG( {
+            ASSERT( certificationSucceeded );
+            if ( _statistics.getUnsignedAttribute( Statistics::NUM_POPS ) )
+            {
+                double delegationRatio =
+                    _statistics.getUnsignedAttribute( Statistics::NUM_DELEGATED_LEAVES ) /
+                    _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES );
+                ASSERT( FloatUtils::lt( delegationRatio, 0.01 ) );
+            }
+        } );
+    }
     return certificationSucceeded;
 }
 
@@ -3979,6 +4084,11 @@ void Engine::markLeafToDelegate()
 
     if ( !_solveWithCDCL && currentUnsatCertificateNode->getChildren().empty() )
         currentUnsatCertificateNode->makeLeaf();
+
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && !_solveWithCDCL )
+        _aletheWriter->writeDelegatedLeaf( _UNSATCertificateCurrentPointer->get() );
+    else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _aletheWriter->addDummyContradiction();
 }
 
 const Vector<double> Engine::computeContradiction( unsigned infeasibleVar ) const
@@ -4177,7 +4287,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                                                  int explainedVar,
                                                  bool isUpper,
                                                  double targetBound,
-                                                 bool reqDecision )
+                                                 Set<int> &deps )
 {
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
@@ -4269,17 +4379,21 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         }
     }
 
-    int decisionCounter = 0;
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && explainedVar >= 0 )
+    {
+        for ( const auto &entry : entries )
+            if ( entry->lemma )
+                deps.insert( entry->lemma->getId() );
+    }
+
     for ( const auto &entry : entries )
     {
         Set<int> subClause = {};
 
         ASSERT( entry->id < id );
-        // If a decision is required, we can stop analysing derived literals only after a decision was added to the clause.
-        if ( ( !reqDecision || decisionCounter || !entry->lemma ) && entry->isPhaseFixing &&
-             _solveWithCDCL )
-            subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
-        else if ( entry->lemma && entry->lemma->getToCheck() )
+        // If a decision is required, we can stop analysing derived literals only after a decision
+        // was added to the clause.
+        if ( entry->lemma && entry->lemma->getToCheck() )
             subClause = entry->clause;
         else if ( entry->lemma && !entry->lemma->getExplanations().empty() &&
                   !entry->lemma->getToCheck() )
@@ -4297,35 +4411,24 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                     *it,
                     entry->lemma->getCausingVarBound() == Tightening::UB,
                     entry->lemma->getMinTargetBound(),
-                    !decisionCounter && reqDecision ) );
+                    entry->deps ) );
 
                 std::advance( it, 1 );
+
+                if ( !_solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )
+                    _aletheWriter->writeLemma( entry );
+#ifdef BUILD_CADICAL
+                else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+                    _aletheWriter->addEntryToStack( entry );
+#endif
             }
             entry->clause = subClause;
         }
+        else if ( !entry->lemma && entry->isPhaseFixing )
+            subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
 #ifdef BUILD_CADICAL
-
         if ( _solveWithCDCL )
-        {
             clause.insert( subClause );
-
-            for ( int lit : subClause )
-                if ( _cdclCore.isDecision( lit ) && !clause.exists( lit ) )
-                    ++decisionCounter;
-
-            // If clause includes all decisions, remove all deduction literals
-            if ( decisionCounter >= _context.getLevel() )
-            {
-                if ( !decisionCounter )
-                    return {};
-
-                for ( int lit : clause )
-                    if ( !_cdclCore.isDecision( lit ) )
-                        clause.erase( lit );
-
-                return clause;
-            }
-        }
 #endif
     }
 
@@ -4372,9 +4475,11 @@ Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litCons
     // Return a clause explaining the phase-fixing GroundBound entry
     ASSERT( phaseFixingEntry && phaseFixingEntry->lemma && phaseFixingEntry->isPhaseFixing );
 
-    if ( !phaseFixingEntry->clause.empty() )
+    if ( phaseFixingEntry->lemma->getToCheck() && GlobalConfiguration::WRITE_ALETHE_PROOF &&
+         _aletheWriter->lemmaExistsAsReasonClause( phaseFixingEntry->lemma->getId() ) )
         return phaseFixingEntry->clause;
 
+    phaseFixingEntry->lemma->setToCheck();
     SparseUnsortedList tempExpl = phaseFixingEntry->lemma->getExplanations().back();
     _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS_USED );
     Set<int> clause =
@@ -4383,8 +4488,12 @@ Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litCons
                                         phaseFixingEntry->lemma->getCausingVars().back(),
                                         phaseFixingEntry->lemma->getCausingVarBound(),
                                         phaseFixingEntry->lemma->getBound(),
-                                        false );
+                                        phaseFixingEntry->deps );
     phaseFixingEntry->clause = clause;
+#ifdef BUILD_CADICAL
+    if ( _solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _aletheWriter->addEntryToStack( phaseFixingEntry );
+#endif
 
     return clause;
 }
@@ -4498,5 +4607,21 @@ void Engine::resetCdclCore()
 const CdclCore *Engine::getCdclCore() const
 {
     return &_cdclCore;
+}
+
+AletheProofWriter *Engine::getAletheWriter() const
+{
+    return _aletheWriter;
+}
+
+unsigned Engine::getNumOfLemmas() const
+{
+    return _statistics.getUnsignedAttribute( Statistics::NUM_LEMMAS );
+}
+
+void Engine::deleteProofIfExists() const
+{
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _aletheWriter->deleteProof();
 }
 #endif

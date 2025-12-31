@@ -17,6 +17,7 @@
 #define __CadicalWrapper_h__
 
 #ifdef BUILD_CADICAL
+#include "AletheProofWriter.h"
 #include "File.h"
 #include "SatSolverWrapper.h"
 
@@ -24,6 +25,7 @@
 #include <memory>
 
 
+class AletheProofWriter;
 class CadicalWrapper : public SatSolverWrapper
 {
 public:
@@ -97,10 +99,12 @@ public:
 
     void popto( unsigned newLevel ) override;
 
+    void connectProofWriter( const AletheProofWriter *writer ) override;
+
 private:
     std::shared_ptr<CaDiCaL::Solver> _solver;
-
     unsigned _level;
+    const AletheProofWriter *_writer;
 };
 
 

@@ -17,6 +17,7 @@
 #define __PrecisionRestorer_h__
 
 #include "EngineState.h"
+#include "IEngine.h"
 
 class SearchTreeHandler;
 

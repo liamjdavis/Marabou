@@ -471,7 +471,8 @@ bool BoundManager::addLemmaExplanationAndTightenBound( unsigned var,
                                                                         affectedVarBound,
                                                                         allExplanations,
                                                                         constraint.getType(),
-                                                                        minTargetBound );
+                                                                        minTargetBound,
+                                                                        _engine->getNumOfLemmas() + 1 );
 
         if ( !_engine->shouldSolveWithCDCL() )
             _engine->getUNSATCertificateCurrentPointer()->addPLCLemma( PLCExpl );

@@ -553,7 +553,8 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                       .ascii() )
         Set<int> clause = {};
 
-        if ( !_fixedCadicalVars.exists( propagated_lit ) )
+        if ( GlobalConfiguration::WRITE_ALETHE_PROOF ||
+             !_fixedCadicalVars.exists( propagated_lit ) )
         {
             if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
                 clause =
@@ -742,7 +743,6 @@ int CdclCore::cb_add_external_clause_lit()
             Statistics::TOTAL_TIME_CDCL_CORE_CB_ADD_EXTERNAL_CLAUSE_LIT_MICRO,
             TimeUtils::timePassed( start, end ) );
     }
-
     return lit;
 }
 
@@ -814,6 +814,9 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     //        if ( _engine->getExitCode() == ExitCode::UNSAT )
     //            return false;
 
+    if ( _engine->shouldProduceProofs() && GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _satSolver->connectProofWriter( _engine->getAletheWriter() );
+
     // Add all literals initially in literalsToPropagate as snc literals
     for ( const auto &pair : _literalsToPropagate )
     {
@@ -860,6 +863,9 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         printf( "\nCdclCore::Final statistics:\n" );
         _statistics->print();
     }
+
+    if ( result != 20 && GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _engine->deleteProofIfExists();
 
     if ( result == 0 )
     {

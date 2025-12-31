@@ -19,6 +19,7 @@
 #include "Map.h"
 #include "Set.h"
 
+class AletheProofWriter;
 class SatSolverWrapper
 {
 public:
@@ -85,6 +86,8 @@ public:
     virtual void push() = 0;
 
     virtual void popto( unsigned newLevel ) = 0;
+
+    virtual void connectProofWriter( const AletheProofWriter *writer ) = 0;
 };
 
 

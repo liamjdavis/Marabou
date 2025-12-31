@@ -234,6 +234,15 @@ if (BUILD_CADICAL)
     list(APPEND LIBS ${CADICAL_LIB})
 endif ()
 
+message(WARNING "GMP not found by CMake; trying manual paths")
+# Try common system locations (adjust if needed)
+set(GMP_LIB "/usr/lib/x86_64-linux-gnu/libgmp.so")
+set(GMP_INCLUDE "/usr/include")
+
+# Add include directories and link to GMP where needed later
+set(HAVE_GMP TRUE)
+list(APPEND LIBS ${GMP_LIB})
+
 ###########
 ## Build ##
 ###########
