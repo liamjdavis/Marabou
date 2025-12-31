@@ -152,25 +152,15 @@ void Engine::adjustWorkMemorySize()
         throw MarabouError( MarabouError::ALLOCATION_FAILED, "Engine::work" );
 }
 
-void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit,
-                            String queryId,
-                            bool shouldApplySplit )
+void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
 {
     _sncMode = true;
     _sncSplit = sncSplit;
     _queryId = queryId;
-    if ( shouldApplySplit )
-    {
-        preContextPushHook();
-        _searchTreeHandler.pushContext();
-        applySplit( sncSplit );
-        _boundManager.propagateTightenings();
-    }
-    else
-    {
-        for ( int lit : sncSplit.getCdclLiterals() )
-            _cdclCore.assume( lit );
-    }
+    preContextPushHook();
+    _searchTreeHandler.pushContext();
+    applySplit( sncSplit );
+    _boundManager.propagateTightenings();
 }
 
 bool Engine::inSnCMode() const
