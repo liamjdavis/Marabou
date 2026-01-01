@@ -242,6 +242,16 @@ void DnCManager::solve()
         thread.join();
 
     updateDnCExitCode();
+
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+    {
+        if ( _exitCode == ExitCode::UNSAT )
+            _baseEngine->createCombinedProofFile();
+        else
+            _baseEngine->deleteCombinedProofIfExists();
+
+        _baseEngine->removeProofDirectoryIfExists();
+    }
     return;
 }
 

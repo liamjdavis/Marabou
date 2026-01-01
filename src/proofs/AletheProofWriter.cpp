@@ -15,9 +15,14 @@
 #include "AletheProofWriter.h"
 
 #include "CdclCore.h"
+#include "ConstSimpleData.h"
+#include "HeapData.h"
 #include "MString.h"
 #include "Options.h"
 
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 const unsigned AletheProofWriter::ALETHE_WRITER_PRECISION =
     (unsigned)1 / GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE;
@@ -28,12 +33,9 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const GroundBoundManager &groundBoundManager,
                                       const SparseMatrix *tableau,
                                       const List<PiecewiseLinearConstraint *> &problemConstraints,
-                                      const String &proofFileName
-#if BUILD_CADICAL
-                                      ,
-                                      const CdclCore *cdclCore
-#endif
-                                      )
+                                      const String &proofFileName,
+                                      const String &proofDir,
+                                      const CdclCore *cdclCore )
     : _initialTableau( tableau )
     , _baseUpperBounds( upperBounds )
     , _baseLowerBounds( lowerBounds )
@@ -45,8 +47,11 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
     , _varToPlc()
     , _idToSplits()
     , _nodeToSplits()
-    , _proofFile(proofFileName)
-    , _proofFileName( proofFileName )
+    , _proofFile( ( proofDir == "" ) ? proofFileName : proofDir + "/" + proofFileName )
+    , _proofFileName( ( proofDir == "" ) ? proofFileName : proofDir + "/" + proofFileName )
+    , _proofDir( proofDir )
+    , _combinedProofFile( ( proofDir == "" ) ? "" : proofDir + ".smt2.alethe" )
+    , _combinedProofFilename( ( proofDir == "" ) ? "" : proofDir + ".smt2.alethe" )
     , _proofEntries( {} )
 #if BUILD_CADICAL
     , _cdclCore( cdclCore )
@@ -278,6 +283,17 @@ void AletheProofWriter::deleteProof()
     _proofFile.write( "" );
     _proofFile.close();
     std::remove( _proofFileName.ascii() );
+}
+
+void AletheProofWriter::deleteCombinedProof()
+{
+    if ( _proofDir != "" )
+    {
+        _combinedProofFile.open( File::MODE_WRITE_TRUNCATE );
+        _combinedProofFile.write( "" );
+        _combinedProofFile.close();
+        std::remove( _combinedProofFilename.ascii() );
+    }
 }
 
 void AletheProofWriter::writeInstanceToFile( IFile &file )
@@ -891,13 +907,14 @@ unsigned AletheProofWriter::assignId()
 
 void AletheProofWriter::flushAssumptions()
 {
-    _proofFile.open( File::MODE_WRITE_TRUNCATE );
+    File &proofFile = ( _proofDir == "" ) ? _proofFile : _combinedProofFile;
+    proofFile.open( File::MODE_WRITE_TRUNCATE );
     writeBoundAssumptions();
     writePLCAssumption();
     for ( const String &s : _assumptions )
-        _proofFile.write( s );
+        proofFile.write( s );
 
-    _proofFile.close();
+    proofFile.close();
 }
 
 void AletheProofWriter::flushProof()
@@ -909,6 +926,11 @@ void AletheProofWriter::flushProof()
     _proof.clear();
 
     _proofFile.close();
+}
+
+String AletheProofWriter::getFileName() const
+{
+    return _proofFileName;
 }
 
 #if BUILD_CADICAL
@@ -928,6 +950,9 @@ void AletheProofWriter::add_original_clause( int64_t id,
                                              const std::vector<int> &clause,
                                              bool /*restored*/ )
 {
+    if ( clause.size() == 1 && _cdclCore->isLiteralFixed( clause.front() ) )
+        return;
+
     std::sort(
         _lastExplainedEntries.begin(),
         _lastExplainedEntries.end(),
@@ -1080,10 +1105,31 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
 
     _proof.append( resLine );
 }
-
-
-String AletheProofWriter::getFileName() const
-{
-    return _proofFileName;
-}
 #endif
+
+void AletheProofWriter::createCombinedProofFile()
+{
+    if ( _proofDir == "" )
+        return;
+
+    _combinedProofFile.open( File::MODE_WRITE_APPEND );
+
+    for ( const auto &proofFileEntry : fs::directory_iterator( _proofDir.ascii() ) )
+    {
+        String proofFileName = proofFileEntry.path().string();
+        HeapData proofFileContent;
+        File proofFile( proofFileName );
+        proofFile.open( File::MODE_READ );
+        proofFile.read( proofFileContent, File::getSize( proofFileName ) );
+        proofFile.close();
+        _combinedProofFile.write( proofFileContent );
+    }
+
+    _combinedProofFile.close();
+}
+
+void AletheProofWriter::removeProofDirectory() const
+{
+    if ( _proofDir != "" )
+        fs::remove_all( _proofDir.ascii() );
+}

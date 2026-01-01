@@ -440,6 +440,18 @@ public:
     void deleteProofIfExists() const override
     {
     }
+
+    void createCombinedProofFile() const override
+    {
+    }
+
+    void deleteCombinedProofIfExists() const override
+    {
+    }
+
+    void removeProofDirectoryIfExists() const override
+    {
+    }
 #endif
 };
 

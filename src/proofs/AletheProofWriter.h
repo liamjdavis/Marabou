@@ -67,12 +67,9 @@ public:
                        const GroundBoundManager &groundBoundManager,
                        const SparseMatrix *tableau,
                        const List<PiecewiseLinearConstraint *> &problemConstraints,
-                       const String &proofFileName
-#if BUILD_CADICAL
-                       ,
-                       const CdclCore *cdclCore
-#endif
-    );
+                       const String &proofFileName,
+                       const String &proofDir,
+                       const CdclCore *cdclCore );
 
     void writeInstanceToFile( IFile &file );
 
@@ -93,6 +90,8 @@ public:
     void finalizeProof();
 
     void deleteProof();
+
+    void deleteCombinedProof();
 
     String getFileName() const;
 
@@ -124,6 +123,10 @@ public:
     bool lemmaExistsAsReasonClause( int64_t id ) const;
 #endif
 
+    void createCombinedProofFile();
+
+    void removeProofDirectory() const;
+
 private:
     const SparseMatrix *_initialTableau;
     Vector<String> _tableauAssumptions; // For easy access
@@ -145,6 +148,9 @@ private:
 
     File _proofFile;
     String _proofFileName;
+    String _proofDir;
+    File _combinedProofFile;
+    String _combinedProofFilename;
     List<AletheStepEntry> _proofEntries;
 
 #if BUILD_CADICAL

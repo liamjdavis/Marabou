@@ -408,6 +408,21 @@ public:
      Empty Alethe proof trace, if created
     */
     void deleteProofIfExists() const override;
+
+    /*
+      (SnC) Create combined proof file of all proof traces of each job.
+     */
+    void createCombinedProofFile() const override;
+
+    /*
+      (SnC) Delete Alethe proof directory, if created
+     */
+    void deleteCombinedProofIfExists() const override;
+
+    /*
+      (SnC) Remove Alethe proof directory, if exists
+     */
+    void removeProofDirectoryIfExists() const override;
 #endif
 
     /*
@@ -677,7 +692,6 @@ private:
     UnsatCertificateNode *_UNSATCertificate;
     CVC4::context::CDO<UnsatCertificateNode *> *_UNSATCertificateCurrentPointer;
     AletheProofWriter *_aletheWriter;
-
 
     /*
       Solve the query with CDCL

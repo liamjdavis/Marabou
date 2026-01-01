@@ -35,7 +35,10 @@
 #include "VariableOutOfBoundDuringOptimizationException.h"
 #include "Vector.h"
 
+#include <filesystem>
 #include <random>
+
+namespace fs = std::filesystem;
 
 Engine::Engine()
     : _exitCode( ExitCode::NOT_DONE )
@@ -104,10 +107,11 @@ Engine::Engine()
                                      ? GlobalConfiguration::STATISTICS_PRINTING_FREQUENCY
                                      : GlobalConfiguration::STATISTICS_PRINTING_FREQUENCY_GUROBI;
 
-    _UNSATCertificateCurrentPointer =
-        _produceUNSATProofs ? new ( true )
-                                  CVC4::context::CDO<UnsatCertificateNode *>( &_context, NULL )
-                            : NULL;
+    if ( !_solveWithCDCL )
+        _UNSATCertificateCurrentPointer =
+            _produceUNSATProofs ? new ( true )
+                                      CVC4::context::CDO<UnsatCertificateNode *>( &_context, NULL )
+                                : NULL;
 }
 
 Engine::~Engine()
@@ -244,6 +248,49 @@ void Engine::initializeSolver()
         _milpEncoder->setStatistics( &_statistics );
         _milpEncoder->encodeQuery( *_gurobi, *_preprocessedQuery, true );
         ENGINE_LOG( "Encoding convex relaxation into Gurobi - done" );
+    }
+
+    if ( _produceUNSATProofs )
+    {
+        if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        {
+            String pref =
+                Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
+                Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
+
+            String proofFile;
+            String proofDir;
+
+            if ( _sncMode )
+            {
+                fs::create_directory( pref.ascii() );
+                proofDir = pref;
+                proofFile = _queryId;
+            }
+            else
+            {
+                proofDir = "";
+                proofFile = pref;
+            }
+
+            _aletheWriter =
+                new AletheProofWriter( _tableau->getM(),
+                                       _groundBoundManager.getAllGroundBounds( Tightening::UB ),
+                                       _groundBoundManager.getAllGroundBounds( Tightening::LB ),
+                                       _groundBoundManager,
+                                       _tableau->getSparseA(),
+                                       _plConstraints,
+                                       proofFile + ".smt2.alethe",
+                                       proofDir,
+                                       &_cdclCore
+
+                );
+
+            _cdclCore.connectProofWriter( _aletheWriter );
+
+            if ( !_sncMode || _queryId == "1" )
+                _aletheWriter->flushAssumptions();
+        }
     }
 
     mainLoopStatistics();
@@ -1586,39 +1633,15 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                         i, _preprocessedQuery->getLowerBound( i ), Tightening::LB, false );
                 }
 
-                if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+                if ( !_solveWithCDCL )
                 {
-                    String pref = Options::get()
-                                      ->getString( Options::INPUT_FILE_PATH )
-                                      .tokenize( "/" )
-                                      .back() +
-                                  Options::get()
-                                      ->getString( Options::PROPERTY_FILE_PATH )
-                                      .tokenize( "/" )
-                                      .back();
-
-                    _aletheWriter = new AletheProofWriter(
-                        _tableau->getM(),
-                        _groundBoundManager.getAllGroundBounds( Tightening::UB ),
-                        _groundBoundManager.getAllGroundBounds( Tightening::LB ),
-                        _groundBoundManager,
-                        _tableau->getSparseA(),
-                        _plConstraints,
-                        pref + ".smt2.alethe"
-
-#if BUILD_CADICAL
-                        ,
-                        &_cdclCore
-#endif
-                    );
+                    unsigned id =
+                        GlobalConfiguration::WRITE_ALETHE_PROOF ? _aletheWriter->assignId() : 0;
+                    _UNSATCertificate =
+                        new UnsatCertificateNode( NULL, PiecewiseLinearCaseSplit(), 0, id );
+                    _UNSATCertificateCurrentPointer->set( _UNSATCertificate );
+                    _UNSATCertificate->setVisited();
                 }
-
-                unsigned id =
-                    GlobalConfiguration::WRITE_ALETHE_PROOF ? _aletheWriter->assignId() : 0;
-                _UNSATCertificate =
-                    new UnsatCertificateNode( NULL, PiecewiseLinearCaseSplit(), 0, id );
-                _UNSATCertificateCurrentPointer->set( _UNSATCertificate );
-                _UNSATCertificate->setVisited();
             }
         }
         else
@@ -1696,8 +1719,6 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
             }
         }
 #endif
-        if ( _produceUNSATProofs && GlobalConfiguration::WRITE_ALETHE_PROOF )
-            _aletheWriter->flushAssumptions();
     }
     catch ( const InfeasibleQueryException & )
     {
@@ -2696,10 +2717,11 @@ void Engine::postContextPopHook()
         _costFunctionManager->computeCoreCostFunction();
     }
 
-    if ( _produceUNSATProofs && GlobalConfiguration::WRITE_ALETHE_PROOF &&
+    if ( _produceUNSATProofs && GlobalConfiguration::WRITE_ALETHE_PROOF && _aletheWriter &&
          _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES ) %
                  GlobalConfiguration::ALETHE_PROOF_FLUSHING_FREQUENCY ==
-             0 )
+             0 &&
+         _exitCode != ExitCode::TIMEOUT )
         _aletheWriter->flushProof();
 
     struct timespec end = TimeUtils::sampleMicro();
@@ -3937,7 +3959,8 @@ const UnsatCertificateNode *Engine::getUNSATCertificateRoot() const
 
 bool Engine::certifyUNSATCertificate()
 {
-    ASSERT( _produceUNSATProofs && _UNSATCertificate && !_searchTreeHandler.getStackDepth() );
+    ASSERT( _produceUNSATProofs && ( _solveWithCDCL || _UNSATCertificate ) &&
+            !_searchTreeHandler.getStackDepth() );
     for ( auto &constraint : _plConstraints )
     {
         if ( !UNSATCertificateUtils::getSupportedActivations().exists( constraint->getType() ) )
@@ -4208,7 +4231,7 @@ void Engine::incNumOfLemmas()
     if ( !_produceUNSATProofs )
         return;
 
-    ASSERT( _UNSATCertificate && _UNSATCertificateCurrentPointer )
+    ASSERT( _solveWithCDCL || ( _UNSATCertificate && _UNSATCertificateCurrentPointer ) )
     _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS );
 }
 
@@ -4613,5 +4636,23 @@ void Engine::deleteProofIfExists() const
 {
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
         _aletheWriter->deleteProof();
+}
+
+void Engine::createCombinedProofFile() const
+{
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _aletheWriter->createCombinedProofFile();
+}
+
+void Engine::deleteCombinedProofIfExists() const
+{
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _aletheWriter->deleteCombinedProof();
+}
+
+void Engine::removeProofDirectoryIfExists() const
+{
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _aletheWriter->removeProofDirectory();
 }
 #endif

@@ -315,6 +315,21 @@ public:
      Empty Alethe proof trace, if created
     */
     virtual void deleteProofIfExists() const = 0;
+
+    /*
+      (SnC) Create Alethe combined proof file of all proof traces of each job.
+     */
+    virtual void createCombinedProofFile() const = 0;
+
+    /*
+      (SnC) Delete Alethe combined proof file, if created
+     */
+    virtual void deleteCombinedProofIfExists() const = 0;
+
+    /*
+      (SnC) Remove Alethe proof directory, if exists
+     */
+    virtual void removeProofDirectoryIfExists() const = 0;
 #endif
 };
 

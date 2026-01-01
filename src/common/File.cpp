@@ -100,7 +100,7 @@ void File::read( HeapData &buffer, unsigned maxReadSize )
     char *readBuffer( readVector.data() );
     int bytesRead;
 
-    if ( ( bytesRead = T::read( _descriptor, readBuffer, sizeof( readBuffer ) ) ) == -1 )
+    if ( ( bytesRead = T::read( _descriptor, readBuffer, maxReadSize ) ) == -1 )
         throw CommonError( CommonError::READ_FAILED );
 
     buffer = ConstSimpleData( readBuffer, bytesRead );

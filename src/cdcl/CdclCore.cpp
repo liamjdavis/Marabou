@@ -553,8 +553,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                       .ascii() )
         Set<int> clause = {};
 
-        if ( GlobalConfiguration::WRITE_ALETHE_PROOF ||
-             !_fixedCadicalVars.exists( propagated_lit ) )
+        if ( !_fixedCadicalVars.exists( propagated_lit ) )
         {
             if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
                 clause =
@@ -813,9 +812,6 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     // Maybe query detected as UNSAT in processInputQuery
     //        if ( _engine->getExitCode() == ExitCode::UNSAT )
     //            return false;
-
-    if ( _engine->shouldProduceProofs() && GlobalConfiguration::WRITE_ALETHE_PROOF )
-        _satSolver->connectProofWriter( _engine->getAletheWriter() );
 
     // Add all literals initially in literalsToPropagate as snc literals
     for ( const auto &pair : _literalsToPropagate )
@@ -1573,5 +1569,10 @@ void CdclCore::reset()
 const PiecewiseLinearConstraint *CdclCore::getPlc( unsigned int var ) const
 {
     return _satSolverVarToPlc[var];
+}
+
+void CdclCore::connectProofWriter( const AletheProofWriter *writer ) const
+{
+    _satSolver->connectProofWriter( writer );
 }
 #endif

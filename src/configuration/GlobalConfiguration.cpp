@@ -130,8 +130,8 @@ const bool GlobalConfiguration::CONVERT_VERIFICATION_QUERY_INTO_REACHABILITY_QUE
 const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES = false;
 const bool GlobalConfiguration::CDCL_SHORTEN_CLAUSES_WITH_QUICKXPLAIN = false;
 
-const bool GlobalConfiguration::CDCL_SHARE_CLAUSES = true;
-const double GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE = 0.05;
+const bool GlobalConfiguration::CDCL_SHARE_CLAUSES = false;
+const double GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE = 0.00;
 
 #ifdef ENABLE_GUROBI
 const unsigned GlobalConfiguration::GUROBI_NUMBER_OF_THREADS = 1;

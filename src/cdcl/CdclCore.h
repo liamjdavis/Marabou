@@ -220,6 +220,8 @@ public:
 
     const PiecewiseLinearConstraint *getPlc( unsigned var ) const;
 
+    void connectProofWriter( const AletheProofWriter *writer ) const;
+
     static std::atomic<unsigned> numCdclCores;
 
     static Map<unsigned, Set<int>> sharedClauses;
