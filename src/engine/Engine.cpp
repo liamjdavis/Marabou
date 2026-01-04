@@ -291,6 +291,9 @@ void Engine::initializeSolver()
 
             if ( !_sncMode || _queryId == "1" )
                 _aletheWriter->flushAssumptions();
+
+            std::cout << _queryId.ascii() << " number of variables: " << _tableau->getN()
+                      << std::endl;
         }
     }
 
@@ -1607,7 +1610,8 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
             List<unsigned> initialBasis;
             List<unsigned> basicRows;
             selectInitialVariablesForBasis( constraintMatrix, initialBasis, basicRows );
-            addAuxiliaryVariables();
+            if ( preprocess )
+                addAuxiliaryVariables();
             augmentInitialBasisIfNeeded( initialBasis, basicRows );
 
             storeEquationsInDegradationChecker();

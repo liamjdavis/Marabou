@@ -1046,7 +1046,7 @@ void AletheProofWriter::writeLemmaResolution(
     String proofRule = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + "(cl " +
                        clauseToPhases( entryClause ) + "):rule resolution :premises( eq" +
                        constraintId + "_" + isActive + "0 eq" + constraintId + "_" + isActive +
-                       "1 rl" + std::to_string( lemId ) + " as" + constraintId;
+                       "1 rl" + _queryId + "_" + std::to_string( lemId ) + " as" + constraintId;
 
     proofRule += String( " pi" ) + constraintId + "_" + isActive + "))\n";
 
