@@ -247,12 +247,12 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
         }
     }
 #endif
-    String laGeneric = String( "(step t" + std::to_string( id ) ) + " " + farkasClause +
-                       ":rule la_generic :args" + farkasArgs;
+    String laGeneric = String( "(step t" ) + _queryId + "_" + std::to_string( id ) + " " +
+                       farkasClause + ":rule la_generic :args" + farkasArgs;
 
-    String res = String( "(step r" + std::to_string( id ) ) + " (cl " + negatedSplitsClause +
-                 "):rule resolution :premises(t" + std::to_string( id ) + " " + farkasParticipants +
-                 "))\n";
+    String res = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl " +
+                 negatedSplitsClause + "):rule resolution :premises(t" + _queryId + "_" + std::to_string( id ) +
+                 " " + farkasParticipants + "))\n";
 
     _proof.append( { laGeneric, res } );
 }
@@ -560,11 +560,12 @@ bool AletheProofWriter::writeReluLemma(
     farkasClause += ")";
     farkasArgs += "))\n";
 
-    String laGeneric =
-        String( "(step fl" ) + id + " " + farkasClause + ":rule la_generic :args" + farkasArgs;
+    String laGeneric = String( "(step fl" ) + _queryId + "_" + id + " " + farkasClause +
+                       ":rule la_generic :args" + farkasArgs;
 
-    String res = String( "(step cr" ) + id + " (cl " + negatedSplitsClause + causeBound +
-                 "):rule resolution :premises(fl" + id + " " + farkasParticipants + "))\n";
+    String res = String( "(step cr" ) + _queryId + "_" + id + " (cl " + negatedSplitsClause +
+                 causeBound + "):rule resolution :premises(fl" + _queryId + "_" + id + " " + farkasParticipants +
+                 "))\n";
 
     unsigned b = relu->getB();
     unsigned f = relu->getF();
@@ -590,22 +591,22 @@ bool AletheProofWriter::writeReluLemma(
 
     if ( !FloatUtils::isZero( targetBound ) )
     {
-        proofRule =
-            String( "(step taut" ) + id + " (cl (or " + tempString + ")):rule la_tautology)\n";
-        proofRule += String( "(step ts" ) + id + " (cl " + tempString + "):rule or :premises(taut" +
-                     id + "))\n";
+        proofRule = String( "(step taut" ) + _queryId + "_" + id + " (cl (or " + tempString +
+                    ")):rule la_tautology)\n";
+        proofRule += String( "(step ts" ) + _queryId + "_" + id + " (cl " + tempString +
+                     "):rule or :premises(taut" + _queryId + "_" + id + "))\n";
     }
     String conclusion = getBoundAsClause( Tightening( affectedVar, bound, affectedVarBound ) );
 
-    String pref = String( "(step rl" ) + id + " (cl " + negatedSplitsClause + conclusion +
-                  "):rule resolution :premises(cr" + id;
+    String pref = String( "(step rl" ) + _queryId + "_" + id + " (cl " + negatedSplitsClause +
+                  conclusion + "):rule resolution :premises(cr" + _queryId + "_" + id;
     if ( ( causingVar == f || causingVar == b ) && causingVarBound == Tightening::LB &&
          affectedVar == aux && affectedVarBound == Tightening::UB &&
          FloatUtils::isPositive( targetBound ) )
     {
         matched = true;
         String splitrule = causingVar == f ? "_i1" : "_i0";
-        proofRuleRes = pref + " ts" + id + " s" + identifier + splitrule + " s" + identifier +
+        proofRuleRes = pref + " ts" + _queryId + "_" + id + " s" + identifier + splitrule + " s" + identifier +
                        " s" + identifier + "_a1))\n";
     }
     else if ( causingVar == b && causingVarBound == Tightening::LB && affectedVar == aux &&
@@ -620,7 +621,7 @@ bool AletheProofWriter::writeReluLemma(
     {
         matched = true;
 
-        proofRuleRes = pref + " ts" + id + " s" + identifier + "_a1 s" + identifier + " s" +
+        proofRuleRes = pref + " ts" + _queryId + "_" + id + " s" + identifier + "_a1 s" + identifier + " s" +
                        identifier + "_i1 ))\n";
     }
 
@@ -630,7 +631,7 @@ bool AletheProofWriter::writeReluLemma(
     {
         matched = true;
 
-        proofRuleRes = pref + " ts" + id + " s" + identifier + "_a0 s" + identifier + " s" +
+        proofRuleRes = pref + " ts"+ _queryId + "_" + id + " s" + identifier + "_a0 s" + identifier + " s" +
                        identifier + "_i1 ))\n";
     }
     // Propagate 0 ub from f to b
@@ -664,11 +665,11 @@ bool AletheProofWriter::writeReluLemma(
         String tautClause = String( "(not " ) +
                             getBoundAsClause( Tightening( affectedVar, 0, Tightening::UB ) ) + ")" +
                             conclusion;
-        proofRule =
-            String( "(step taut" ) + id + " (cl (or " + tautClause + ")):rule la_tautology)\n";
+        proofRule = String( "(step taut" ) + _queryId + "_" + id + " (cl (or " + tautClause +
+                    ")):rule la_tautology)\n";
 
-        proofRule += String( "(step ts" ) + id + " (cl " + tautClause + "):rule or :premises(taut" +
-                     id + "))\n";
+        proofRule += String( "(step ts" ) + _queryId + "_" + id + " (cl " + tautClause +
+                     "):rule or :premises(taut" + _queryId + "_"+ id + "))\n";
 
         String counterpartBound =
             getBoundAsClause( Tightening( identifierInt, 0, Tightening::LB ) );
@@ -677,11 +678,11 @@ bool AletheProofWriter::writeReluLemma(
         String subFarkasClause = String( "(cl (not " ) + causeBound + ")" + conclusion + "(not " +
                                  subConclusion + ")(not " + counterpartBound + ")" + tableauClause;
 
-        proofRule += String( "(step ifl" ) + id + " " + subFarkasClause +
+        proofRule += String( "(step ifl" ) + _queryId + "_" + id + " " + subFarkasClause +
                      "):rule la_generic :args(1 1 -1 1 -1))\n";
 
         proofRuleRes += pref + +" e" + std::to_string( identifierInt - ( _n - _m ) ) + " l" +
-                        std::to_string( identifierInt ) + " ifl" + id + " ts" + id + " s" +
+                        std::to_string( identifierInt ) + " ifl" + _queryId + "_" + id + " ts"+ _queryId + "_" + id + " s" +
                         identifier + "_a1 s" + identifier + " s" + identifier + "_i1))\n";
     }
     // If ub of b is positive, then propagate to f
@@ -695,11 +696,11 @@ bool AletheProofWriter::writeReluLemma(
                             getBoundAsClause( Tightening( affectedVar, 0, Tightening::UB ) ) + ")" +
                             conclusion;
 
-        proofRule =
-            String( "(step taut" ) + id + " (cl (or " + tautClause + ")):rule la_tautology)\n";
+        proofRule = String( "(step taut" ) + _queryId + "_" + id + " (cl (or " + tautClause +
+                    ")):rule la_tautology)\n";
 
-        proofRule += String( "(step ts" ) + id + " (cl " + tautClause + "):rule or :premises(taut" +
-                     id + "))\n";
+        proofRule += String( "(step ts" ) + _queryId + "_" + id + " (cl " + tautClause +
+                     "):rule or :premises(taut" + _queryId + "_" + id + "))\n";
 
         String counterpartBound =
             getBoundAsClause( Tightening( identifierInt, 0, Tightening::UB ) );
@@ -708,11 +709,11 @@ bool AletheProofWriter::writeReluLemma(
         String subFarkasClause = String( "(cl (not " ) + causeBound + ")" + conclusion + "(not " +
                                  subConclusion + ")(not " + counterpartBound + ")" + tableauClause;
 
-        proofRule += String( "(step ifl" ) + id + " " + subFarkasClause +
+        proofRule += String( "(step ifl" ) + _queryId + "_" + id + " " + subFarkasClause +
                      "):rule la_generic :args(1 1 -1 1 1))\n";
 
         proofRuleRes += pref + " e" + std::to_string( identifierInt - ( _n - _m ) ) + " u" +
-                        std::to_string( identifierInt ) + " ifl" + id + " ts" + id + " s" +
+                        std::to_string( identifierInt ) + " ifl" + _queryId + "_"+ id + " ts" + _queryId + "_"+ id + " s" +
                         identifier + "_a1 s" + identifier + " s" + identifier + "_i1))\n";
     }
 
@@ -832,7 +833,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
         // Add split deps of prev lemmas
         if ( isLemmaIncluded && !overrideGmp )
         {
-            farkasParticipants += "rl" + std::to_string( lemId ) + " ";
+            farkasParticipants += String("rl") + _queryId + "_" + std::to_string( lemId ) + " ";
             for ( const auto dep : _idToSplits[gbEntry->id] )
                 if ( !splitDeps.exists( dep ) )
                     splitDeps.append( dep );
@@ -1017,7 +1018,7 @@ void AletheProofWriter::addEntryToStack(
 
 void AletheProofWriter::writeDelegatedLeaf( int64_t id, const std::vector<int> &clause )
 {
-    String proofHole = String( "(step r" + std::to_string( id ) ) + " (cl ";
+    String proofHole = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl ";
     for ( int lit : clause )
     {
         String isActive = lit > 0 ? "a" : "(not a";
@@ -1042,7 +1043,7 @@ void AletheProofWriter::writeLemmaResolution(
     entryClause.insert( entryClause.end(), propagatedLit );
 
     String isActive = -propagatedLit > 0 ? "a" : "i";
-    String proofRule = String( "(step r" + std::to_string( id ) + "(cl " ) +
+    String proofRule = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + "(cl " +
                        clauseToPhases( entryClause ) + "):rule resolution :premises( eq" +
                        constraintId + "_" + isActive + "0 eq" + constraintId + "_" + isActive +
                        "1 rl" + std::to_string( lemId ) + " as" + constraintId;
@@ -1094,11 +1095,11 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
     }
 
 
-    String resLine = String( "(step r" + std::to_string( id ) + " (cl" ) + splitsClause +
-                     "):rule resolution :premises(";
+    String resLine = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl" +
+                     splitsClause + "):rule resolution :premises(";
 
     for ( int64_t step : antecedents )
-        resLine += " r" + std::to_string( step );
+        resLine += String(" r") + _queryId + "_" + std::to_string( step );
 
     for ( int lit : clause )
         resLine += " s" + std::to_string( abs( lit ) );
