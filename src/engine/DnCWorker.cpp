@@ -139,6 +139,9 @@ void DnCWorker::popOneSubQueryAndSolve( bool restoreTreeStates )
         // Switch on the result
         if ( result == ExitCode::UNSAT )
         {
+            if ( _engine->shouldProduceProofs() && GlobalConfiguration::WRITE_ALETHE_PROOF )
+                _engine->certifyUNSATCertificate();
+
             // If UNSAT, continue to solve
             *_numUnsolvedSubQueries -= 1;
             if ( _numUnsolvedSubQueries->load() == 0 || _parallelDeepSoI )

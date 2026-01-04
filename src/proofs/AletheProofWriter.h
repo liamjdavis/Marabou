@@ -96,6 +96,8 @@ public:
 
     String getFileName() const;
 
+    String getCombinedFileName() const;
+
 #if BUILD_CADICAL
     void writeDelegatedLeaf( int64_t id, const std::vector<int> &clause );
     void add_derived_clause( int64_t id,

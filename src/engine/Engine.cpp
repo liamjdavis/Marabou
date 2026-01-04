@@ -3993,7 +3993,7 @@ bool Engine::certifyUNSATCertificate()
         _precisionRestorer.restoreInitialEngineState( *this );
 
 
-        if ( GlobalConfiguration::WRITE_JSON_PROOF )
+        if ( GlobalConfiguration::WRITE_JSON_PROOF && !_sncMode )
         {
             File file( JsonWriter::PROOF_FILENAME );
             JsonWriter::writeProofToJson( _UNSATCertificate,
@@ -4022,20 +4022,24 @@ bool Engine::certifyUNSATCertificate()
         }
 
         // Trim out the suffix ".alethe"
-        String alethePref =
-            _aletheWriter->getFileName().substring( 0, _aletheWriter->getFileName().length() - 7 );
+        if ( !_sncMode )
+        {
+            String alethePref = _aletheWriter->getFileName().substring(
+                0, _aletheWriter->getFileName().length() - 7 );
 
-        SmtLibWriter::writeToSmtLibFile( alethePref,
-                                         _tableau->getM(),
-                                         _tableau->getN(),
-                                         groundUpperBounds,
-                                         groundLowerBounds,
-                                         _tableau->getSparseA(),
-                                         List<Equation>(),
-                                         _plConstraints );
+            SmtLibWriter::writeToSmtLibFile( alethePref,
+                                             _tableau->getM(),
+                                             _tableau->getN(),
+                                             groundUpperBounds,
+                                             groundLowerBounds,
+                                             _tableau->getSparseA(),
+                                             List<Equation>(),
+                                             _plConstraints );
+        }
 
         _aletheWriter->finalizeProof();
-        printf( "proof written to Alethe format and needs to be certified separately\n" );
+        if ( !_sncMode )
+            printf( "proof written to Alethe format and needs to be certified separately\n" );
         certificationSucceeded = true;
     }
     else if ( !_solveWithCDCL )
@@ -4642,7 +4646,11 @@ void Engine::deleteProofIfExists() const
 void Engine::createCombinedProofFile() const
 {
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+    {
+        writeProofToSmtLibFile();
         _aletheWriter->createCombinedProofFile();
+        printf( "proof written to Alethe format and needs to be certified separately\n" );
+    }
 }
 
 void Engine::deleteCombinedProofIfExists() const
@@ -4655,5 +4663,30 @@ void Engine::removeProofDirectoryIfExists() const
 {
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
         _aletheWriter->removeProofDirectory();
+}
+
+void Engine::writeProofToSmtLibFile() const
+{
+    Vector<double> groundUpperBounds( _tableau->getN(), 0 );
+    Vector<double> groundLowerBounds( _tableau->getN(), 0 );
+
+    for ( unsigned i = 0; i < _tableau->getN(); ++i )
+    {
+        groundUpperBounds[i] = _preprocessedQuery->getUpperBound( i );
+        groundLowerBounds[i] = _preprocessedQuery->getLowerBound( i );
+        ;
+    }
+
+    String alethePref = _aletheWriter->getCombinedFileName().substring(
+        0, _aletheWriter->getCombinedFileName().length() - 7 );
+
+    SmtLibWriter::writeToSmtLibFile( alethePref,
+                                     _tableau->getM(),
+                                     _tableau->getN(),
+                                     groundUpperBounds,
+                                     groundLowerBounds,
+                                     _tableau->getSparseA(),
+                                     List<Equation>(),
+                                     _plConstraints );
 }
 #endif

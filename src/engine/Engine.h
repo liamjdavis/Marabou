@@ -374,6 +374,8 @@ public:
     */
     unsigned getNumOfLemmas() const override;
 
+    void writeProofToSmtLibFile() const override;
+
 #ifdef BUILD_CADICAL
     /*
       Solve the input query with CDCL

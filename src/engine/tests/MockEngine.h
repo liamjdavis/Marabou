@@ -404,6 +404,10 @@ public:
         return 0;
     }
 
+    void writeProofToSmtLibFile() const override
+    {
+    }
+
 
 #ifdef BUILD_CADICAL
     bool solveWithCDCL( double timeoutInSeconds ) override

@@ -280,6 +280,11 @@ public:
     */
     virtual unsigned getNumOfLemmas() const = 0;
 
+    /*
+      Write the proof
+     */
+    virtual void writeProofToSmtLibFile() const = 0;
+
 #ifdef BUILD_CADICAL
     /*
       Solve the input query with CDCL

@@ -1135,3 +1135,8 @@ void AletheProofWriter::removeProofDirectory() const
     if ( _proofDir != "" )
         fs::remove_all( _proofDir.ascii() );
 }
+
+String AletheProofWriter::getCombinedFileName() const
+{
+    return _combinedProofFilename;
+}
