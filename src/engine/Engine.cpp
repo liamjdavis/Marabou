@@ -4019,7 +4019,6 @@ bool Engine::certifyUNSATCertificate()
                 _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES ),
                 false,
                 clause );
-            _aletheWriter->flushProof();
         }
 
         // Trim out the suffix ".alethe"

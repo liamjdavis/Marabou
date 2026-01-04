@@ -62,7 +62,7 @@ public:
 
     static const unsigned ALETHE_WRITER_PRECISION;
 
-    static Set<String> unsatJobFinalSteps;
+    static Map<String, Vector<int>> unsatJobFinalSteps;
     static std::mutex unsatJobFinalStepsMutex;
 
     AletheProofWriter( unsigned explanationSize,
@@ -101,6 +101,8 @@ public:
     String getFileName() const;
 
     String getCombinedFileName() const;
+
+    static Vector<int> resolution(const Vector<int> &c1, const Vector<int> &c2);
 
 #if BUILD_CADICAL
     void writeDelegatedLeaf( int64_t id, const std::vector<int> &clause );
