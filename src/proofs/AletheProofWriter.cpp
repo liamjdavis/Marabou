@@ -33,6 +33,7 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const GroundBoundManager &groundBoundManager,
                                       const SparseMatrix *tableau,
                                       const List<PiecewiseLinearConstraint *> &problemConstraints,
+                                      const String &queryId,
                                       const String &proofFileName,
                                       const String &proofDir,
                                       const CdclCore *cdclCore )
@@ -47,6 +48,7 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
     , _varToPlc()
     , _idToSplits()
     , _nodeToSplits()
+    , _queryId( queryId )
     , _proofFile( ( proofDir == "" ) ? proofFileName : proofDir + "/" + proofFileName )
     , _proofFileName( ( proofDir == "" ) ? proofFileName : proofDir + "/" + proofFileName )
     , _proofDir( proofDir )

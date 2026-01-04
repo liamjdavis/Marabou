@@ -67,6 +67,7 @@ public:
                        const GroundBoundManager &groundBoundManager,
                        const SparseMatrix *tableau,
                        const List<PiecewiseLinearConstraint *> &problemConstraints,
+                       const String &queryId,
                        const String &proofFileName,
                        const String &proofDir,
                        const CdclCore *cdclCore );
@@ -146,6 +147,7 @@ private:
     Map<unsigned, List<Tightening>> _idToSplits;
     Map<unsigned, List<Tightening>> _nodeToSplits;
 
+    String _queryId;
     File _proofFile;
     String _proofFileName;
     String _proofDir;

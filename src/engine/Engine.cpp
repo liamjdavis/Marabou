@@ -280,6 +280,7 @@ void Engine::initializeSolver()
                                        _groundBoundManager,
                                        _tableau->getSparseA(),
                                        _plConstraints,
+                                       _queryId,
                                        proofFile + ".smt2.alethe",
                                        proofDir,
                                        &_cdclCore
