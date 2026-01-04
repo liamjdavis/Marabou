@@ -292,8 +292,6 @@ void Engine::initializeSolver()
             if ( !_sncMode || _queryId == "1" )
                 _aletheWriter->flushAssumptions();
 
-            std::cout << _queryId.ascii() << " number of variables: " << _tableau->getN()
-                      << std::endl;
         }
     }
 

@@ -221,6 +221,8 @@ public:
     const PiecewiseLinearConstraint *getPlc( unsigned var ) const;
 
     void connectProofWriter( const AletheProofWriter *writer ) const;
+    const Vector<int> &getSncLits() const;
+
 
     static std::atomic<unsigned> numCdclCores;
 
@@ -295,7 +297,7 @@ private:
     unsigned _lastSharedClauseIndexAdded;
     Set<unsigned> _sharedClauseAdded;
 
-    Set<int> _sncSplitLiterals;
+    Vector<int> _sncSplitLiterals;
 
     /*
       Access info in the internal data structures

@@ -700,8 +700,16 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
             CdclCore::sharedClausesMutex.lock();
             const auto &clause = CdclCore::sharedClauses[_lastSharedClauseIndexAdded++];
             CdclCore::sharedClausesMutex.unlock();
+            bool hasIntersection = false;
 
-            if ( Set<int>::intersection( clause, _sncSplitLiterals ).empty() )
+            for ( int lit : _sncSplitLiterals )
+                if ( clause.exists( lit ) )
+                {
+                    hasIntersection = true;
+                    break;
+                }
+
+            if ( !hasIntersection )
                 addExternalClause( clause, false );
             else
                 continue;
@@ -817,7 +825,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     for ( const auto &pair : _literalsToPropagate )
     {
         ASSERT( pair.first() != 0 && pair.second() == 0 )
-        _sncSplitLiterals.insert( pair.first() );
+        _sncSplitLiterals.append( pair.first() );
         _fixedCadicalVars.insert( pair.first() );
     }
 
@@ -1575,4 +1583,10 @@ void CdclCore::connectProofWriter( const AletheProofWriter *writer ) const
 {
     _satSolver->connectProofWriter( writer );
 }
+
+const Vector<int> &CdclCore::getSncLits() const
+{
+    return _sncSplitLiterals;
+}
+
 #endif
