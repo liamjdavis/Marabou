@@ -1127,7 +1127,7 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
         if ( step > _cdclCore->getSncLits().size() )
             resLine += String( " r" ) + _queryId + "_" + std::to_string( step );
 
-    for ( int lit : clause )
+    for ( int lit : extendedClause )
         resLine += " s" + std::to_string( abs( lit ) );
 
     resLine += "))\n";
