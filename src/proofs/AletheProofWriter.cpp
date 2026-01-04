@@ -27,6 +27,9 @@ namespace fs = std::filesystem;
 const unsigned AletheProofWriter::ALETHE_WRITER_PRECISION =
     (unsigned)1 / GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE;
 
+Set<String> AletheProofWriter::unsatJobFinalSteps{};
+std::mutex AletheProofWriter::unsatJobFinalStepsMutex{};
+
 AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const Vector<double> &upperBounds,
                                       const Vector<double> &lowerBounds,
@@ -277,6 +280,11 @@ void AletheProofWriter::finalizeProof()
         _proofFile.write( s );
 
     _proofFile.close();
+
+    AletheProofWriter::unsatJobFinalStepsMutex.lock();
+    AletheProofWriter::unsatJobFinalSteps.insert( String( "r" ) + _queryId + "_" +
+                                                  std::to_string( _proofEntries.back().id ) );
+    AletheProofWriter::unsatJobFinalStepsMutex.unlock();
 }
 
 void AletheProofWriter::deleteProof()
@@ -1136,6 +1144,12 @@ void AletheProofWriter::createCombinedProofFile()
         proofFile.close();
         _combinedProofFile.write( proofFileContent );
     }
+
+    String finalClause = "(step final (cl):rule resolution :premises (";
+    for ( const String &finalStep : AletheProofWriter::unsatJobFinalSteps )
+        finalClause = finalClause + finalStep + " ";
+    finalClause += "))";
+    _combinedProofFile.write( finalClause );
 
     _combinedProofFile.close();
 }

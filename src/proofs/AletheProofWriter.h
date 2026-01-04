@@ -27,6 +27,8 @@
 #include "gmpxx.h"
 #include "tracer.hpp"
 
+#include <mutex>
+
 class CdclCore;
 class AletheProofWriter
 #if BUILD_CADICAL
@@ -58,8 +60,10 @@ public:
         int propagatedLit;
     };
 
-
     static const unsigned ALETHE_WRITER_PRECISION;
+
+    static Set<String> unsatJobFinalSteps;
+    static std::mutex unsatJobFinalStepsMutex;
 
     AletheProofWriter( unsigned explanationSize,
                        const Vector<double> &upperBounds,

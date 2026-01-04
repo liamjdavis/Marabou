@@ -291,7 +291,6 @@ void Engine::initializeSolver()
 
             if ( !_sncMode || _queryId == "1" )
                 _aletheWriter->flushAssumptions();
-
         }
     }
 
