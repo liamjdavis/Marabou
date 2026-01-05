@@ -394,6 +394,22 @@ public:
         return std::shared_ptr<Query>( nullptr );
     }
 
+    void deleteProofIfExists() const override
+    {
+    }
+
+    void createCombinedProofFile() const override
+    {
+    }
+
+    void deleteCombinedProofIfExists() const override
+    {
+    }
+
+    void removeProofDirectoryIfExists() const override
+    {
+    }
+
     AletheProofWriter *getAletheWriter() const override
     {
         return NULL;
@@ -405,6 +421,10 @@ public:
     }
 
     void writeProofToSmtLibFile() const override
+    {
+    }
+
+    void createAletheProofDir() const override
     {
     }
 
@@ -439,22 +459,6 @@ public:
     const CdclCore *getCdclCore() const override
     {
         return nullptr;
-    }
-
-    void deleteProofIfExists() const override
-    {
-    }
-
-    void createCombinedProofFile() const override
-    {
-    }
-
-    void deleteCombinedProofIfExists() const override
-    {
-    }
-
-    void removeProofDirectoryIfExists() const override
-    {
     }
 #endif
 };

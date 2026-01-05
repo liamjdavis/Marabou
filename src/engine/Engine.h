@@ -376,6 +376,28 @@ public:
 
     void writeProofToSmtLibFile() const override;
 
+    void createAletheProofDir() const override;
+
+    /*
+ Empty Alethe proof trace, if created
+*/
+    void deleteProofIfExists() const override;
+
+    /*
+      (SnC) Create combined proof file of all proof traces of each job.
+     */
+    void createCombinedProofFile() const override;
+
+    /*
+      (SnC) Delete Alethe proof directory, if created
+     */
+    void deleteCombinedProofIfExists() const override;
+
+    /*
+      (SnC) Remove Alethe proof directory, if exists
+     */
+    void removeProofDirectoryIfExists() const override;
+
 #ifdef BUILD_CADICAL
     /*
       Solve the input query with CDCL
@@ -405,26 +427,6 @@ public:
      Get CDCLCore
      */
     const CdclCore *getCdclCore() const override;
-
-    /*
-     Empty Alethe proof trace, if created
-    */
-    void deleteProofIfExists() const override;
-
-    /*
-      (SnC) Create combined proof file of all proof traces of each job.
-     */
-    void createCombinedProofFile() const override;
-
-    /*
-      (SnC) Delete Alethe proof directory, if created
-     */
-    void deleteCombinedProofIfExists() const override;
-
-    /*
-      (SnC) Remove Alethe proof directory, if exists
-     */
-    void removeProofDirectoryIfExists() const override;
 #endif
 
     /*

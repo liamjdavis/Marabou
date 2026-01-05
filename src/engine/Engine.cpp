@@ -263,7 +263,6 @@ void Engine::initializeSolver()
 
             if ( _sncMode )
             {
-                fs::create_directory( pref.ascii() );
                 proofDir = pref;
                 proofFile = _queryId;
             }
@@ -4626,6 +4625,7 @@ const CdclCore *Engine::getCdclCore() const
 {
     return &_cdclCore;
 }
+#endif
 
 AletheProofWriter *Engine::getAletheWriter() const
 {
@@ -4689,4 +4689,16 @@ void Engine::writeProofToSmtLibFile() const
                                      List<Equation>(),
                                      _plConstraints );
 }
-#endif
+
+void Engine::createAletheProofDir() const
+{
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+    {
+        String proofDirName =
+            Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
+            Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
+
+        fs::create_directory( proofDirName.ascii() );
+
+    }
+}

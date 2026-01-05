@@ -271,6 +271,26 @@ public:
     virtual std::shared_ptr<Query> getInputQuery() const = 0;
 
     /*
+     Empty Alethe proof trace, if created
+    */
+    virtual void deleteProofIfExists() const = 0;
+
+    /*
+      (SnC) Create Alethe combined proof file of all proof traces of each job.
+     */
+    virtual void createCombinedProofFile() const = 0;
+
+    /*
+      (SnC) Delete Alethe combined proof file, if created
+     */
+    virtual void deleteCombinedProofIfExists() const = 0;
+
+    /*
+      (SnC) Remove Alethe proof directory, if exists
+     */
+    virtual void removeProofDirectoryIfExists() const = 0;
+
+    /*
      Returns the Alethe proof writer.
     */
     virtual AletheProofWriter *getAletheWriter() const = 0;
@@ -284,6 +304,11 @@ public:
       Write the proof
      */
     virtual void writeProofToSmtLibFile() const = 0;
+
+    /*
+      (SnC) Create alethe proof dir
+     */
+    virtual void createAletheProofDir() const = 0;
 
 #ifdef BUILD_CADICAL
     /*
@@ -315,26 +340,6 @@ public:
      Get CDCLCore
      */
     virtual const CdclCore *getCdclCore() const = 0;
-
-    /*
-     Empty Alethe proof trace, if created
-    */
-    virtual void deleteProofIfExists() const = 0;
-
-    /*
-      (SnC) Create Alethe combined proof file of all proof traces of each job.
-     */
-    virtual void createCombinedProofFile() const = 0;
-
-    /*
-      (SnC) Delete Alethe combined proof file, if created
-     */
-    virtual void deleteCombinedProofIfExists() const = 0;
-
-    /*
-      (SnC) Remove Alethe proof directory, if exists
-     */
-    virtual void removeProofDirectoryIfExists() const = 0;
 #endif
 };
 

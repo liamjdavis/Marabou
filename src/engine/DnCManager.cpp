@@ -142,6 +142,9 @@ void DnCManager::solve()
         return;
     }
 
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        _baseEngine->createAletheProofDir();
+
 #ifdef ENABLE_OPENBLAS
     // Now each worker occupies one thread. So SBT performed during the search
     // will be single-threaded.
