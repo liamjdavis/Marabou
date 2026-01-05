@@ -1130,9 +1130,7 @@ void CdclCore::notifySingleAssignment( int lit, bool isFixed )
         _fixedCadicalVars.insert( lit );
 
     if ( isDecision( lit ) )
-    {
         _decisionLiterals.insert( ++_decisionIndex, lit );
-    }
 
     // Pick the split to perform
     PiecewiseLinearConstraint *plc = _satSolverVarToPlc.at( (unsigned)FloatUtils::abs( lit ) );

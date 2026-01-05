@@ -972,7 +972,7 @@ void AletheProofWriter::add_original_clause( int64_t id,
                                              const std::vector<int> &clause,
                                              bool /*restored*/ )
 {
-    if ( clause.size() == 1 && _cdclCore->isLiteralFixed( clause.front() ) )
+    if ( clause.size() == 1 && _cdclCore->getSncLits().exists( clause.front() ) )
         return;
 
     std::sort(
