@@ -62,7 +62,7 @@ public:
 
     static const unsigned ALETHE_WRITER_PRECISION;
 
-    static Map<String, Vector<int>> unsatJobFinalSteps;
+    static Map<String, Pair<String, Vector<int>>> unsatJobFinalSteps;
     static std::mutex unsatJobFinalStepsMutex;
 
     AletheProofWriter( unsigned explanationSize,

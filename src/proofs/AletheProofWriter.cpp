@@ -27,7 +27,7 @@ namespace fs = std::filesystem;
 const unsigned AletheProofWriter::ALETHE_WRITER_PRECISION =
     (unsigned)1 / GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE;
 
-Map<String, Vector<int>> AletheProofWriter::unsatJobFinalSteps{};
+Map<String, Pair<String, Vector<int>>> AletheProofWriter::unsatJobFinalSteps{};
 std::mutex AletheProofWriter::unsatJobFinalStepsMutex{};
 
 AletheProofWriter::AletheProofWriter( unsigned explanationSize,
@@ -281,18 +281,19 @@ void AletheProofWriter::finalizeProof()
 
     _proofFile.close();
 
-    String finalStepId;
+    String resId;
     if ( !_proofEntries.empty() )
-        finalStepId = String( "r" ) + _queryId + "_" + std::to_string( _proofEntries.back().id );
+        resId = String( "r" ) + _queryId + "_" + std::to_string( _proofEntries.back().id );
     else
     {
         List<String> finalStepTokens = _proof.back().tokenize( " " );
         finalStepTokens.popFront();
-        finalStepId = finalStepTokens.popFront();
+        resId = finalStepTokens.popFront();
     }
 
     AletheProofWriter::unsatJobFinalStepsMutex.lock();
-    AletheProofWriter::unsatJobFinalSteps.insert( finalStepId, _cdclCore->getSncLits() );
+    AletheProofWriter::unsatJobFinalSteps.insert(
+        _queryId, Pair<String, Vector<int>>( resId, _cdclCore->getSncLits() ) );
     AletheProofWriter::unsatJobFinalStepsMutex.unlock();
 }
 
@@ -1156,30 +1157,35 @@ void AletheProofWriter::createCombinedProofFile()
 
     // TODO: expand this behavior for SNC depth > 2, where number of UNSAT jobs may not be a
     //  power of 2
-    Map<String, Vector<int>> finalClauses = AletheProofWriter::unsatJobFinalSteps;
+    if ( AletheProofWriter::unsatJobFinalSteps.size() == 1 )
+        return;
+
+    List<Pair<String, Vector<int>>> finalClauses;
+    for ( unsigned i = 1; i < AletheProofWriter::unsatJobFinalSteps.size() + 1; ++i )
+        finalClauses.append( AletheProofWriter::unsatJobFinalSteps["1-" + std::to_string( i )] );
+
     unsigned index = 0;
     while ( finalClauses.size() > 1 )
     {
         ASSERT( finalClauses.size() % 2 == 0 );
-        Map<String, Vector<int>> newFinalClauses;
-        Vector<String> finalClauseIds = {};
-        for ( const String &key : finalClauses.keys() )
-            finalClauseIds.append( key );
+        List<Pair<String, Vector<int>>> newFinalClauses;
+        unsigned numClauses = finalClauses.size();
 
-        for ( unsigned i = 0; i < finalClauses.size() / 2; ++i )
+        for ( unsigned i = 0; i < numClauses / 2; ++i )
         {
-            String step1 = finalClauseIds[2 * i];
-            String step2 = finalClauseIds[2 * i + 1];
+            Pair<String, Vector<int>> step1 = finalClauses.popFront();
+            Pair<String, Vector<int>> step2 = finalClauses.popFront();
 
-            Vector<int> resolutionClause = resolution( finalClauses[step1], finalClauses[step2] );
+            Vector<int> resolutionClause = resolution( step1.second(), step2.second() );
             String resolutionStepId = "f" + std::to_string( ++index );
-            newFinalClauses.insert( resolutionStepId, resolutionClause );
+            newFinalClauses.append(
+                Pair<String, Vector<int>>( resolutionStepId, resolutionClause ) );
 
             _combinedProofFile.write( String( "(step " ) + resolutionStepId + " (cl " +
                                       clauseToPhases( resolutionClause.getContainer() ) +
                                       "):rule resolution "
                                       ":premises (" +
-                                      step1 + " " + step2 + "))\n" );
+                                      step1.first() + " " + step2.first() + "))\n" );
         }
 
         finalClauses = newFinalClauses;
