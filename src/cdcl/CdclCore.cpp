@@ -553,7 +553,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                       .ascii() )
         Set<int> clause = {};
 
-        if ( !_fixedCadicalVars.exists( propagated_lit ) )
+        if ( !isLiteralFixed( propagated_lit ) )
         {
             if ( GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES )
                 clause =
@@ -578,7 +578,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                     if ( _assignedLiterals[lit] >= _assignedLiterals[propagated_lit] )
                         break;
 
-                    if ( !_fixedCadicalVars.exists( lit ) )
+                    if ( !isLiteralFixed( lit ) )
                         clause.insert( lit );
                 }
             }
@@ -629,7 +629,7 @@ int CdclCore::cb_add_reason_clause_lit( int propagated_lit )
                             _satSolverVarToPlc[abs( lit )]->getPhaseFixingEntry()->id )
 
                 // Remove fixed literals from clause, as they are redundant
-                if ( !_fixedCadicalVars.exists( -lit ) )
+                if ( !isLiteralFixed( -lit ) )
                 {
                     _reasonClauseLiterals.append( -lit );
                     _literalToClauses[-lit].insert( _numOfClauses );
@@ -785,7 +785,7 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
     for ( int lit : clause )
     {
         _externalClauseToAdd.append( -lit );
-        if ( !_fixedCadicalVars.exists( lit ) && !_fixedCadicalVars.exists( -lit ) )
+        if ( !isLiteralFixed( lit ) && !isLiteralFixed( -lit ) )
             _literalToClauses[-lit].insert( _numOfClauses );
     }
 
@@ -964,7 +964,7 @@ void CdclCore::addDecisionBasedConflictClause()
         int lit = _decisionLiterals[l];
         ASSERT( lit != 0 );
         ASSERT( isDecision( lit ) );
-        if ( !_fixedCadicalVars.exists( lit ) )
+        if ( !isLiteralFixed( lit ) )
             clause.insert( lit );
     }
 
