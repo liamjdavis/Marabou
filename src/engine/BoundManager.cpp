@@ -431,7 +431,13 @@ bool BoundManager::addLemmaExplanationAndTightenBound( unsigned var,
     bool tightened = affectedVarBound == Tightening::UB ? tightenUpperBound( var, value )
                                                         : tightenLowerBound( var, value );
 
-    if ( tightened )
+    // If the lemma is phase fixing, allow learning an almost equal bound to avoid discrepancies
+    // from the phase
+    bool areAlmostEqual = affectedVarBound == Tightening::UB
+                            ? FloatUtils::lte( value, getUpperBound( var ) )
+                            : FloatUtils::gte( value, getLowerBound( var ) );
+
+    if ( tightened || ( areAlmostEqual && isPhaseFixing ) )
     {
         if ( constraint.getType() == RELU || constraint.getType() == SIGN ||
              constraint.getType() == LEAKY_RELU )
@@ -464,15 +470,16 @@ bool BoundManager::addLemmaExplanationAndTightenBound( unsigned var,
         else
             throw MarabouError( MarabouError::FEATURE_NOT_YET_SUPPORTED );
 
-        std::shared_ptr<PLCLemma> PLCExpl = std::make_shared<PLCLemma>( causingVars,
-                                                                        var,
-                                                                        value,
-                                                                        causingVarBound,
-                                                                        affectedVarBound,
-                                                                        allExplanations,
-                                                                        constraint.getType(),
-                                                                        minTargetBound,
-                                                                        _engine->getNumOfLemmas() + 1 );
+        std::shared_ptr<PLCLemma> PLCExpl =
+            std::make_shared<PLCLemma>( causingVars,
+                                        var,
+                                        value,
+                                        causingVarBound,
+                                        affectedVarBound,
+                                        allExplanations,
+                                        constraint.getType(),
+                                        minTargetBound,
+                                        _engine->getNumOfLemmas() + 1 );
 
         if ( !_engine->shouldSolveWithCDCL() )
             _engine->getUNSATCertificateCurrentPointer()->addPLCLemma( PLCExpl );
