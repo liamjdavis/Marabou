@@ -88,8 +88,6 @@ int marabouMain( int argc, char **argv )
                     options->setBool( Options::PRODUCE_PROOFS, true );
                     printf( "Turning --prove-unsat on to allow proof-based conflict clauses.\n" );
                 }
-                printf( "Please note that producing complete UNSAT proofs while --cdcl is on is "
-                        "not yet supported.\n" );
             }
         }
 #endif
