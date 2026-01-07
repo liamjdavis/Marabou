@@ -29,7 +29,6 @@
 #include "QueryDivider.h"
 #include "SnCDivideStrategy.h"
 #include "TimeUtils.h"
-#include "Vector.h"
 #include "VsidsBasedDivider.h"
 
 #include <atomic>
@@ -142,9 +141,6 @@ void DnCManager::solve()
         return;
     }
 
-    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
-        _baseEngine->createAletheProofDir();
-
 #ifdef ENABLE_OPENBLAS
     // Now each worker occupies one thread. So SBT performed during the search
     // will be single-threaded.
@@ -249,11 +245,12 @@ void DnCManager::solve()
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
     {
         if ( _exitCode == ExitCode::UNSAT )
-            _baseEngine->createCombinedProofFile();
+        {
+            _baseEngine->writeAletheProofFinalSteps();
+            _baseEngine->writeProofToSmtLibFile();
+        }
         else
-            _baseEngine->deleteCombinedProofIfExists();
-
-        _baseEngine->removeProofDirectoryIfExists();
+            _baseEngine->deleteProofIfExists();
     }
     return;
 }

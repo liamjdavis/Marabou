@@ -398,18 +398,6 @@ public:
     {
     }
 
-    void createCombinedProofFile() const override
-    {
-    }
-
-    void deleteCombinedProofIfExists() const override
-    {
-    }
-
-    void removeProofDirectoryIfExists() const override
-    {
-    }
-
     AletheProofWriter *getAletheWriter() const override
     {
         return NULL;
@@ -424,7 +412,7 @@ public:
     {
     }
 
-    void createAletheProofDir() const override
+    void writeAletheProofFinalSteps() const override
     {
     }
 

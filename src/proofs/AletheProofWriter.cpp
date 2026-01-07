@@ -29,6 +29,9 @@ const unsigned AletheProofWriter::ALETHE_WRITER_PRECISION =
 
 Map<String, Pair<String, Vector<int>>> AletheProofWriter::unsatJobFinalSteps{};
 std::mutex AletheProofWriter::unsatJobFinalStepsMutex{};
+File AletheProofWriter::proofFile("");
+String AletheProofWriter::proofFilename;
+std::mutex AletheProofWriter::proofFileMutex{};
 
 AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const Vector<double> &upperBounds,
@@ -37,14 +40,14 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const SparseMatrix *tableau,
                                       const List<PiecewiseLinearConstraint *> &problemConstraints,
                                       const String &queryId,
-                                      const String &proofFileName,
-                                      const String &proofDir,
                                       const CdclCore *cdclCore )
     : _initialTableau( tableau )
     , _baseUpperBounds( upperBounds )
     , _baseLowerBounds( lowerBounds )
     , _groundBoundManager( groundBoundManager )
     , _plc( problemConstraints.begin(), problemConstraints.end() )
+    , _proof()
+    , _assumptions()
     , _n( upperBounds.size() )
     , _m( explanationSize )
     , _stepCounter( 1 )
@@ -52,11 +55,6 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
     , _idToSplits()
     , _nodeToSplits()
     , _queryId( queryId )
-    , _proofFile( ( proofDir == "" ) ? proofFileName : proofDir + "/" + proofFileName )
-    , _proofFileName( ( proofDir == "" ) ? proofFileName : proofDir + "/" + proofFileName )
-    , _proofDir( proofDir )
-    , _combinedProofFile( ( proofDir == "" ) ? "" : proofDir + ".smt2.alethe" )
-    , _combinedProofFilename( ( proofDir == "" ) ? "" : proofDir + ".smt2.alethe" )
     , _proofEntries( {} )
 #if BUILD_CADICAL
     , _cdclCore( cdclCore )
@@ -262,7 +260,6 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
 
 void AletheProofWriter::finalizeProof()
 {
-    _proofFile.open( File::MODE_WRITE_APPEND );
     for ( auto stepEntry : _proofEntries )
     {
         // Lemma Resolution
@@ -276,10 +273,14 @@ void AletheProofWriter::finalizeProof()
             writeDerivedClauseContent( stepEntry.id, stepEntry.clause, stepEntry.antecedents );
     }
 
-    for ( const String &s : _proof )
-        _proofFile.write( s );
+    AletheProofWriter::proofFileMutex.lock();
+    AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
 
-    _proofFile.close();
+    for ( const String &s : _proof )
+        AletheProofWriter::proofFile.write( s );
+
+    AletheProofWriter::proofFile.close();
+    AletheProofWriter::proofFileMutex.unlock();
 
     if ( !_cdclCore )
         return;
@@ -298,25 +299,18 @@ void AletheProofWriter::finalizeProof()
     AletheProofWriter::unsatJobFinalSteps.insert(
         _queryId, Pair<String, Vector<int>>( resId, _cdclCore->getSncLits() ) );
     AletheProofWriter::unsatJobFinalStepsMutex.unlock();
+
+    _proof.clear();
 }
 
 void AletheProofWriter::deleteProof()
 {
-    _proofFile.open( File::MODE_WRITE_TRUNCATE );
-    _proofFile.write( "" );
-    _proofFile.close();
-    std::remove( _proofFileName.ascii() );
-}
-
-void AletheProofWriter::deleteCombinedProof()
-{
-    if ( _proofDir != "" )
-    {
-        _combinedProofFile.open( File::MODE_WRITE_TRUNCATE );
-        _combinedProofFile.write( "" );
-        _combinedProofFile.close();
-        std::remove( _combinedProofFilename.ascii() );
-    }
+    AletheProofWriter::proofFileMutex.lock();
+    AletheProofWriter::proofFile.open( File::MODE_WRITE_TRUNCATE );
+    AletheProofWriter::proofFile.write( "" );
+    AletheProofWriter::proofFile.close();
+    std::remove( AletheProofWriter::proofFilename.ascii() );
+    AletheProofWriter::proofFileMutex.unlock();
 }
 
 void AletheProofWriter::writeInstanceToFile( IFile &file )
@@ -940,30 +934,31 @@ unsigned AletheProofWriter::assignId()
 
 void AletheProofWriter::flushAssumptions()
 {
-    File &proofFile = ( _proofDir == "" ) ? _proofFile : _combinedProofFile;
-    proofFile.open( File::MODE_WRITE_TRUNCATE );
+    AletheProofWriter::proofFile.open( File::MODE_WRITE_TRUNCATE );
     writeBoundAssumptions();
     writePLCAssumption();
     for ( const String &s : _assumptions )
-        proofFile.write( s );
+        AletheProofWriter::proofFile.write( s );
 
-    proofFile.close();
+    AletheProofWriter::proofFile.close();
 }
 
 void AletheProofWriter::flushProof()
 {
-    _proofFile.open( File::MODE_WRITE_APPEND );
+    AletheProofWriter::proofFileMutex.lock();
+    AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
     for ( const String &s : _proof )
-        _proofFile.write( s );
+        AletheProofWriter::proofFile.write( s );
+
+    AletheProofWriter::proofFile.close();
+    AletheProofWriter::proofFileMutex.unlock();
 
     _proof.clear();
-
-    _proofFile.close();
 }
 
-String AletheProofWriter::getFileName() const
+const String &AletheProofWriter::getProofFilename()
 {
-    return _proofFileName;
+    return AletheProofWriter::proofFilename;
 }
 
 #if BUILD_CADICAL
@@ -1147,28 +1142,38 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
 }
 #endif
 
-void AletheProofWriter::createCombinedProofFile()
+Vector<int> AletheProofWriter::resolution( const Vector<int> &c1, const Vector<int> &c2 )
 {
-    if ( _proofDir == "" )
-        return;
+    int resolutionLiteral = 0;
+    for ( int lit : c1 )
+        if ( c2.exists( -lit ) )
+        {
+            resolutionLiteral = lit;
+            break;
+        }
 
-    _combinedProofFile.open( File::MODE_WRITE_APPEND );
+    Set<int> resolutionClause;
+    for ( int lit : c1 )
+        if ( lit != resolutionLiteral )
+            resolutionClause.insert( lit );
 
-    for ( const auto &proofFileEntry : fs::directory_iterator( _proofDir.ascii() ) )
-    {
-        String proofFileName = proofFileEntry.path().string();
-        HeapData proofFileContent;
-        File proofFile( proofFileName );
-        proofFile.open( File::MODE_READ );
-        proofFile.read( proofFileContent, File::getSize( proofFileName ) );
-        proofFile.close();
-        _combinedProofFile.write( proofFileContent );
-    }
+    for ( int lit : c2 )
+        if ( lit != -resolutionLiteral )
+            resolutionClause.insert( lit );
 
+    return { resolutionClause.begin(), resolutionClause.end() };
+}
+
+void AletheProofWriter::writeFinalStepsToProof()
+{
     // TODO: expand this behavior for SNC depth > 2, where number of UNSAT jobs may not be a
     //  power of 2
     if ( AletheProofWriter::unsatJobFinalSteps.size() == 1 )
+    {
         return;
+    }
+
+    AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
 
     List<Pair<String, Vector<int>>> finalClauses;
     for ( unsigned i = 1; i < AletheProofWriter::unsatJobFinalSteps.size() + 1; ++i )
@@ -1191,49 +1196,21 @@ void AletheProofWriter::createCombinedProofFile()
             newFinalClauses.append(
                 Pair<String, Vector<int>>( resolutionStepId, resolutionClause ) );
 
-            _combinedProofFile.write( String( "(step " ) + resolutionStepId + " (cl " +
-                                      clauseToPhases( resolutionClause.getContainer() ) +
-                                      "):rule resolution "
-                                      ":premises (" +
-                                      step1.first() + " " + step2.first() + "))\n" );
+            AletheProofWriter::proofFile.write( String( "(step " ) + resolutionStepId + " (cl " +
+                                                clauseToPhases( resolutionClause.getContainer() ) +
+                                                "):rule resolution "
+                                                ":premises (" +
+                                                step1.first() + " " + step2.first() + "))\n" );
         }
 
         finalClauses = newFinalClauses;
     }
 
-
-    _combinedProofFile.close();
+    AletheProofWriter::proofFile.close();
 }
 
-void AletheProofWriter::removeProofDirectory() const
+void AletheProofWriter::initializeProofFile( const String &filename )
 {
-    if ( _proofDir != "" )
-        fs::remove_all( _proofDir.ascii() );
-}
-
-String AletheProofWriter::getCombinedFileName() const
-{
-    return _combinedProofFilename;
-}
-
-Vector<int> AletheProofWriter::resolution( const Vector<int> &c1, const Vector<int> &c2 )
-{
-    int resolutionLiteral = 0;
-    for ( int lit : c1 )
-        if ( c2.exists( -lit ) )
-        {
-            resolutionLiteral = lit;
-            break;
-        }
-
-    Set<int> resolutionClause;
-    for ( int lit : c1 )
-        if ( lit != resolutionLiteral )
-            resolutionClause.insert( lit );
-
-    for ( int lit : c2 )
-        if ( lit != -resolutionLiteral )
-            resolutionClause.insert( lit );
-
-    return { resolutionClause.begin(), resolutionClause.end() };
+    AletheProofWriter::proofFilename = filename;
+    AletheProofWriter::proofFile = File( filename );
 }

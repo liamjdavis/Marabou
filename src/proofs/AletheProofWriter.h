@@ -28,6 +28,7 @@
 #include "tracer.hpp"
 
 #include <mutex>
+#include <utility>
 
 class CdclCore;
 class AletheProofWriter
@@ -42,12 +43,12 @@ public:
                          std::vector<int> clause,
                          std::vector<int64_t> antecedents,
                          std::shared_ptr<GroundBoundManager::GroundBoundEntry> gbEntry,
-                         SparseUnsortedList contradiction,
+                         const SparseUnsortedList& contradiction,
                          int propagatedLit )
             : id( id )
-            , clause( clause )
-            , antecedents( antecedents )
-            , gbEntry( gbEntry )
+            , clause(std::move( clause ))
+            , antecedents(std::move( antecedents ))
+            , gbEntry(std::move( gbEntry ))
             , contradiction( contradiction )
             , propagatedLit( propagatedLit )
         {
@@ -62,9 +63,6 @@ public:
 
     static const unsigned ALETHE_WRITER_PRECISION;
 
-    static Map<String, Pair<String, Vector<int>>> unsatJobFinalSteps;
-    static std::mutex unsatJobFinalStepsMutex;
-
     AletheProofWriter( unsigned explanationSize,
                        const Vector<double> &upperBounds,
                        const Vector<double> &lowerBounds,
@@ -72,8 +70,6 @@ public:
                        const SparseMatrix *tableau,
                        const List<PiecewiseLinearConstraint *> &problemConstraints,
                        const String &queryId,
-                       const String &proofFileName,
-                       const String &proofDir,
                        const CdclCore *cdclCore );
 
     void writeInstanceToFile( IFile &file );
@@ -94,13 +90,13 @@ public:
 
     void finalizeProof();
 
-    void deleteProof();
+    static void initializeProofFile(const String &filename );
 
-    void deleteCombinedProof();
+    static void deleteProof();
 
-    String getFileName() const;
+    static const String &getProofFilename();
 
-    String getCombinedFileName() const;
+    static void writeFinalStepsToProof();
 
     static Vector<int> resolution(const Vector<int> &c1, const Vector<int> &c2);
 
@@ -132,11 +128,13 @@ public:
     bool lemmaExistsAsReasonClause( int64_t id ) const;
 #endif
 
-    void createCombinedProofFile();
-
-    void removeProofDirectory() const;
-
 private:
+    static Map<String, Pair<String, Vector<int>>> unsatJobFinalSteps;
+    static std::mutex unsatJobFinalStepsMutex;
+    static File proofFile;
+    static String proofFilename;
+    static std::mutex proofFileMutex;
+
     const SparseMatrix *_initialTableau;
     Vector<String> _tableauAssumptions; // For easy access
     Vector<double> _baseUpperBounds;
@@ -156,11 +154,6 @@ private:
     Map<unsigned, List<Tightening>> _nodeToSplits;
 
     String _queryId;
-    File _proofFile;
-    String _proofFileName;
-    String _proofDir;
-    File _combinedProofFile;
-    String _combinedProofFilename;
     List<AletheStepEntry> _proofEntries;
 
 #if BUILD_CADICAL
@@ -169,7 +162,7 @@ private:
     SparseUnsortedList _lastContradiction;
     Set<int> _lastContradictionClause;
     Map<int64_t, unsigned> _satIdToCdclVar;
-    String clauseToPhases( const std::vector<int> &clause );
+    static String clauseToPhases( const std::vector<int> &clause );
     void writeDerivedClauseContent( int64_t id,
                                     const std::vector<int> &clause,
                                     const std::vector<int64_t> &antecedents );

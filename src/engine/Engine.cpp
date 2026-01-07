@@ -254,24 +254,6 @@ void Engine::initializeSolver()
     {
         if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
         {
-            String pref =
-                Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
-                Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
-
-            String proofFile;
-            String proofDir;
-
-            if ( _sncMode )
-            {
-                proofDir = pref;
-                proofFile = _queryId;
-            }
-            else
-            {
-                proofDir = "";
-                proofFile = pref;
-            }
-
             _aletheWriter =
                 new AletheProofWriter( _tableau->getM(),
                                        _groundBoundManager.getAllGroundBounds( Tightening::UB ),
@@ -280,15 +262,21 @@ void Engine::initializeSolver()
                                        _tableau->getSparseA(),
                                        _plConstraints,
                                        _queryId,
-                                       proofFile + ".smt2.alethe",
-                                       proofDir,
-                                       _solveWithCDCL ? &_cdclCore : NULL );
+                                       &_cdclCore
+                );
 
             if ( _solveWithCDCL )
                 _cdclCore.connectProofWriter( _aletheWriter );
 
             if ( !_sncMode || _queryId == "1" )
+            {
+                String filename =
+                    Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
+                    Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
+                AletheProofWriter::initializeProofFile( filename + ".smt2.alethe" );
+
                 _aletheWriter->flushAssumptions();
+            }
         }
 
         if ( !_solveWithCDCL )
@@ -4022,8 +4010,8 @@ bool Engine::certifyUNSATCertificate()
         // Trim out the suffix ".alethe"
         if ( !_sncMode )
         {
-            String alethePref = _aletheWriter->getFileName().substring(
-                0, _aletheWriter->getFileName().length() - 7 );
+            String alethePref = AletheProofWriter::getProofFilename().substring(
+                0, AletheProofWriter::getProofFilename().length() - 7 );
 
             SmtLibWriter::writeToSmtLibFile( alethePref,
                                              _tableau->getM(),
@@ -4642,28 +4630,6 @@ void Engine::deleteProofIfExists() const
         _aletheWriter->deleteProof();
 }
 
-void Engine::createCombinedProofFile() const
-{
-    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
-    {
-        writeProofToSmtLibFile();
-        _aletheWriter->createCombinedProofFile();
-        printf( "proof written to Alethe format and needs to be certified separately\n" );
-    }
-}
-
-void Engine::deleteCombinedProofIfExists() const
-{
-    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
-        _aletheWriter->deleteCombinedProof();
-}
-
-void Engine::removeProofDirectoryIfExists() const
-{
-    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
-        _aletheWriter->removeProofDirectory();
-}
-
 void Engine::writeProofToSmtLibFile() const
 {
     Vector<double> groundUpperBounds( _tableau->getN(), 0 );
@@ -4676,8 +4642,8 @@ void Engine::writeProofToSmtLibFile() const
         ;
     }
 
-    String alethePref = _aletheWriter->getCombinedFileName().substring(
-        0, _aletheWriter->getCombinedFileName().length() - 7 );
+    String alethePref = AletheProofWriter::getProofFilename().substring(
+        0, AletheProofWriter::getProofFilename().length() - 7 );
 
     SmtLibWriter::writeToSmtLibFile( alethePref,
                                      _tableau->getM(),
@@ -4689,14 +4655,7 @@ void Engine::writeProofToSmtLibFile() const
                                      _plConstraints );
 }
 
-void Engine::createAletheProofDir() const
+void Engine::writeAletheProofFinalSteps() const
 {
-    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
-    {
-        String proofDirName =
-            Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
-            Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
-
-        fs::create_directory( proofDirName.ascii() );
-    }
+    AletheProofWriter::writeFinalStepsToProof();
 }
