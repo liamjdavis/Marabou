@@ -491,7 +491,7 @@ bool BoundManager::addLemmaExplanationAndTightenBound( unsigned var,
 
         if ( isPhaseFixing )
         {
-            ASSERT( constraint.getPhaseFixingEntry() == nullptr );
+            ASSERT( constraint.getPhaseFixingEntry() == nullptr || areAlmostEqual );
             constraint.setPhaseFixingEntry( phaseFixingEntry );
         }
 

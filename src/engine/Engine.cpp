@@ -262,8 +262,7 @@ void Engine::initializeSolver()
                                        _tableau->getSparseA(),
                                        _plConstraints,
                                        _queryId,
-                                       &_cdclCore
-                );
+                                       _solveWithCDCL ? &_cdclCore : NULL );
 
             if ( _solveWithCDCL )
                 _cdclCore.connectProofWriter( _aletheWriter );
@@ -4626,7 +4625,7 @@ unsigned Engine::getNumOfLemmas() const
 
 void Engine::deleteProofIfExists() const
 {
-    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && !_sncMode )
         _aletheWriter->deleteProof();
 }
 

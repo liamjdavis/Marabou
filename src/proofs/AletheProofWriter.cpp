@@ -29,7 +29,7 @@ const unsigned AletheProofWriter::ALETHE_WRITER_PRECISION =
 
 Map<String, Pair<String, Vector<int>>> AletheProofWriter::unsatJobFinalSteps{};
 std::mutex AletheProofWriter::unsatJobFinalStepsMutex{};
-File AletheProofWriter::proofFile("");
+File AletheProofWriter::proofFile( "" );
 String AletheProofWriter::proofFilename;
 std::mutex AletheProofWriter::proofFileMutex{};
 
@@ -899,7 +899,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
 
         String isActive = isSplitActive( tighteningSplit ) ? "a" : "i";
         String isNegActive = isSplitActive( tighteningSplit ) ? "(not a" : "a";
-        String suffix =  isSplitActive( tighteningSplit ) ? ")" :" ";
+        String suffix = isSplitActive( tighteningSplit ) ? ")" : " ";
         negatedSplitClause += isNegActive + identifier + suffix;
         farkasParticipants += String( "s" ) + identifier + "_" + isActive + "0 ";
         farkasParticipants += String( "s" ) + identifier + "_" + isActive + "1 ";
@@ -918,11 +918,11 @@ void AletheProofWriter::writeDelegatedLeaf( const UnsatCertificateNode *node )
                        getNegatedSplitsClause( getPathSplits( node ) ) + "):rule hole)\n";
 
     List<Tightening> deps = {};
-    for (const auto &split : getPathSplits( node ))
-        for (const auto tightening : split.getBoundTightenings())
-            deps.append(tightening);
+    for ( const auto &split : getPathSplits( node ) )
+        for ( const auto tightening : split.getBoundTightenings() )
+            deps.append( tightening );
 
-    _nodeToSplits.insert(node->getId(), deps);
+    _nodeToSplits.insert( node->getId(), deps );
     _proof.append( proofHole );
 }
 
