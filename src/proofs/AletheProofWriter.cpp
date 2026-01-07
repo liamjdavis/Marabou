@@ -281,6 +281,9 @@ void AletheProofWriter::finalizeProof()
 
     _proofFile.close();
 
+    if ( !_cdclCore )
+        return;
+
     String resId;
     if ( !_proofEntries.empty() )
         resId = String( "r" ) + _queryId + "_" + std::to_string( _proofEntries.back().id );
@@ -402,10 +405,9 @@ void AletheProofWriter::writeChildrenConclusion( const UnsatCertificateNode *nod
 
     ASSERT( node->isValidNonLeaf() );
     ASSERT( childrenIndices.size() == 2 )
-    String resLine = String( "(step r" + std::to_string( node->getId() ) + " (cl " ) +
-                     getNegatedSplitsClause( splitDeps ) + "):rule resolution :premises(s" +
-                     std::to_string( node->getChildren().front()->getSplitNum() ) + " r" +
-                     std::to_string( childrenIndices.front() ) + " r" +
+    String resLine = String( "(step r_" + std::to_string( node->getId() ) + " (cl " ) +
+                     getNegatedSplitsClause( splitDeps ) + "):rule resolution :premises(r_" +
+                     std::to_string( childrenIndices.front() ) + " r_" +
                      std::to_string( childrenIndices.back() ) + "))\n";
 
     _proof.append( resLine );
@@ -420,13 +422,14 @@ AletheProofWriter::getNegatedSplitsClause( const List<PiecewiseLinearCaseSplit> 
     String clause = "";
     for ( const auto &split : splits )
     {
-        String isActive = isSplitActive( split ) ? "a" : "i";
+        String isActive = isSplitActive( split ) ? "(not a" : "a";
         PiecewiseLinearConstraint *plc = _varToPlc[split.getBoundTightenings().front()._variable];
         int constraintInt = Options::get()->getBool( Options::SOLVE_WITH_CDCL )
                               ? plc->getVariableForDecision()
                               : plc->getTableauAuxVars().front();
         String plcNum = std::to_string( constraintInt );
-        clause += String( " " ) + isActive + plcNum;
+        String suffix = isSplitActive( split ) ? ")" : "";
+        clause += String( " " ) + isActive + plcNum + suffix;
     }
     return clause;
 }
@@ -901,9 +904,9 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
         }
 
         String isActive = isSplitActive( tighteningSplit ) ? "a" : "i";
-        String isNegActive = isSplitActive( tighteningSplit ) ? "i" : "a";
-
-        negatedSplitClause += isNegActive + identifier + " ";
+        String isNegActive = isSplitActive( tighteningSplit ) ? "(not a" : "a";
+        String suffix =  isSplitActive( tighteningSplit ) ? ")" :" ";
+        negatedSplitClause += isNegActive + identifier + suffix;
         farkasParticipants += String( "s" ) + identifier + "_" + isActive + "0 ";
         farkasParticipants += String( "s" ) + identifier + "_" + isActive + "1 ";
         farkasParticipants += String( "s" ) + identifier + " ";
@@ -917,7 +920,7 @@ String AletheProofWriter::convertTableauAssumptionToClause( unsigned index ) con
 
 void AletheProofWriter::writeDelegatedLeaf( const UnsatCertificateNode *node )
 {
-    String proofHole = String( "(step r" + std::to_string( node->getId() ) ) + " (cl " +
+    String proofHole = String( "(step r_" + std::to_string( node->getId() ) ) + " (cl " +
                        getNegatedSplitsClause( getPathSplits( node ) ) + "):rule hole)\n";
     _proof.append( proofHole );
 }

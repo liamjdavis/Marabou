@@ -282,14 +282,21 @@ void Engine::initializeSolver()
                                        _queryId,
                                        proofFile + ".smt2.alethe",
                                        proofDir,
-                                       &_cdclCore
+                                       _solveWithCDCL ? &_cdclCore : NULL );
 
-                );
-
-            _cdclCore.connectProofWriter( _aletheWriter );
+            if ( _solveWithCDCL )
+                _cdclCore.connectProofWriter( _aletheWriter );
 
             if ( !_sncMode || _queryId == "1" )
                 _aletheWriter->flushAssumptions();
+        }
+
+        if ( !_solveWithCDCL )
+        {
+            unsigned id = GlobalConfiguration::WRITE_ALETHE_PROOF ? _aletheWriter->assignId() : 0;
+            _UNSATCertificate = new UnsatCertificateNode( NULL, PiecewiseLinearCaseSplit(), 0, id );
+            _UNSATCertificateCurrentPointer->set( _UNSATCertificate );
+            _UNSATCertificate->setVisited();
         }
     }
 
@@ -1632,16 +1639,6 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                         i, _preprocessedQuery->getUpperBound( i ), Tightening::UB, false );
                     _groundBoundManager.addGroundBound(
                         i, _preprocessedQuery->getLowerBound( i ), Tightening::LB, false );
-                }
-
-                if ( !_solveWithCDCL )
-                {
-                    unsigned id =
-                        GlobalConfiguration::WRITE_ALETHE_PROOF ? _aletheWriter->assignId() : 0;
-                    _UNSATCertificate =
-                        new UnsatCertificateNode( NULL, PiecewiseLinearCaseSplit(), 0, id );
-                    _UNSATCertificateCurrentPointer->set( _UNSATCertificate );
-                    _UNSATCertificate->setVisited();
                 }
             }
         }
@@ -3678,11 +3675,10 @@ void Engine::explainSimplexFailure()
         clause = analyseExplanationDependencies(
             sparseContradictionToAnalyse, _groundBoundManager.getCounter(), -1, true, 0, dummy );
 
-        if ( !_solveWithCDCL )
+        if ( !_solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )
         {
-            if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
-                _aletheWriter->writeContradiction(
-                    sparseContradictionToAnalyse, _UNSATCertificateCurrentPointer->get()->getId() );
+            _aletheWriter->writeContradiction( sparseContradictionToAnalyse,
+                                               _UNSATCertificateCurrentPointer->get()->getId() );
             return;
         }
         else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
@@ -3691,6 +3687,9 @@ void Engine::explainSimplexFailure()
             _aletheWriter->setLastContradictionClause( clause );
         }
     }
+
+    if ( !_solveWithCDCL )
+        return;
 
 #ifdef BUILD_CADICAL
     // If both bounds are ground bounds, explanation would be empty and the clause trivial
@@ -4410,7 +4409,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         ASSERT( entry->id < id );
         // If a decision is required, we can stop analysing derived literals only after a decision
         // was added to the clause.
-        if ( entry->lemma && entry->lemma->getToCheck() )
+        if ( _solveWithCDCL && entry->lemma && entry->lemma->getToCheck() )
             subClause = entry->clause;
         else if ( entry->lemma && !entry->lemma->getExplanations().empty() &&
                   !entry->lemma->getToCheck() )
@@ -4441,7 +4440,7 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
             }
             entry->clause = subClause;
         }
-        else if ( !entry->lemma && entry->isPhaseFixing )
+        else if ( _solveWithCDCL && !entry->lemma && entry->isPhaseFixing )
             subClause = { _varToPLC[entry->var]->propagatePhaseAsLit() };
 #ifdef BUILD_CADICAL
         if ( _solveWithCDCL )
@@ -4699,6 +4698,5 @@ void Engine::createAletheProofDir() const
             Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
 
         fs::create_directory( proofDirName.ascii() );
-
     }
 }
