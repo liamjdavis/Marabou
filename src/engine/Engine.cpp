@@ -4625,7 +4625,7 @@ unsigned Engine::getNumOfLemmas() const
 
 void Engine::deleteProofIfExists() const
 {
-    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && !_sncMode )
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
         _aletheWriter->deleteProof();
 }
 

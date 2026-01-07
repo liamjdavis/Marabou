@@ -868,7 +868,8 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         _statistics->print();
     }
 
-    if ( result != 20 && GlobalConfiguration::WRITE_ALETHE_PROOF )
+    if ( result != 20 && GlobalConfiguration::WRITE_ALETHE_PROOF &&
+         !Options::get()->getBool( Options::DNC_MODE ) )
         _engine->deleteProofIfExists();
 
     if ( result == 0 )
