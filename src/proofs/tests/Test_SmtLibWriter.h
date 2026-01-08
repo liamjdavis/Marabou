@@ -138,7 +138,7 @@ public:
 
         // Tableau
         line = file->readLine( '\n' );
-        expectedLine = "(assert (= 0.0 (+ x0 (* 2 x1))))";
+        expectedLine = "(assert (= 0.0 (+ x0 (* 2.0 x1))))";
         TS_ASSERT_EQUALS( line, expectedLine );
 
         // Relu
