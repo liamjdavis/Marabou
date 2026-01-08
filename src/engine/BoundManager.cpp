@@ -431,7 +431,13 @@ bool BoundManager::addLemmaExplanationAndTightenBound( unsigned var,
     bool tightened = affectedVarBound == Tightening::UB ? tightenUpperBound( var, value )
                                                         : tightenLowerBound( var, value );
 
-    if ( tightened )
+    // If the lemma is phase fixing, allow learning an almost equal bound to avoid discrepancies
+    // from the phase
+    bool areAlmostEqual = affectedVarBound == Tightening::UB
+                            ? FloatUtils::lte( value, getUpperBound( var ) )
+                            : FloatUtils::gte( value, getLowerBound( var ) );
+
+    if ( tightened || ( areAlmostEqual && isPhaseFixing ) )
     {
         if ( constraint.getType() == RELU || constraint.getType() == SIGN ||
              constraint.getType() == LEAKY_RELU )
@@ -485,7 +491,7 @@ bool BoundManager::addLemmaExplanationAndTightenBound( unsigned var,
 
         if ( isPhaseFixing )
         {
-            ASSERT( constraint.getPhaseFixingEntry() == nullptr );
+            ASSERT( constraint.getPhaseFixingEntry() == nullptr || areAlmostEqual );
             constraint.setPhaseFixingEntry( phaseFixingEntry );
         }
 
