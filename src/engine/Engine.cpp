@@ -4300,37 +4300,51 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
     {
         // Ensure the explanations explains the infeasibility of a leaf
         ASSERT( explainedVar >= 0 );
-        std::shared_ptr<GroundBoundManager::GroundBoundEntry> uEntry =
+        std::shared_ptr<GroundBoundManager::GroundBoundEntry> entry =
                 _groundBoundManager.getGroundBoundEntryUpToId(
-                        explainedVar,  Tightening::UB , id );
-        std::shared_ptr<GroundBoundManager::GroundBoundEntry> lEntry =
+                        explainedVar,  isUpper ? Tightening::UB : Tightening::LB , id );
+        std::shared_ptr<GroundBoundManager::GroundBoundEntry> thisEntry =
                 _groundBoundManager.getGroundBoundEntryUpToId(
-                        explainedVar, Tightening::LB, id );
+                        explainedVar,  isUpper ? Tightening::UB : Tightening::LB , id+1 );
 
-        for (const auto &entry : {uEntry, lEntry} )
+        if ( entry->lemma )
+            thisEntry->deps.insert( entry->lemma->getId() );
+
+        if ( _solveWithCDCL && entry->lemma && entry->lemma->getToCheck() )
+            return entry->clause;
+        else if ( entry->lemma && !entry->lemma->getExplanations().empty() &&
+                  !entry->lemma->getToCheck() )
         {
-            if ( entry->lemma && !entry->lemma->getToCheck() )
+            entry->lemma->setToCheck();
+
+            _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS_USED );
+
+            std::_List_const_iterator<unsigned int> it = entry->lemma->getCausingVars().begin();
+            for ( const auto &expl : entry->lemma->getExplanations() )
             {
-                entry->lemma->setToCheck();
-                _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS_USED );
+                entry->clause +=  analyseExplanationDependencies(
+                        expl,
+                        entry->id,
+                        *it,
+                        entry->lemma->getCausingVarBound() == Tightening::UB,
+                        entry->lemma->getMinTargetBound(),
+                        entry->deps );
 
-                analyseExplanationDependencies( entry->lemma->getExplanations().front(),
-                                                entry->id,
-                                                entry->lemma->getCausingVars().front(),
-                                                entry->lemma->getCausingVarBound() == Tightening::UB,
-                                                entry->lemma->getMinTargetBound(), entry->deps );
-            }
+                std::advance( it, 1 );
 
-            if ( !_solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )
-                _aletheWriter->writeLemma( entry );
-    #ifdef BUILD_CADICAL
-            else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
-                _aletheWriter->addEntryToStack( entry );
-
-        }
+                if ( !_solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )
+                    _aletheWriter->writeLemma( entry );
+#ifdef BUILD_CADICAL
+                else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+                    _aletheWriter->addEntryToStack( entry );
 #endif
-        return uEntry->clause+lEntry->clause;
+            }
+           return entry->clause;
+        }
+        else if ( _solveWithCDCL && !entry->lemma && entry->isPhaseFixing )
+          return { _varToPLC[entry->var]->propagatePhaseAsLit() };
     }
+
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
         explanation, linearCombination, _tableau->getSparseA(), _tableau->getN() );
