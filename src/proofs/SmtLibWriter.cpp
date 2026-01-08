@@ -368,6 +368,9 @@ void SmtLibWriter::addTableauRow( const SparseUnsortedList &row, List<String> &i
             assertRowLine += String( "x" ) + std::to_string( entry->_index );
         else if ( entry->_value == -1 )
             assertRowLine += String( "(- x" ) + std::to_string( entry->_index ) + ")";
+        else if ( entry->_value == (int) entry->_value )
+            assertRowLine +=
+                    String( "(* " ) + signedValue( entry->_value ) + " x" + std::to_string( entry->_index ) + ")";
         else
             assertRowLine +=
                 String( "(* " ) + tempVal.get_str() + " x" + std::to_string( entry->_index ) + ")";
