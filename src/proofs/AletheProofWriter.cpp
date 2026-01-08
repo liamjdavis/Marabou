@@ -1140,7 +1140,12 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
 
     _proof.append( resLine );
 }
-#endif
+
+void AletheProofWriter::setInitialTableau( const SparseMatrix *tableau )
+{
+    _initialTableau = tableau;
+}
+
 
 Vector<int> AletheProofWriter::resolution( const Vector<int> &c1, const Vector<int> &c2 )
 {
@@ -1214,3 +1219,4 @@ void AletheProofWriter::initializeProofFile( const String &filename )
     AletheProofWriter::proofFilename = filename;
     AletheProofWriter::proofFile = File( filename );
 }
+#endif

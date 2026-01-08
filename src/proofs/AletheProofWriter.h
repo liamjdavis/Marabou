@@ -100,6 +100,8 @@ public:
 
     static Vector<int> resolution(const Vector<int> &c1, const Vector<int> &c2);
 
+    void setInitialTableau( const SparseMatrix *tableau );
+
 #if BUILD_CADICAL
     void writeDelegatedLeaf( int64_t id, const std::vector<int> &clause );
     void add_derived_clause( int64_t id,

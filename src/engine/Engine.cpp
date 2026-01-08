@@ -2476,6 +2476,9 @@ void Engine::performPrecisionRestoration( PrecisionRestorer::RestoreBasics resto
         if ( highDegradation() )
             throw MarabouError( MarabouError::RESTORATION_FAILED_TO_RESTORE_PRECISION );
     }
+
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF && _aletheWriter )
+        _aletheWriter->setInitialTableau( _tableau->getSparseA() );
 }
 
 void Engine::storeInitialEngineState()
@@ -4292,6 +4295,42 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                                                  double targetBound,
                                                  Set<int> &deps )
 {
+    // If explanation is empty, use the entry of the ground bound
+    if ( explanation.empty() )
+    {
+        // Ensure the explanations explains the infeasibility of a leaf
+        ASSERT( explainedVar >= 0 );
+        std::shared_ptr<GroundBoundManager::GroundBoundEntry> uEntry =
+                _groundBoundManager.getGroundBoundEntryUpToId(
+                        explainedVar,  Tightening::UB , id );
+        std::shared_ptr<GroundBoundManager::GroundBoundEntry> lEntry =
+                _groundBoundManager.getGroundBoundEntryUpToId(
+                        explainedVar, Tightening::LB, id );
+
+        for (const auto &entry : {uEntry, lEntry} )
+        {
+            if ( entry->lemma && !entry->lemma->getToCheck() )
+            {
+                entry->lemma->setToCheck();
+                _statistics.incUnsignedAttribute( Statistics::NUM_LEMMAS_USED );
+
+                analyseExplanationDependencies( entry->lemma->getExplanations().front(),
+                                                entry->id,
+                                                entry->lemma->getCausingVars().front(),
+                                                entry->lemma->getCausingVarBound() == Tightening::UB,
+                                                entry->lemma->getMinTargetBound(), entry->deps );
+            }
+
+            if ( !_solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )
+                _aletheWriter->writeLemma( entry );
+    #ifdef BUILD_CADICAL
+            else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+                _aletheWriter->addEntryToStack( entry );
+
+        }
+#endif
+        return uEntry->clause+lEntry->clause;
+    }
     Vector<double> linearCombination( 0 );
     UNSATCertificateUtils::getExplanationRowCombination(
         explanation, linearCombination, _tableau->getSparseA(), _tableau->getN() );
