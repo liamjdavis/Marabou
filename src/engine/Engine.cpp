@@ -1600,7 +1600,7 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
             List<unsigned> initialBasis;
             List<unsigned> basicRows;
             selectInitialVariablesForBasis( constraintMatrix, initialBasis, basicRows );
-            if ( preprocess )
+            if ( preprocess || !Options::get()->getBool( Options::DNC_MODE ) )
                 addAuxiliaryVariables();
             augmentInitialBasisIfNeeded( initialBasis, basicRows );
 
