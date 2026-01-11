@@ -902,9 +902,6 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     }
     else if ( result == 10 )
     {
-        if ( _engine->getExitCode() != ExitCode::NOT_DONE )
-            std::cout << _index << " " << _satSolver->getLevel()
-                      << " Exit code: " << _engine->getExitCode() << std::endl;
         ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
         _engine->setExitCode( ExitCode::SAT );
         return true;
