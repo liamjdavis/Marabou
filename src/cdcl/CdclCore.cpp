@@ -872,7 +872,8 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         _statistics->print();
     }
 
-    if ( ( result != 20 || _engine->getExitCode() == ExitCode::TIMEOUT ) &&
+    if ( ( result != 20 || ( _engine->getExitCode() != ExitCode::NOT_DONE &&
+                             _engine->getExitCode() != ExitCode::UNSAT ) ) &&
          GlobalConfiguration::WRITE_ALETHE_PROOF && !Options::get()->getBool( Options::DNC_MODE ) )
         _engine->deleteProofIfExists();
 
