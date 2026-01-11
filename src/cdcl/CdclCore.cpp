@@ -384,6 +384,7 @@ int CdclCore::cb_propagate()
 
             if ( allInitialClausesSatisfied )
             {
+                ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
                 _engine->setExitCode( ExitCode::SAT );
                 if ( _statistics )
                 {
@@ -428,6 +429,7 @@ int CdclCore::cb_propagate()
 
                 if ( allInitialClausesSatisfied )
                 {
+                    ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
                     _engine->setExitCode( ExitCode::SAT );
                     if ( _statistics )
                     {
@@ -833,6 +835,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
          Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )
         if ( _engine->solve( _timeoutInSeconds ) )
         {
+            ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
             _engine->setExitCode( ExitCode::SAT );
             return true;
         }
@@ -843,6 +846,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
     if ( !_externalClauseToAdd.empty() )
     {
+        ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
         _engine->setExitCode( ExitCode::UNSAT );
         return false;
     }
@@ -868,9 +872,12 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         _statistics->print();
     }
 
-    if ( result != 20 && GlobalConfiguration::WRITE_ALETHE_PROOF &&
-         !Options::get()->getBool( Options::DNC_MODE ) )
+    if ( ( result != 20 || _engine->getExitCode() == ExitCode::TIMEOUT ) &&
+         GlobalConfiguration::WRITE_ALETHE_PROOF && !Options::get()->getBool( Options::DNC_MODE ) )
         _engine->deleteProofIfExists();
+
+    if ( _engine->getExitCode() == ExitCode::TIMEOUT )
+        return false;
 
     if ( result == 0 )
     {
@@ -895,11 +902,16 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     }
     else if ( result == 10 )
     {
+        if ( _engine->getExitCode() != ExitCode::NOT_DONE )
+            std::cout << _index << " " << _satSolver->getLevel()
+                      << " Exit code: " << _engine->getExitCode() << std::endl;
+        ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
         _engine->setExitCode( ExitCode::SAT );
         return true;
     }
     else if ( result == 20 )
     {
+        ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
         _engine->setExitCode( ExitCode::UNSAT );
         return false;
     }
@@ -1013,6 +1025,7 @@ bool CdclCore::checkIfShouldExitDueToTimeout()
 {
     if ( _engine->shouldExitDueToTimeout( _timeoutInSeconds ) )
     {
+        CDCL_LOG( Stringf( "%u l%d Timeout reached", _index, _satSolver->getLevel() ).ascii() )
         if ( _satSolver->isSolving() )
             _satSolver->terminate();
         return true;
