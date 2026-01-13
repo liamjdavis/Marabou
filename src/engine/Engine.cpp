@@ -128,7 +128,7 @@ Engine::~Engine()
         _UNSATCertificate = NULL;
     }
 
-    if ( _produceUNSATProofs && _UNSATCertificateCurrentPointer )
+    if ( _produceUNSATProofs && !_solveWithCDCL && _UNSATCertificateCurrentPointer )
         _UNSATCertificateCurrentPointer->deleteSelf();
 
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF && _aletheWriter )
