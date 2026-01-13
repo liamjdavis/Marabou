@@ -2272,7 +2272,7 @@ void Engine::applySplit( const PiecewiseLinearCaseSplit &split )
         }
     }
 
-    if ( _produceUNSATProofs && _UNSATCertificateCurrentPointer )
+    if ( _produceUNSATProofs && !_solveWithCDCL && _UNSATCertificateCurrentPointer )
         ( **_UNSATCertificateCurrentPointer ).setVisited();
 
     DEBUG( _tableau->verifyInvariants() );
