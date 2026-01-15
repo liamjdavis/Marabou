@@ -429,7 +429,6 @@ int CdclCore::cb_propagate()
 
                 if ( allInitialClausesSatisfied )
                 {
-                    ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
                     _engine->setExitCode( ExitCode::SAT );
                     if ( _statistics )
                     {
@@ -835,8 +834,9 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
          Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )
         if ( _engine->solve( _timeoutInSeconds ) )
         {
-            ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
             _engine->setExitCode( ExitCode::SAT );
+            if ( GlobalConfiguration::WRITE_ALETHE_PROOF && !Options::get()->getBool( Options::DNC_MODE ) )
+                _engine->deleteProofIfExists();
             return true;
         }
 
