@@ -4301,11 +4301,11 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
         // Ensure the explanations explains the infeasibility of a leaf
         ASSERT( explainedVar >= 0 );
         std::shared_ptr<GroundBoundManager::GroundBoundEntry> entry =
-                _groundBoundManager.getGroundBoundEntryUpToId(
-                        explainedVar,  isUpper ? Tightening::UB : Tightening::LB , id );
+            _groundBoundManager.getGroundBoundEntryUpToId(
+                explainedVar, isUpper ? Tightening::UB : Tightening::LB, id );
         std::shared_ptr<GroundBoundManager::GroundBoundEntry> thisEntry =
-                _groundBoundManager.getGroundBoundEntryUpToId(
-                        explainedVar,  isUpper ? Tightening::UB : Tightening::LB , id+1 );
+            _groundBoundManager.getGroundBoundEntryUpToId(
+                explainedVar, isUpper ? Tightening::UB : Tightening::LB, id + 1 );
 
         if ( entry->lemma )
             thisEntry->deps.insert( entry->lemma->getId() );
@@ -4322,13 +4322,13 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
             std::_List_const_iterator<unsigned int> it = entry->lemma->getCausingVars().begin();
             for ( const auto &expl : entry->lemma->getExplanations() )
             {
-                entry->clause +=  analyseExplanationDependencies(
-                        expl,
-                        entry->id,
-                        *it,
-                        entry->lemma->getCausingVarBound() == Tightening::UB,
-                        entry->lemma->getMinTargetBound(),
-                        entry->deps );
+                entry->clause += analyseExplanationDependencies(
+                    expl,
+                    entry->id,
+                    *it,
+                    entry->lemma->getCausingVarBound() == Tightening::UB,
+                    entry->lemma->getMinTargetBound(),
+                    entry->deps );
 
                 std::advance( it, 1 );
 
@@ -4339,10 +4339,12 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
                     _aletheWriter->addEntryToStack( entry );
 #endif
             }
-           return entry->clause;
+            return entry->clause;
         }
         else if ( _solveWithCDCL && !entry->lemma && entry->isPhaseFixing )
-          return { _varToPLC[entry->var]->propagatePhaseAsLit() };
+            return { _varToPLC[entry->var]->propagatePhaseAsLit() };
+        else if ( entry->id <= 2 * _tableau->getN() )
+            return {};
     }
 
     Vector<double> linearCombination( 0 );
