@@ -596,15 +596,15 @@ bool AletheProofWriter::writeReluLemma(
     String proofRuleRes = "";
     String tempString = "";
 
-    if ( FloatUtils::isPositive( targetBound ) )
+    if ( targetBound > 0 )
         tempString += String( "(not " ) +
                       getBoundAsClause( Tightening( causingVar, 0, Tightening::UB ) ) + ")(not " +
                       causeBound + ")";
-    else if ( FloatUtils::isNegative( targetBound ) )
+    else if (  targetBound < 0 )
         tempString += String( "(not" ) + causeBound + ")(not " +
                       getBoundAsClause( Tightening( causingVar, 0, Tightening::LB ) ) + ")";
 
-    if ( !FloatUtils::isZero( targetBound ) )
+    if ( targetBound != 0 )
     {
         proofRule = String( "(step taut" ) + _queryId + "_" + id + " (cl (or " + tempString +
                     ")):rule la_tautology)\n";
@@ -617,7 +617,7 @@ bool AletheProofWriter::writeReluLemma(
                   conclusion + "):rule resolution :premises(cr" + _queryId + "_" + id;
     if ( ( causingVar == f || causingVar == b ) && causingVarBound == Tightening::LB &&
          affectedVar == aux && affectedVarBound == Tightening::UB &&
-         FloatUtils::isPositive( targetBound ) )
+         targetBound > 0 )
     {
         matched = true;
         String splitrule = causingVar == f ? "_i1" : "_i0";
@@ -625,14 +625,14 @@ bool AletheProofWriter::writeReluLemma(
                        identifier + " s" + identifier + "_a1))\n";
     }
     else if ( causingVar == b && causingVarBound == Tightening::LB && affectedVar == aux &&
-              affectedVarBound == Tightening::UB && FloatUtils::isZero( targetBound ) )
+              affectedVarBound == Tightening::UB &&  targetBound == 0 )
     {
         matched = true;
         proofRuleRes = pref + " eq" + identifier + "_a0))\n";
     }
     // If lb of aux is positive, then ub of f is 0
     else if ( causingVar == aux && causingVarBound == Tightening::LB && affectedVar == f &&
-              affectedVarBound == Tightening::UB && FloatUtils::isPositive( targetBound ) )
+              affectedVarBound == Tightening::UB &&  targetBound > 0 )
     {
         matched = true;
 
@@ -642,7 +642,7 @@ bool AletheProofWriter::writeReluLemma(
 
     // If ub of b is non positive, then ub of f is 0
     else if ( causingVar == b && causingVarBound == Tightening::UB && affectedVar == f &&
-              affectedVarBound == Tightening::UB && FloatUtils::isNegative( targetBound ) )
+              affectedVarBound == Tightening::UB && targetBound < 0)
     {
         matched = true;
 
@@ -651,20 +651,20 @@ bool AletheProofWriter::writeReluLemma(
     }
     // Propagate 0 ub from f to b
     else if ( causingVar == f && causingVarBound == Tightening::UB && affectedVar == b &&
-              affectedVarBound == Tightening::UB && FloatUtils::isZero( targetBound ) )
+              affectedVarBound == Tightening::UB && targetBound == 0 )
     {
         matched = true;
         proofRuleRes = pref + " eq" + identifier + "_i1))\n";
     }
     else if ( causingVar == b && causingVarBound == Tightening::UB && affectedVar == f &&
-              affectedVarBound == Tightening::UB && FloatUtils::isZero( targetBound ) )
+              affectedVarBound == Tightening::UB &&  targetBound == 0 )
     {
         matched = true;
         proofRuleRes = pref + +" eq" + identifier + "_i0))\n";
     }
     // If ub of aux is 0, then lb of b is 0
     else if ( causingVar == aux && causingVarBound == Tightening::UB && affectedVar == b &&
-              affectedVarBound == Tightening::LB && FloatUtils::isZero( targetBound ) )
+              affectedVarBound == Tightening::LB &&  targetBound == 0 )
 
     {
         matched = true;
@@ -672,7 +672,7 @@ bool AletheProofWriter::writeReluLemma(
     }
     // If lb of b is negative x, then ub of aux is -x
     else if ( causingVar == b && causingVarBound == Tightening::LB && affectedVar == aux &&
-              affectedVarBound == Tightening::UB && FloatUtils::isNegative( targetBound ) )
+              affectedVarBound == Tightening::UB &&  targetBound < 0 )
     {
         matched = true;
 
@@ -703,7 +703,7 @@ bool AletheProofWriter::writeReluLemma(
     }
     // If ub of b is positive, then propagate to f
     else if ( causingVar == b && causingVarBound == Tightening::UB && affectedVar == f &&
-              affectedVarBound == Tightening::UB && FloatUtils::isPositive( targetBound ) )
+              affectedVarBound == Tightening::UB &&  targetBound > 0 )
     {
         matched = true;
 
