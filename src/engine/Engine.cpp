@@ -1693,8 +1693,7 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                                     "The network contains constraints currently "
                                     "unsupported by CDCL" );
 
-            ASSERT( _networkLevelReasoner );
-            for ( auto *constraint : _networkLevelReasoner->getConstraintsInTopologicalOrder() )
+            for ( auto *constraint : _plConstraints )
             {
                 if ( !CdclCore::isSupported( constraint ) )
                     throw MarabouError( MarabouError::FEATURE_NOT_YET_SUPPORTED,
