@@ -115,8 +115,6 @@ const unsigned GlobalConfiguration::DNC_DEPTH_THRESHOLD = 2;
 
 const double GlobalConfiguration::MINIMAL_COEFFICIENT_FOR_TIGHTENING = 0.01;
 const double GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE = 0.00000001;
-const double GlobalConfiguration::CONTRADICTION_THRESHOLD = 0.000001;
-
 const bool GlobalConfiguration::WRITE_JSON_PROOF = false;
 const bool GlobalConfiguration::WRITE_ALETHE_PROOF = true;
 const unsigned GlobalConfiguration::ALETHE_PROOF_FLUSHING_FREQUENCY = 50;
