@@ -393,8 +393,7 @@ Query &Query::operator=( const Query &other )
         _nlConstraints.append( constraint->duplicateConstraint() );
 
     // Setting plConstraints and topological order
-    if ( !other._networkLevelReasoner || ( Options::get()->getBool( Options::SOLVE_WITH_CDCL ) &&
-                                           Options::get()->getBool( Options::DNC_MODE ) ) )
+    if ( !other._networkLevelReasoner )
     {
         for ( const auto &constraint : other._plConstraints )
             _plConstraints.append( constraint->duplicateConstraint() );

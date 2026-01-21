@@ -1693,7 +1693,8 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
                                     "The network contains constraints currently "
                                     "unsupported by CDCL" );
 
-            for ( auto *constraint : _plConstraints )
+            ASSERT( _networkLevelReasoner );
+            for ( auto *constraint : _networkLevelReasoner->getConstraintsInTopologicalOrder() )
             {
                 if ( !CdclCore::isSupported( constraint ) )
                     throw MarabouError( MarabouError::FEATURE_NOT_YET_SUPPORTED,
@@ -4380,7 +4381,8 @@ Set<int> Engine::analyseExplanationDependencies( const SparseUnsortedList &expla
     // Iterate through all lemmas learned, check which participated in the explanation
     for ( unsigned var = 0; var < linearCombination.size(); ++var )
     {
-        if ( !FloatUtils::isZero( linearCombination[var], GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE ) )
+        if ( !FloatUtils::isZero( linearCombination[var],
+                                  GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE ) )
         {
             Tightening::BoundType btype = ( ( linearCombination[var] > 0 ) && isUpper ) ||
                                                   ( ( linearCombination[var] < 0 ) && !isUpper )
