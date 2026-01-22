@@ -255,10 +255,6 @@ public:
      */
     static const double LEMMA_CERTIFICATION_TOLERANCE;
 
-    /* A (negative) threshold to determine if a contradction is not to be considered
-    */
-    static const double CONTRADICTION_THRESHOLD;
-
     /* Denote whether proofs should be written as a JSON file
      */
     static const bool WRITE_JSON_PROOF;
