@@ -134,28 +134,57 @@ void AletheProofWriter::writePLCAssumption()
     {
         List<PiecewiseLinearCaseSplit> splitsInFixedOrder = {};
         // TODO support additional types
-        if ( plc->getType() == RELU )
-            splitsInFixedOrder.append( { plc->getCaseSplit( RELU_PHASE_ACTIVE ),
-                                         plc->getCaseSplit( RELU_PHASE_INACTIVE ) } );
-
         int constraintInt = Options::get()->getBool( Options::SOLVE_WITH_CDCL )
                               ? plc->getVariableForDecision()
                               : plc->getTableauAuxVars().front();
 
         String constraintNum = std::to_string( constraintInt );
-        String plcAssumption =
+        String plcAssumption = "";
+
+        if ( plc->getType() == RELU )
+        {
+            splitsInFixedOrder.append( { plc->getCaseSplit( RELU_PHASE_ACTIVE ),
+                                         plc->getCaseSplit( RELU_PHASE_INACTIVE ) } );
+
+            ReluConstraint *relu = ( ReluConstraint * )plc;
+            String f = std::to_string( relu->getF() );
+            String b = std::to_string( relu->getB() );
+            String aux = std::to_string( relu->getAux() );
+            String counterpartAux = std::to_string( plc->getTableauAuxVars().front() );
+            String bEqualsF = String("(= x" ) + b + " x" + f + ")";
+
+            plcAssumption += String ( "(assume relu" ) + constraintNum + " (ite (>= x" + b + " 0.0)" + bEqualsF + "(<= x" + f + " 0.0)))\n";
+
+            String ite1 = String( "(step ri1_" ) + constraintNum + " (cl (>= x" + b + " 0.0)(<= x" + f + " 0.0)):rule ite1 :premises(relu" + constraintNum + "))\n";
+            String ite2 = String( "(step ri2_" ) + constraintNum + " (cl (not (>= x" + b + " 0.0))"+ bEqualsF + "):rule ite2 :premises(relu" + constraintNum + "))\n";
+            String tot = String( "(step _bt" ) + constraintNum + " (cl (or (not (>= x" + b + " 0.0))(>= x" + b + " 0.0))):rule la_tautology)\n";
+            tot += String( "(step bt" ) + constraintNum + " (cl (not (>= x" + b + " 0.0))(>= x" + b + " 0.0)):rule or :premises(_bt" + constraintNum + "))\n";
+
+
+            plcSplits.append({ite1, ite2, tot});
+            unsigned identifierInt = relu->getTableauAuxVars().front();
+            String tableauEq = "e" + std::to_string(identifierInt - ( _n - _m ));
+            String tableauLit = convertTableauAssumptionToClause( identifierInt - ( _n - _m ) );
+
+            String activeBound1 = String("(step ab1_" ) + constraintNum + " (cl (not " + bEqualsF +")" + tableauLit + "(<= x" + aux + " 0.0)(not (>= x" + counterpartAux + " 0.0))):rule la_generic :args(1 -1 1 1))\n";
+            activeBound1 += String( "(step eq" ) + constraintNum + "_a0" + " (cl (not (>= x" + b + " 0.0))(<= x" + aux + " 0.0)):rule resolution :premises(ab1_" + constraintNum + " ri2_" + constraintNum + " l" + counterpartAux + " " + tableauEq + "))\n";
+
+            String activeBound2 = String("(step ab2_" ) + constraintNum + " (cl (>= x" + b +" 0.0)" + tableauLit + "(not (<= x" + aux + " 0.0))(not (<= x" + counterpartAux + " 0.0))(not (>= x" + f +" 0.0))):rule la_generic :args(1 1 1 1 -1))\n";
+            activeBound2 += String( "(step eq" ) + constraintNum + "_a1" + " (cl (>= x" + b + " 0.0)(not (<= x" + aux + " 0.0))):rule resolution :premises(ab2_" + constraintNum + " ri1_" + constraintNum + " u" + counterpartAux + " l" + f + " " + tableauEq + "))\n";
+
+            String inactiveBound1 = String("(step ib1_" ) + constraintNum + " (cl (not " + bEqualsF +")(not(<= x" + b + " 0.0))(<= x" + f + " 0.0)):rule la_generic :args(1 1 1))\n";
+            inactiveBound1 += String( "(step eq" ) + constraintNum + "_i0" + " (cl (not (<= x" + b + " 0.0))(<= x" + f + " 0.0)):rule resolution :premises(ib1_" + constraintNum + " ri1_" + constraintNum +" ri2_" + constraintNum +"))\n";
+
+            String inactiveBound2 = String("(step ib2_" ) + constraintNum + " (cl (not " + bEqualsF +")(<= x" + b + " 0.0)(not (<= x" + f + " 0.0))):rule la_generic :args(-1 1 1))\n";
+            inactiveBound2 += String( "(step eq" ) + constraintNum + "_i1" + " (cl (not (<= x" + f + " 0.0))(<= x" + b + " 0.0)):rule resolution :premises(ib2_" + constraintNum + " ri2_" + constraintNum + " bt" + constraintNum+"))\n";
+
+            plcSplits.append({activeBound1, activeBound2, inactiveBound1, inactiveBound2});
+        }
+
+        plcAssumption +=
             String( "(assume p" ) + constraintNum + " (xor (!" +
             getSplitAsClause( splitsInFixedOrder.front() ) + ":named a" + constraintNum + ")(!" +
             getSplitAsClause( splitsInFixedOrder.back() ) + ":named i" + constraintNum + ")))\n";
-
-        plcAssumption +=
-            String( "(assume eq_a" ) + constraintNum +
-            " (= " + getBoundAsClause( splitsInFixedOrder.front().getBoundTightenings().front() ) +
-            getBoundAsClause( splitsInFixedOrder.front().getBoundTightenings().back() ) + "))\n";
-        plcAssumption +=
-            String( "(assume eq_i" ) + constraintNum +
-            " (= " + getBoundAsClause( splitsInFixedOrder.back().getBoundTightenings().front() ) +
-            getBoundAsClause( splitsInFixedOrder.back().getBoundTightenings().back() ) + "))\n";
 
 
         plcAssumptions.append( plcAssumption );
@@ -190,22 +219,6 @@ void AletheProofWriter::writePLCAssumption()
                               getBoundAsClause( split.getBoundTightenings().back() ) +
                               ")):rule and_neg)\n";
             plcSplits.append( splitImp );
-
-            if ( plc->getType() == RELU )
-            {
-                String line1 = String( "(step eq" ) + constraintNum + "_" + isActive +
-                             +"0 (cl (not " +
-                               getBoundAsClause( split.getBoundTightenings().front() ) + ")" +
-                               getBoundAsClause( split.getBoundTightenings().back() ) +
-                               "):rule equiv1 :premises(eq_" + isActive + constraintNum + "))\n";
-
-                String line2 = String( "(step eq" ) + constraintNum + "_" + isActive + +"1 (cl " +
-                               getBoundAsClause( split.getBoundTightenings().front() ) + "(not " +
-                               getBoundAsClause( split.getBoundTightenings().back() ) +
-                               " )):rule equiv2 :premises(eq_" + isActive + constraintNum + "))\n";
-                plcSplits.append( line1 );
-                plcSplits.append( line2 );
-            }
         }
     }
 
@@ -689,9 +702,9 @@ bool AletheProofWriter::writeReluLemma(
         String counterpartBound =
             getBoundAsClause( Tightening( identifierInt, 0, Tightening::LB ) );
         String subConclusion = getBoundAsClause( Tightening( f, 0, Tightening::UB ) );
-        String tableauClause = convertTableauAssumptionToClause( identifierInt - ( _n - _m ) );
+        String tableauLit = convertTableauAssumptionToClause(identifierInt - (_n - _m ) );
         String subFarkasClause = String( "(cl (not " ) + causeBound + ")" + conclusion + "(not " +
-                                 subConclusion + ")(not " + counterpartBound + ")" + tableauClause;
+                                 subConclusion + ")(not " + counterpartBound + ")" + tableauLit;
 
         proofRule += String( "(step ifl" ) + _queryId + "_" + id + " " + subFarkasClause +
                      "):rule la_generic :args(1 1 -1 1 -1))\n";
@@ -721,9 +734,9 @@ bool AletheProofWriter::writeReluLemma(
         String counterpartBound =
             getBoundAsClause( Tightening( identifierInt, 0, Tightening::UB ) );
         String subConclusion = getBoundAsClause( Tightening( aux, 0, Tightening::UB ) );
-        String tableauClause = convertTableauAssumptionToClause( identifierInt - ( _n - _m ) );
+        String tableauLit = convertTableauAssumptionToClause(identifierInt - (_n - _m ) );
         String subFarkasClause = String( "(cl (not " ) + causeBound + ")" + conclusion + "(not " +
-                                 subConclusion + ")(not " + counterpartBound + ")" + tableauClause;
+                                 subConclusion + ")(not " + counterpartBound + ")" + tableauLit;
 
         proofRule += String( "(step ifl" ) + _queryId + "_" + id + " " + subFarkasClause +
                      "):rule la_generic :args(1 1 -1 1 1))\n";

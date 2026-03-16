@@ -166,10 +166,8 @@ void SmtLibWriter::addReLUConstraint( unsigned b,
         instance.append( "(assert (xor (and (>= x" + std::to_string( b ) + " 0.0) (<= x" +
                          std::to_string( aux ) + " 0.0)) (and (<= x" + std::to_string( b ) +
                          " 0.0) (<= x" + std::to_string( f ) + " 0.0))))\n" );
-        instance.append( "(assert (= (>= x" + std::to_string( b ) + " 0.0) (<= x" +
-                         std::to_string( aux ) + " 0.0)))\n" );
-        instance.append( "(assert (= (<= x" + std::to_string( b ) + " 0.0) (<= x" +
-                         std::to_string( f ) + " 0.0)))\n" );
+        instance.append( "(assert (ite (>= x" + std::to_string( b ) + " 0.0) (= x" +
+                         std::to_string( b ) + " x" + std::to_string(f )+ ") (<= x" + std::to_string(f) + " 0.0)))\n" );
     }
     else if ( status == RELU_PHASE_ACTIVE )
         instance.append( "(assert (= x" + std::to_string( f ) + " x" + std::to_string( b ) +
