@@ -182,8 +182,6 @@ private:
 
     String getNegatedSplitsClause( const List<PiecewiseLinearCaseSplit> &splits ) const;
 
-    String getSplitsResSteps( const List<PiecewiseLinearCaseSplit> &splits ) const;
-
     List<PiecewiseLinearCaseSplit> getPathSplits( const UnsatCertificateNode *node ) const;
 
     String getSplitsAsClause( const List<PiecewiseLinearCaseSplit> &splits ) const;
