@@ -517,8 +517,6 @@ bool AletheProofWriter::writeReluLemma(
                 farkasParticipants += String( "eq" ) + identifier + "_a0 ";
             else
                 farkasParticipants += String( "eq" ) + identifier + "_i1 ri1_" + identifier + " ";
-
-
         }
     }
 #endif
@@ -846,6 +844,11 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             if ( split.getBoundTightenings().exists( tightening ) )
                 tighteningSplit = split;
         }
+
+        if ( isSplitActive( tighteningSplit ) )
+            farkasParticipants += String( "eq" ) + identifier + "_a0 ";
+        else
+            farkasParticipants += String( "eq" ) + identifier + "_i1 ri1_" + identifier + " ";
 
         String isNegActive = isSplitActive( tighteningSplit ) ? "(not a" : "a";
         String suffix = isSplitActive( tighteningSplit ) ? ")" : " ";

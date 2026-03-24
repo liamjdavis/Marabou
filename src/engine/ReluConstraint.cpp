@@ -1243,10 +1243,7 @@ bool ReluConstraint::isBoundFixingPhase( unsigned int var,
     }
     else if ( getPhaseStatus() == RELU_PHASE_INACTIVE )
     {
-        if ( var == _b && boundType == Tightening::UB && !FloatUtils::isPositive( bound ) )
-            return true;
-
-        if ( var == _f && boundType == Tightening::UB && !FloatUtils::isPositive( bound ) )
+        if ( (var == _b || var == _f ) && boundType == Tightening::UB && FloatUtils::isNegative( bound ) )
             return true;
 
         if ( _auxVarInUse && var == _aux && boundType == Tightening::LB &&
