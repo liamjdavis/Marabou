@@ -49,7 +49,7 @@ public:
       Adds a line representing a ReLU constraint, in SMTLIB format, to the SMTLIB instance
     */
     static void
-    addReLUConstraint( unsigned b, unsigned f, unsigned aux, const PhaseStatus status, List<String> &instance );
+    addReLUConstraint( unsigned b, unsigned f, const PhaseStatus status, List<String> &instance );
 
     /*
       Adds a line representing a sign constraint, in SMTLIB format, to the SMTLIB instance

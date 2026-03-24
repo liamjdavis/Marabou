@@ -40,7 +40,7 @@ public:
         SmtLibWriter::addGroundUpperBounds( groundUpperBounds, instance );
         SmtLibWriter::addGroundLowerBounds( groundLowerBounds, instance );
         SmtLibWriter::addTableauRow( sparseRow, instance );
-        SmtLibWriter::addReLUConstraint( 0, 1, 2, PHASE_NOT_FIXED, instance );
+        SmtLibWriter::addReLUConstraint( 0, 1, PHASE_NOT_FIXED, instance );
         SmtLibWriter::addSignConstraint( 0, 1, PHASE_NOT_FIXED, instance );
         SmtLibWriter::addAbsConstraint( 0, 1, PHASE_NOT_FIXED, instance );
         SmtLibWriter::addLeakyReLUConstraint( 0, 1, 0.1, PHASE_NOT_FIXED, instance );
@@ -143,30 +143,22 @@ public:
 
         // Relu
         line = file->readLine( '\n' );
-        expectedLine = "(assert (xor (and (>= x0 0.0) (<= x2 0.0)) (and (<= x0 0.0) (<= x1 0.0))))";
-        TS_ASSERT_EQUALS( line, expectedLine );
-
-        line = file->readLine( '\n' );
-        expectedLine = "(assert (= (>= x0 0.0) (<= x2 0.0)))";
-        TS_ASSERT_EQUALS( line, expectedLine );
-
-        line = file->readLine( '\n' );
-        expectedLine = "(assert (= (<= x0 0.0) (<= x1 0.0)))";
+        expectedLine = "(assert (ite (>= x0 0.0) (= x0 x1) (<= x1 0.0)))";
         TS_ASSERT_EQUALS( line, expectedLine );
 
         // Sign
         line = file->readLine( '\n' );
-        expectedLine = "(assert (= x1 (ite (>= x0 0.0) 1.0 (- 1.0))))";
+        expectedLine = "(assert (ite (>= x0 0.0) (= x1 1.0) (= x1 (- 1.0))))";
         TS_ASSERT_EQUALS( line, expectedLine );
 
         // Absolute Value
         line = file->readLine( '\n' );
-        expectedLine = "(assert (= x1 (ite (>= x0 0.0) x0 (- x0))))";
+        expectedLine = "(assert (ite (>= x0 0.0) (= x1 x0) (= x1 (- x0))))";
         TS_ASSERT_EQUALS( line, expectedLine );
 
         // LeakyRelu
         line = file->readLine( '\n' );
-        expectedLine = "(assert (= x1 (ite (>= x0 0) x0 (* 0.1 x0))))";
+        expectedLine = "(assert (ite (>= x0 0) (= x1 x0) (= x1 (* 0.1 x0))))";
         TS_ASSERT_EQUALS( line, expectedLine );
 
         // Max

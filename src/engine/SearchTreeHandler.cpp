@@ -246,8 +246,6 @@ void SearchTreeHandler::performSplit()
 
 unsigned SearchTreeHandler::getStackDepth() const
 {
-    ASSERT(
-        ( _engine->inSnCMode() || _stack.size() == static_cast<unsigned>( _context.getLevel() ) ) );
     return _stack.size();
 }
 

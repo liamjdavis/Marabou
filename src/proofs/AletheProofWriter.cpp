@@ -551,12 +551,9 @@ bool AletheProofWriter::writeReluLemma(
 
     if ( targetBound > 0 && ( causingVar == f || causingVar == aux ) )
         tempString += String( "(not " ) + getBoundAsClause( Tightening( causingVar, 0, Tightening::UB )) + ")(not " + causeBound + ")";
-    else if ( targetBound > 0 )
+    else
         tempString += String( "(not" ) + causeBound + ")" +
-                      getBoundAsClause( Tightening( causingVar, 0, Tightening::LB ) );
-    else if (  targetBound < 0 )
-        tempString += getBoundAsClause( Tightening( causingVar, 0, Tightening::UB ) ) + "(not " +
-                      causeBound + ")";
+                      getBoundAsClause( Tightening( causingVar, 0, targetBound > 0 ?  Tightening::LB : Tightening::UB ) );
 
     if ( targetBound != 0 )
     {
@@ -645,10 +642,10 @@ bool AletheProofWriter::writeReluLemma(
             getBoundAsClause( Tightening( identifierInt, 0, Tightening::LB ) );
         String subConclusion = getBoundAsClause( Tightening( f, 0, Tightening::UB ) );
         String tableauLit = convertTableauAssumptionToClause(identifierInt - (_n - _m ) );
-        String subFarkasClause = String( "(cl (not " ) + causeBound + ")" + conclusion + "(not " +
+        String subFarkasClause = String( " (cl (not " ) + causeBound + ")" + conclusion + "(not " +
                                  subConclusion + ")(not " + counterpartBound + ")" + tableauLit;
 
-        proofRule += String( "(step ifl" ) + _queryId + "_" + id + " " + subFarkasClause +
+        proofRule += String( "(step ifl" ) + _queryId + "_" + id + subFarkasClause +
                      "):rule la_generic :args(1 1 -1 1 -1))\n";
 
         proofRuleRes += pref + +" e" + std::to_string( identifierInt - ( _n - _m ) ) + " l" +
@@ -676,10 +673,10 @@ bool AletheProofWriter::writeReluLemma(
             getBoundAsClause( Tightening( identifierInt, 0, Tightening::UB ) );
         String subConclusion = getBoundAsClause( Tightening( aux, 0, Tightening::UB ) );
         String tableauLit = convertTableauAssumptionToClause(identifierInt - (_n - _m ) );
-        String subFarkasClause = String( "(cl (not " ) + causeBound + ")" + conclusion + "(not " +
+        String subFarkasClause = String( " (cl (not " ) + causeBound + ")" + conclusion + "(not " +
                                  subConclusion + ")(not " + counterpartBound + ")" + tableauLit;
 
-        proofRule += String( "(step ifl" ) + _queryId + "_" + id + " " + subFarkasClause +
+        proofRule += String( "(step ifl" ) + _queryId + "_" + id +  subFarkasClause +
                      "):rule la_generic :args(1 1 -1 1 1))\n";
 
         proofRuleRes += pref + " e" + std::to_string( identifierInt - ( _n - _m ) ) + " u" +
@@ -1015,13 +1012,51 @@ void AletheProofWriter::writeLemmaResolution(
     std::vector<int> entryClause = std::vector<int>( entry->clause.begin(), entry->clause.end() );
     // Add as minus, as the literal will be negated
     entryClause.insert( entryClause.end(), propagatedLit );
+    String preRule = "";
+    String proofRule = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl " +
+                       clauseToPhases( entryClause ) + "):rule resolution :premises(";
 
-    String isActive = -propagatedLit > 0 ? "a" : "i";
-    String proofRule = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + "(cl " +
-                       clauseToPhases( entryClause ) + "):rule resolution :premises(rl" + _queryId + "_" +
-                       std::to_string( lemId ) + " eq" + constraintId + "_" + isActive + "1))\n";
+    // Active phase since propagation of -l implies the clause includes l
+    if ( propagatedLit < 0 )
+        proofRule += String("rl") + _queryId + "_" + std::to_string( lemId ) + " eq" +
+                constraintId + "_a1))\n";
+    else
+    {
+        unsigned causing = entry->lemma->getCausingVars().front();
+        unsigned affected = entry->var;
+        if ( causing < affected )
+        {
+            String lemmaBound = getBoundAsClause( Tightening( causing,entry->lemma->getMinTargetBound(),
+                                                           Tightening::UB ) );
+            preRule = String( "(step _rt" ) + std::to_string( id ) + " (cl (or (not " + lemmaBound +
+                    ")(not (>= x" + std::to_string( causing ) + " 0.0)))):rule la_tautology)\n";
+            preRule += String( "(step rt" ) + std::to_string( id ) + " (cl (not " + lemmaBound +
+                    ")(not (>= x" + std::to_string( causing ) + " 0.0))):rule or :premises(_rt" +
+                    std::to_string( id ) + "))\n";
+            proofRule += String("cr") + _queryId + "_" + std::to_string( lemId ) + " rt" +
+                         std::to_string( id ) + "))\n";
+        }
+        else
+        {
+            const PiecewiseLinearConstraint *relu = _cdclCore->getConstraintFromLit( propagatedLit );
+            unsigned identifierInt = relu->getTableauAuxVars().front();
+            String tableauEq = "e" + std::to_string(identifierInt - ( _n - _m ));
+            String tableauLit = convertTableauAssumptionToClause( identifierInt - ( _n - _m ) );
+            String counterpartAux = std::to_string( relu->getTableauAuxVars().front() );
+            String lemmaBound = getBoundAsClause( Tightening( causing,entry->lemma->getMinTargetBound(),
+                                                              Tightening::LB ) );
 
-    _proof.append( proofRule );
+            preRule = String("(step rt" ) + std::to_string( id ) + " (cl " + tableauLit + "(not " + lemmaBound
+                    + ")(not a" + constraintId + ")(not (<= x" + std::to_string(affected ) + " 0.0 ))(not (>= x" +
+                    counterpartAux + " 0.0))):rule la_generic :args(-1 1 1 1 1))\n";
+
+            proofRule += String( " rt" ) + std::to_string( id ) + " " + tableauEq + " cr" + _queryId + "_" +
+                    std::to_string( lemId ) + " rl" + _queryId + "_" + std::to_string( lemId ) + " l" +
+                    counterpartAux + "))\n";
+        }
+    }
+
+    _proof.append( { preRule, proofRule } );
 }
 
 String AletheProofWriter::clauseToPhases( const std::vector<int> &clause )

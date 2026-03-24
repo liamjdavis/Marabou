@@ -143,7 +143,7 @@ void ReluConstraint::checkIfLowerBoundUpdateFixesPhase( unsigned variable, doubl
 
 void ReluConstraint::checkIfUpperBoundUpdateFixesPhase( unsigned variable, double bound )
 {
-    if ( ( variable == _f || variable == _b ) && !FloatUtils::isPositive( bound ) )
+    if ( ( variable == _f || variable == _b ) && FloatUtils::isNegative( bound ) )
         setPhaseStatus( RELU_PHASE_INACTIVE );
 
     if ( _auxVarInUse && variable == _aux && FloatUtils::isZero( bound ) )
@@ -320,7 +320,7 @@ void ReluConstraint::notifyUpperBound( unsigned variable, double newBound )
                                                                                { variable },
                                                                                Tightening::UB,
                                                                                *this,
-                                                                               true,
+                                                                               false,
                                                                                0 );
                         // Bound cannot be negative if ReLU is inactive
                         if ( FloatUtils::isNegative( bound ) )
@@ -332,12 +332,12 @@ void ReluConstraint::notifyUpperBound( unsigned variable, double newBound )
             }
             else if ( variable == _b )
             {
-                if ( !FloatUtils::isPositive( bound ) )
+                if ( FloatUtils::isNegative( bound ) )
                 {
                     // If b has a non-positive upper bound, f's upper bound is 0
                     if ( proofs )
                         _boundManager->addLemmaExplanationAndTightenBound(
-                            _f, 0, Tightening::UB, { variable }, Tightening::UB, *this, true, 0 );
+                            _f, 0, Tightening::UB, { variable }, Tightening::UB, *this, true, FloatUtils::max( bound, -GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE ) );
                     else
                         _boundManager->tightenUpperBound( _f, 0 );
 
