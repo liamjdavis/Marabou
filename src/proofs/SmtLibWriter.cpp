@@ -161,7 +161,8 @@ void SmtLibWriter::addReLUConstraint( unsigned b,
 {
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF || status == PHASE_NOT_FIXED )
         instance.append( "(assert (ite (>= x" + std::to_string( b ) + " 0.0) (= x" +
-                         std::to_string( b ) + " x" + std::to_string(f )+ ") (<= x" + std::to_string(f) + " 0.0)))\n" );
+                         std::to_string( b ) + " x" + std::to_string( f ) + ") (<= x" +
+                         std::to_string( f ) + " 0.0)))\n" );
     else if ( status == RELU_PHASE_ACTIVE )
         instance.append( "(assert (= x" + std::to_string( f ) + " x" + std::to_string( b ) +
                          "))\n" );
@@ -175,8 +176,9 @@ void SmtLibWriter::addSignConstraint( unsigned b,
                                       List<String> &instance )
 {
     if ( status == PHASE_NOT_FIXED )
-        instance.append( "(assert (ite (>= x" +
-                         std::to_string( b ) + " 0.0) (= x" + std::to_string( f ) +" 1.0) (= x" + std::to_string( f ) + " (- 1.0))))\n" );
+        instance.append( "(assert (ite (>= x" + std::to_string( b ) + " 0.0) (= x" +
+                         std::to_string( f ) + " 1.0) (= x" + std::to_string( f ) +
+                         " (- 1.0))))\n" );
     else if ( status == SIGN_PHASE_POSITIVE )
         instance.append( "(assert (= x" + std::to_string( f ) + " 1.0))\n" );
     else if ( status == SIGN_PHASE_NEGATIVE )
@@ -189,9 +191,9 @@ void SmtLibWriter::addAbsConstraint( unsigned b,
                                      List<String> &instance )
 {
     if ( status == PHASE_NOT_FIXED )
-        instance.append( "(assert (ite (>= x" +
-                         std::to_string( b ) + " 0.0) (= x" + std::to_string( f ) + " x" + std::to_string( b ) + ") (= x" + std::to_string( f ) + " (- x" +
-                         std::to_string( b ) + "))))\n" );
+        instance.append( "(assert (ite (>= x" + std::to_string( b ) + " 0.0) (= x" +
+                         std::to_string( f ) + " x" + std::to_string( b ) + ") (= x" +
+                         std::to_string( f ) + " (- x" + std::to_string( b ) + "))))\n" );
     else if ( status == ABS_PHASE_POSITIVE )
         instance.append( "(assert (= x" + std::to_string( f ) + " x" + std::to_string( b ) +
                          "))\n" );
@@ -246,8 +248,7 @@ void SmtLibWriter::addMaxConstraint( unsigned f,
             for ( unsigned i = 0; i < size - 2; ++i )
                 assertRowLine += String( ")" );
 
-            assertRowLine +=
-                " (= x" + std::to_string( f ) + " x" + std::to_string( element ) + ")";
+            assertRowLine += " (= x" + std::to_string( f ) + " x" + std::to_string( element ) + ")";
 
             instance.append( assertRowLine + "))\n" );
         }
@@ -316,9 +317,10 @@ void SmtLibWriter::addLeakyReLUConstraint( unsigned b,
                                            List<String> &instance )
 {
     if ( status == PHASE_NOT_FIXED )
-        instance.append( String( "(assert (ite (>= x" ) +
-                                 std::to_string( b ) + " 0) (= x" + std::to_string( f ) + " x" + std::to_string( b ) + ") (= x" + std::to_string( f ) + " (* " +
-                         signedValue( slope ) + " x" + std::to_string( b ) + "))))\n" );
+        instance.append( String( "(assert (ite (>= x" ) + std::to_string( b ) + " 0) (= x" +
+                         std::to_string( f ) + " x" + std::to_string( b ) + ") (= x" +
+                         std::to_string( f ) + " (* " + signedValue( slope ) + " x" +
+                         std::to_string( b ) + "))))\n" );
     else if ( status == RELU_PHASE_ACTIVE )
         instance.append( "(assert (= x" + std::to_string( f ) + " x" + std::to_string( b ) +
                          "))\n" );
@@ -359,9 +361,9 @@ void SmtLibWriter::addTableauRow( const SparseUnsortedList &row, List<String> &i
             assertRowLine += String( "x" ) + std::to_string( entry->_index );
         else if ( entry->_value == -1 )
             assertRowLine += String( "(- x" ) + std::to_string( entry->_index ) + ")";
-        else if ( entry->_value == (int) entry->_value )
-            assertRowLine +=
-                    String( "(* " ) + signedValue( entry->_value ) + " x" + std::to_string( entry->_index ) + ")";
+        else if ( entry->_value == (int)entry->_value )
+            assertRowLine += String( "(* " ) + signedValue( entry->_value ) + " x" +
+                             std::to_string( entry->_index ) + ")";
         else
             assertRowLine +=
                 String( "(* " ) + tempVal.get_str() + " x" + std::to_string( entry->_index ) + ")";

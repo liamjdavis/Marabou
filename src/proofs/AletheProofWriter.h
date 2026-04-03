@@ -43,12 +43,12 @@ public:
                          std::vector<int> clause,
                          std::vector<int64_t> antecedents,
                          std::shared_ptr<GroundBoundManager::GroundBoundEntry> gbEntry,
-                         const SparseUnsortedList& contradiction,
+                         const SparseUnsortedList &contradiction,
                          int propagatedLit )
             : id( id )
-            , clause(std::move( clause ))
-            , antecedents(std::move( antecedents ))
-            , gbEntry(std::move( gbEntry ))
+            , clause( std::move( clause ) )
+            , antecedents( std::move( antecedents ) )
+            , gbEntry( std::move( gbEntry ) )
             , contradiction( contradiction )
             , propagatedLit( propagatedLit )
         {
@@ -90,7 +90,7 @@ public:
 
     void finalizeProof();
 
-    static void initializeProofFile(const String &filename );
+    static void initializeProofFile( const String &filename );
 
     static void deleteProof();
 
@@ -98,7 +98,7 @@ public:
 
     static void writeFinalStepsToProof();
 
-    static Vector<int> resolution(const Vector<int> &c1, const Vector<int> &c2);
+    static Vector<int> resolution( const Vector<int> &c1, const Vector<int> &c2 );
 
     void setInitialTableau( const SparseMatrix *tableau );
 

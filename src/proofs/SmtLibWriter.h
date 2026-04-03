@@ -125,13 +125,14 @@ public:
     /*
       Wrapper functions calling all previous functions
     */
-    static List<String> convertToSmtLib( unsigned numOfTableauRows,
-                                         unsigned numOfVariables,
-                                         const Vector<double> &upperBounds,
-                                         const Vector<double> &lowerBounds,
-                                         const SparseMatrix *tableau,
-                                         const List<Equation> &additionalEquations,
-                                         const List<PiecewiseLinearConstraint *> &problemConstraints );
+    static List<String>
+    convertToSmtLib( unsigned numOfTableauRows,
+                     unsigned numOfVariables,
+                     const Vector<double> &upperBounds,
+                     const Vector<double> &lowerBounds,
+                     const SparseMatrix *tableau,
+                     const List<Equation> &additionalEquations,
+                     const List<PiecewiseLinearConstraint *> &problemConstraints );
 
 
     static void writeToSmtLibFile( const String &fileName,
