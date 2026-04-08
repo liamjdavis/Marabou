@@ -370,7 +370,7 @@ endif()
 
 # Actually build Python
 if (${BUILD_PYTHON})
-   set(PYBIND11_VERSION 2.10.4)
+   set(PYBIND11_VERSION 2.13.6)
    set(PYBIND11_DIR "${TOOLS_DIR}/pybind11-${PYBIND11_VERSION}")
 
     # This is suppose to set the PYTHON_EXECUTABLE variable

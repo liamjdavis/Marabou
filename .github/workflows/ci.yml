@@ -1,10 +1,11 @@
 name: CI
 
 on:
-  # Run CI when changes are pushed to master
+  # Run CI when changes are pushed to master or dev
   push:
     branches:
       - master
+      - dev
 
   # Run CI when a PR is openend or changes are pushed to the PR
   pull_request:
