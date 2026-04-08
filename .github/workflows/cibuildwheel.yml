@@ -1,10 +1,11 @@
 name: Build wheels
 
 on:
-  # Run CI when changes are pushed to master
+  # Run CI when changes are pushed to master or dev
   push:
     branches:
       - master
+      - dev
     tags:
       - "v*"
 
