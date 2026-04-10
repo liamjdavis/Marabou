@@ -80,56 +80,17 @@ include_directories(SYSTEM ${CVC4_DIR} ${CVC4_DIR}/include)
 ## Boost ##
 ###########
 
-# Avoid using deprecated operations
 add_definitions(-DBOOST_NO_CXX98_FUNCTION_BASE)
-set(BOOST_VERSION 1.84.0)
-set(BOOST_DIR "${TOOLS_DIR}/boost-${BOOST_VERSION}")
-if (MSVC)
-  set(BOOST_ROOT "${BOOST_DIR}/win_installed")
-  set(Boost_NAMESPACE libboost)
-elseif (${CMAKE_SIZEOF_VOID_P} EQUAL 4 AND NOT MSVC)
-  set(BOOST_ROOT "${BOOST_DIR}/installed32")
-else()
-  set(BOOST_ROOT "${BOOST_DIR}/installed")
-endif()
-
-set(Boost_USE_DEBUG_RUNTIME FALSE)
-find_package(Boost ${BOOST_VERSION} COMPONENTS program_options timer chrono thread)
-# Find boost
-if (NOT ${Boost_FOUND})
-  execute_process(COMMAND ${TOOLS_DIR}/download_boost.${SCRIPT_EXTENSION} ${BOOST_VERSION})
-  find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS program_options timer chrono thread regex)
-endif()
+find_package(Boost 1.84.0 REQUIRED COMPONENTS program_options timer chrono thread)
 set(LIBS_INCLUDES ${Boost_INCLUDE_DIRS})
 list(APPEND LIBS ${Boost_LIBRARIES})
 
 ##############
 ## Protobuf ##
 ##############
-# Protobuf is needed to compile ONNX
 
-set(PROTOBUF_VERSION 3.19.2)
-set(PROTOBUF_DEFAULT_DIR "${TOOLS_DIR}/protobuf-${PROTOBUF_VERSION}")
-if (NOT PROTOBUF_DIR)
-    set(PROTOBUF_DIR ${PROTOBUF_DEFAULT_DIR})
-endif()
-
-if(NOT EXISTS "${PROTOBUF_DIR}/installed/lib/libprotobuf.a")
-    message("Can't find protobuf, installing. If protobuf is installed please use the PROTOBUF_DIR parameter to pass the path")
-    if (${PROTOBUF_DIR} STREQUAL ${PROTOBUF_DEFAULT_DIR})
-        message("installing protobuf")
-        execute_process(COMMAND ${TOOLS_DIR}/download_protobuf.sh ${PROTOBUF_VERSION})
-    else()
-        message(FATAL_ERROR "Can't find protobuf in the supplied directory")
-    endif()
-endif()
-
-set(PROTOBUF_LIB protobuf)
-add_library(${PROTOBUF_LIB} SHARED IMPORTED)
-set_property(TARGET ${PROTOBUF_LIB} PROPERTY POSITION_INDEPENDENT_CODE ON)
-set_target_properties(${PROTOBUF_LIB} PROPERTIES IMPORTED_LOCATION ${PROTOBUF_DIR}/installed/lib/libprotobuf.a)
-target_include_directories(${PROTOBUF_LIB} INTERFACE ${PROTOBUF_DIR}/installed/include)
-list(APPEND LIBS ${PROTOBUF_LIB})
+find_package(Protobuf 3.19.2 REQUIRED)
+list(APPEND LIBS protobuf::libprotobuf)
 
 ##########
 ## ONNX ##
@@ -141,7 +102,7 @@ set(ONNX_DIR "${TOOLS_DIR}/onnx-${ONNX_VERSION}")
 
 if(NOT EXISTS "${ONNX_DIR}/onnx.proto3.pb.h")
     message("generating ONNX protobuf file")
-    execute_process(COMMAND ${TOOLS_DIR}/download_onnx.sh ${ONNX_VERSION} ${PROTOBUF_VERSION})
+    execute_process(COMMAND ${TOOLS_DIR}/download_onnx.sh ${ONNX_VERSION} ${Protobuf_PROTOC_EXECUTABLE})
 endif()
 file(GLOB DEPS_ONNX "${ONNX_DIR}/*.cc")
 include_directories(SYSTEM ${ONNX_DIR})
@@ -183,30 +144,11 @@ endif()
 ##############
 
 if (NOT MSVC AND ${ENABLE_OPENBLAS})
-  set(OPENBLAS_VERSION 0.3.19)
-
-  set(OPENBLAS_LIB openblas)
-  set(OPENBLAS_DEFAULT_DIR "${TOOLS_DIR}/OpenBLAS-${OPENBLAS_VERSION}")
-  if (NOT OPENBLAS_DIR)
-      set(OPENBLAS_DIR ${OPENBLAS_DEFAULT_DIR})
-  endif()
-
   message(STATUS "Using OpenBLAS for matrix multiplication")
   add_compile_definitions(ENABLE_OPENBLAS)
-  if(NOT EXISTS "${OPENBLAS_DIR}/installed/lib/libopenblas.a")
-    message("Can't find OpenBLAS, installing. If OpenBLAS is installed please use the OPENBLAS_DIR parameter to pass the path")
-      if (${OPENBLAS_DIR} STREQUAL ${OPENBLAS_DEFAULT_DIR})
-        message("Installing OpenBLAS")
-        execute_process(COMMAND ${TOOLS_DIR}/download_openBLAS.sh ${OPENBLAS_VERSION})
-      else()
-        message(FATAL_ERROR "Can't find OpenBLAS in the supplied directory")
-      endif()
-  endif()
-
-  add_library(${OPENBLAS_LIB} SHARED IMPORTED)
-  set_target_properties(${OPENBLAS_LIB} PROPERTIES IMPORTED_LOCATION ${OPENBLAS_DIR}/installed/lib/libopenblas.a)
-  list(APPEND LIBS ${OPENBLAS_LIB})
-  target_include_directories(${OPENBLAS_LIB} INTERFACE ${OPENBLAS_DIR}/installed/include)
+  find_package(OpenBLAS REQUIRED)
+  list(APPEND LIBS ${OpenBLAS_LIBRARIES})
+  list(APPEND LIBS_INCLUDES ${OpenBLAS_INCLUDE_DIRS})
 endif()
 
 ###########
@@ -370,9 +312,6 @@ endif()
 
 # Actually build Python
 if (${BUILD_PYTHON})
-   set(PYBIND11_VERSION 2.13.6)
-   set(PYBIND11_DIR "${TOOLS_DIR}/pybind11-${PYBIND11_VERSION}")
-
     # This is suppose to set the PYTHON_EXECUTABLE variable
     # First try to find the default python version
     find_package(PythonInterp ${DEFAULT_PYTHON_VERSION})
@@ -381,11 +320,7 @@ if (${BUILD_PYTHON})
         find_package(PythonInterp REQUIRED)
     endif()
 
-    if (NOT EXISTS ${PYBIND11_DIR})
-        message("didnt find pybind, getting it")
-	execute_process(COMMAND ${TOOLS_DIR}/download_pybind11.${SCRIPT_EXTENSION} ${PYBIND11_VERSION})
-    endif()
-    add_subdirectory(${PYBIND11_DIR})
+    find_package(pybind11 REQUIRED)
 
     set(MARABOU_PY MarabouCore)
     pybind11_add_module(${MARABOU_PY} ${PYTHON_API_DIR}/MarabouCore.cpp)
@@ -410,7 +345,6 @@ add_library(${MARABOU_TEST_LIB})
 set (TEST_DIR "${CMAKE_CURRENT_BINARY_DIR}/tests")
 file(MAKE_DIRECTORY ${TEST_DIR})
 
-set(CMAKE_PREFIX_PATH "${TOOLS_DIR}/cxxtest")
 set(CXXTEST_USE_PYTHON FALSE)
 find_package(CxxTest)
 if(CXXTEST_FOUND)

@@ -1,0 +1,14 @@
+name: marabou
+channels:
+  - conda-forge
+dependencies:
+  - boost-cpp=1.84.0
+  - libprotobuf=3.19.2
+  - protobuf=3.19.2
+  - libopenblas>=0.3.19
+  - pybind11>=2.13.6
+  - cxxtest=4.4
+  - cmake>=3.16
+  - ninja
+  - python>=3.9
+  - numpy>=1.21.0,<2
