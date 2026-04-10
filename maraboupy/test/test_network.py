@@ -74,7 +74,7 @@ def test_disjunction_constraint():
         network.setLowerBound(var, 0)
         network.setUpperBound(var, 1)
 
-    exitCode1, vals1, stats1 = network.solve()
+    exitCode1, vals1, stats1 = network.solve(options=OPT)
 
     for var in network.inputVars[0][0]:
         assert(abs(vals1[var] - 1) < 0.0000001 or abs(vals1[var]) < 0.0000001)
