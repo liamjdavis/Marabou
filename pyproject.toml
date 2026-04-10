@@ -61,6 +61,7 @@ test-extras = ["test"]
 test-skip = []
 
 [tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
 before-all = [
     "curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C /usr/local bin/micromamba",
     "micromamba create -f {package}/environment.yml -p /tmp/mamba-env -y",
