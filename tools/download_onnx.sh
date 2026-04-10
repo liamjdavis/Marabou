@@ -21,7 +21,7 @@ cd $mydir
 mkdir -p $onnxdir
 cd $onnxdir
 echo "Downloading ONNX proto file"
-wget -q https://raw.githubusercontent.com/onnx/onnx/v$version/onnx/onnx.proto3 -O onnx.proto3
+curl -sSL https://raw.githubusercontent.com/onnx/onnx/v$version/onnx/onnx.proto3 -o onnx.proto3
 
 echo "Compiling the ONNX proto file"
 $protoc_path --cpp_out=. onnx.proto3
