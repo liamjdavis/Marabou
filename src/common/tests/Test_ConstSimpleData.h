@@ -62,7 +62,7 @@ public:
 
     void test_as_char()
     {
-        char data[] = { 'a', 'b', 'c' };
+        char data[] = { 'a', 'b', 'c', '\0' };
 
         ConstSimpleData constSimpleData( data, sizeof( data ) );
 

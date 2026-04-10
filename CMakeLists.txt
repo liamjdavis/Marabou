@@ -46,6 +46,18 @@ execute_process(
 )
 add_definitions("-DGIT_COMMIT_HASH=\"${GIT_COMMIT_HASH}\"")
 
+############################
+## Conda env detection    ##
+############################
+
+if(DEFINED ENV{CONDA_PREFIX} AND NOT DEFINED ENV{CONDA_BUILD})
+  list(INSERT CMAKE_PREFIX_PATH 0 "$ENV{CONDA_PREFIX}")
+  message(STATUS "Conda environment detected: $ENV{CONDA_PREFIX}")
+elseif(DEFINED ENV{CONDA_BUILD})
+  list(INSERT CMAKE_PREFIX_PATH 0 "$ENV{PREFIX}" "$ENV{BUILD_PREFIX}")
+  message(STATUS "Conda build environment detected")
+endif()
+
 #########################
 ## Basic configuration ##
 #########################
@@ -146,9 +158,13 @@ endif()
 if (NOT MSVC AND ${ENABLE_OPENBLAS})
   message(STATUS "Using OpenBLAS for matrix multiplication")
   add_compile_definitions(ENABLE_OPENBLAS)
-  find_package(OpenBLAS REQUIRED)
-  list(APPEND LIBS ${OpenBLAS_LIBRARIES})
-  list(APPEND LIBS_INCLUDES ${OpenBLAS_INCLUDE_DIRS})
+  find_library(OPENBLAS_LIB openblas REQUIRED)
+  find_path(OPENBLAS_INCLUDE_DIR cblas.h PATH_SUFFIXES openblas)
+  if (NOT OPENBLAS_INCLUDE_DIR)
+    message(FATAL_ERROR "Could not find cblas.h header for OpenBLAS")
+  endif()
+  list(APPEND LIBS ${OPENBLAS_LIB})
+  list(APPEND LIBS_INCLUDES ${OPENBLAS_INCLUDE_DIR})
 endif()
 
 ###########
@@ -345,7 +361,6 @@ add_library(${MARABOU_TEST_LIB})
 set (TEST_DIR "${CMAKE_CURRENT_BINARY_DIR}/tests")
 file(MAKE_DIRECTORY ${TEST_DIR})
 
-set(CXXTEST_USE_PYTHON FALSE)
 find_package(CxxTest)
 if(CXXTEST_FOUND)
     include_directories(${CXXTEST_INCLUDE_DIR})
@@ -414,5 +429,4 @@ add_dependencies(build_input_parsers ${MPS_PARSER} ${ACAS_PARSER}
     ${BERKELEY_PARSER})
 
 add_subdirectory(${SRC_DIR})
-add_subdirectory(${TOOLS_DIR})
 add_subdirectory(${REGRESS_DIR})
