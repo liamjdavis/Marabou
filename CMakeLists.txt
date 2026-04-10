@@ -361,6 +361,8 @@ add_library(${MARABOU_TEST_LIB})
 set (TEST_DIR "${CMAKE_CURRENT_BINARY_DIR}/tests")
 file(MAKE_DIRECTORY ${TEST_DIR})
 
+set(CMAKE_PREFIX_PATH "${TOOLS_DIR}/cxxtest")
+set(CXXTEST_USE_PYTHON FALSE)
 find_package(CxxTest)
 if(CXXTEST_FOUND)
     include_directories(${CXXTEST_INCLUDE_DIR})
@@ -428,5 +430,6 @@ add_custom_target(build_input_parsers)
 add_dependencies(build_input_parsers ${MPS_PARSER} ${ACAS_PARSER}
     ${BERKELEY_PARSER})
 
+add_subdirectory(${TOOLS_DIR})
 add_subdirectory(${SRC_DIR})
 add_subdirectory(${REGRESS_DIR})

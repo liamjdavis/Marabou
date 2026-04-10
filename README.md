@@ -43,7 +43,8 @@ The Python interface currently supports Python 3.8, 3.9, 3.10 and 3.11.
 #### Build dependencies
 
 Marabou uses a conda environment to manage its build dependencies
-(Boost, Protobuf, OpenBLAS, pybind11, CxxTest, CMake, Python, etc.).
+(Boost, Protobuf, OpenBLAS, pybind11, CMake, Python, etc.).
+CxxTest is bundled in `tools/` and built automatically.
 
 Using [conda/anaconda](https://docs.conda.io/en/latest/):
 ```bash

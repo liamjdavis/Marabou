@@ -11,6 +11,3 @@ dependencies:
   - ninja
   - python>=3.9
   - numpy>=1.21.0,<2
-  - pip
-  - pip:
-      - cxxtest==4.4
