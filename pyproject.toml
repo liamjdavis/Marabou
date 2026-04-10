@@ -67,6 +67,7 @@ before-all = [
     "micromamba create -f {package}/environment.yml -p /tmp/mamba-env -y",
 ]
 environment = { CONDA_PREFIX = "/tmp/mamba-env" }
+repair-wheel-command = "auditwheel repair -w {dest_dir} --plat manylinux_2_35_x86_64 {wheel}"
 
 [tool.cibuildwheel.macos]
 before-all = [
