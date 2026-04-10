@@ -42,12 +42,23 @@ The Python interface currently supports Python 3.8, 3.9, 3.10 and 3.11.
 
 #### Build dependencies
 
-The build process uses CMake version 3.16 (or later).
-You can get CMake [here](https://cmake.org/download/).
+Marabou uses a conda environment to manage its build dependencies
+(Boost, Protobuf, OpenBLAS, pybind11, CxxTest, CMake, Python, etc.).
 
-Marabou depends on the Boost and the OpenBLAS libraries, which are automatically 
-downloaded and built when you run make. Library CXXTEST comes included in the 
-repository.
+Using [conda/anaconda](https://docs.conda.io/en/latest/):
+```bash
+conda env create -f environment.yml
+conda activate marabou
+```
+
+Using [micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html):
+```bash
+micromamba create -f environment.yml
+micromamba activate marabou
+```
+
+CMake automatically detects the active conda environment and finds all
+dependencies from it.
 
 The current version of Marabou can be built for Linux or MacOS machines using CMake:
 ```bash
@@ -62,9 +73,8 @@ To enable multiprocess build change the last command to:
 ```bash
 cmake --build . -j PROC_NUM
 ```
-After building Marabou, the compiled binary is located at `build/Marabou`, and the 
-shared library for the Python API is located in `maraboupy/`. Building the Python 
-interface requires *pybind11* (which is automatically downloaded).
+After building Marabou, the compiled binary is located at `build/Marabou`, and the
+shared library for the Python API is located in `maraboupy/`.
 
 Export `Marabou` folder to Python and Jupyter paths:
 ```
