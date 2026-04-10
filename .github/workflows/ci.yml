@@ -54,8 +54,10 @@ jobs:
       - uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: environment.yml
+          environment-name: marabou
           cache-environment: true
           init-shell: bash
+          post-cleanup: none
 
       - name: Install system build tools
         if: runner.os == 'Linux'
