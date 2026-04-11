@@ -35,6 +35,8 @@ _deps
 /tools/protobuf*
 /tools/OpenBLAS*
 /tools/onnx*
+# Luna upstream clone (populated by tools/download_luna.sh)
+/tools/luna-*/
 
 
 build

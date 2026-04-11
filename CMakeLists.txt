@@ -433,3 +433,43 @@ add_dependencies(build_input_parsers ${MPS_PARSER} ${ACAS_PARSER}
 add_subdirectory(${TOOLS_DIR})
 add_subdirectory(${SRC_DIR})
 add_subdirectory(${REGRESS_DIR})
+
+##########
+## Luna ##
+##########
+# The Luna bound propagator backend is cloned from upstream (pinned SHA) and
+# patched into conda-dep form by tools/download_luna.sh, then built as a
+# subdirectory of Marabou. Placed at EOF so CMAKE_CXX_FLAGS mutations inside
+# luna's subdirectory scope cannot bleed into Marabou's targets (CMake
+# directory scoping: subdirectory-local `set` creates a shadowed variable).
+
+# Always invoke download_luna.sh; the script is idempotent via a sentinel
+# file, so re-runs are a near-instant no-op but they correctly recover from
+# a half-completed previous run (e.g., clone done but patch interrupted).
+execute_process(
+    COMMAND bash ${TOOLS_DIR}/download_luna.sh
+    RESULT_VARIABLE luna_download_result
+)
+if (NOT luna_download_result EQUAL 0)
+    message(FATAL_ERROR "tools/download_luna.sh failed; see output above")
+endif()
+
+file(GLOB LUNA_DIR "${TOOLS_DIR}/luna-*")
+if (NOT LUNA_DIR)
+    message(FATAL_ERROR "tools/luna-* missing after download_luna.sh")
+endif()
+
+message(STATUS "Adding luna subdirectory: ${LUNA_DIR}")
+# Disable luna's upstream tests, benchmarks, and Python bindings from this
+# integration point.
+# - BUILD_BENCHMARKS=ON would pull googlebenchmark via FetchContent at
+#   configure time (network dep).
+# - BUILD_TESTS=ON would drag in cxxtest + tests subdir, which we don't
+#   exercise from Marabou's CI.
+# - BUILD_PYTHON_BINDINGS=ON would build lunapy/LunaPyCore.cpp, which has a
+#   dangling LIRPA_VERSION reference from an incomplete upstream rename.
+#   Marabou has its own Python bindings (maraboupy); we don't consume luna's.
+set(BUILD_BENCHMARKS OFF CACHE BOOL "Disable luna's benchmarks" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "Disable luna's tests" FORCE)
+set(BUILD_PYTHON_BINDINGS OFF CACHE BOOL "Disable luna's Python bindings" FORCE)
+add_subdirectory(${LUNA_DIR})

@@ -1,0 +1,230 @@
+diff --git i/CMakeLists.txt w/CMakeLists.txt
+index 1f433e2..940c0e9 100644
+--- i/CMakeLists.txt
++++ w/CMakeLists.txt
+@@ -57,31 +57,25 @@ else()
+   set(SCRIPT_EXTENSION sh)
+ endif()
+ 
++############################
++## Conda env detection    ##
++############################
++
++if(DEFINED ENV{CONDA_PREFIX} AND NOT DEFINED ENV{CONDA_BUILD})
++  list(INSERT CMAKE_PREFIX_PATH 0 "$ENV{CONDA_PREFIX}")
++  message(STATUS "Conda environment detected: $ENV{CONDA_PREFIX}")
++elseif(DEFINED ENV{CONDA_BUILD})
++  list(INSERT CMAKE_PREFIX_PATH 0 "$ENV{PREFIX}" "$ENV{BUILD_PREFIX}")
++  message(STATUS "Conda build environment detected")
++endif()
++
+ ###########
+ ## Boost ##
+ ###########
+ 
+ add_definitions(-DBOOST_NO_CXX98_FUNCTION_BASE)
+ set(BOOST_VERSION 1.84.0)
+-set(BOOST_DIR "${TOOLS_DIR}/boost-${BOOST_VERSION}")
+-
+-if (MSVC)
+-  set(BOOST_ROOT "${BOOST_DIR}/win_installed")
+-  set(Boost_NAMESPACE libboost)
+-elseif (${CMAKE_SIZEOF_VOID_P} EQUAL 4 AND NOT MSVC)
+-  set(BOOST_ROOT "${BOOST_DIR}/installed32")
+-else()
+-  set(BOOST_ROOT "${BOOST_DIR}/installed")
+-endif()
+-
+-set(Boost_USE_DEBUG_RUNTIME FALSE)
+-find_package(Boost ${BOOST_VERSION} COMPONENTS program_options timer chrono thread regex)
+-
+-if (NOT ${Boost_FOUND})
+-  execute_process(COMMAND ${TOOLS_DIR}/download_boost.${SCRIPT_EXTENSION} ${BOOST_VERSION})
+-  find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS program_options timer chrono thread regex)
+-endif()
+-
++find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS program_options timer chrono thread regex)
+ set(LIBS_INCLUDES ${Boost_INCLUDE_DIRS})
+ list(APPEND LIBS ${Boost_LIBRARIES})
+ 
+@@ -89,28 +83,8 @@ list(APPEND LIBS ${Boost_LIBRARIES})
+ ## Protobuf ##
+ ##############
+ 
+-set(PROTOBUF_VERSION 3.19.2)
+-set(PROTOBUF_DEFAULT_DIR "${TOOLS_DIR}/protobuf-${PROTOBUF_VERSION}")
+-
+-if (NOT PROTOBUF_DIR)
+-    set(PROTOBUF_DIR ${PROTOBUF_DEFAULT_DIR})
+-endif()
+-
+-if(NOT EXISTS "${PROTOBUF_DIR}/installed/lib/libprotobuf.a")
+-    message("Can't find protobuf, installing...")
+-    if (${PROTOBUF_DIR} STREQUAL ${PROTOBUF_DEFAULT_DIR})
+-        execute_process(COMMAND ${TOOLS_DIR}/download_protobuf.sh ${PROTOBUF_VERSION})
+-    else()
+-        message(FATAL_ERROR "Can't find protobuf in the supplied directory")
+-    endif()
+-endif()
+-
+-set(PROTOBUF_LIB protobuf)
+-add_library(${PROTOBUF_LIB} SHARED IMPORTED)
+-set_property(TARGET ${PROTOBUF_LIB} PROPERTY POSITION_INDEPENDENT_CODE ON)
+-set_target_properties(${PROTOBUF_LIB} PROPERTIES IMPORTED_LOCATION ${PROTOBUF_DIR}/installed/lib/libprotobuf.a)
+-target_include_directories(${PROTOBUF_LIB} INTERFACE ${PROTOBUF_DIR}/installed/include)
+-list(APPEND LIBS ${PROTOBUF_LIB})
++find_package(Protobuf 4.25.3 REQUIRED)
++list(APPEND LIBS protobuf::libprotobuf)
+ 
+ ##########
+ ## ONNX ##
+@@ -121,7 +95,7 @@ set(ONNX_DIR "${TOOLS_DIR}/onnx-${ONNX_VERSION}")
+ 
+ if(NOT EXISTS "${ONNX_DIR}/onnx.proto3.pb.h")
+     message("Generating ONNX protobuf file...")
+-    execute_process(COMMAND ${TOOLS_DIR}/download_onnx.sh ${ONNX_VERSION} ${PROTOBUF_VERSION})
++    execute_process(COMMAND ${TOOLS_DIR}/download_onnx.sh ${ONNX_VERSION} ${Protobuf_PROTOC_EXECUTABLE})
+ endif()
+ 
+ file(GLOB DEPS_ONNX "${ONNX_DIR}/*.cc")
+@@ -131,15 +105,7 @@ include_directories(SYSTEM ${ONNX_DIR})
+ ## PyTorch ##
+ #############
+ 
+-set(PYTORCH_VERSION 2.2.1)
+-set(PYTORCH_DIR "${TOOLS_DIR}/libtorch-${PYTORCH_VERSION}")
+-list(APPEND CMAKE_PREFIX_PATH ${PYTORCH_DIR})
+-
+-if(NOT EXISTS "${PYTORCH_DIR}")
+-    execute_process(COMMAND ${TOOLS_DIR}/download_libtorch.sh ${PYTORCH_VERSION})
+-endif()
+-
+-find_package(Torch ${PYTORCH_VERSION} REQUIRED)
++find_package(Torch REQUIRED)
+ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+ list(APPEND LIBS ${TORCH_LIBRARIES})
+ 
+@@ -150,16 +116,7 @@ list(APPEND LIBS ${TORCH_LIBRARIES})
+ option(BUILD_PYTHON_BINDINGS "Build Python bindings using pybind11" ON)
+ 
+ if(BUILD_PYTHON_BINDINGS)
+-  set(PYBIND11_VERSION 2.11.1)
+-  set(PYBIND11_DIR "${TOOLS_DIR}/pybind11-${PYBIND11_VERSION}")
+-  
+-  if(NOT EXISTS "${PYBIND11_DIR}/include/pybind11/pybind11.h")
+-    message("Can't find pybind11, downloading...")
+-    execute_process(COMMAND ${TOOLS_DIR}/download_pybind11.sh ${PYBIND11_VERSION})
+-  endif()
+-  
+-  # Add pybind11 subdirectory
+-  add_subdirectory(${PYBIND11_DIR} ${CMAKE_BINARY_DIR}/pybind11)
++  find_package(pybind11 REQUIRED)
+   message(STATUS "Building Python bindings with pybind11")
+ endif()
+ 
+@@ -168,30 +125,15 @@ endif()
+ ##############
+ 
+ if (NOT MSVC AND ${ENABLE_OPENBLAS})
+-  set(OPENBLAS_VERSION 0.3.19)
+-  set(OPENBLAS_LIB openblas)
+-  set(OPENBLAS_DEFAULT_DIR "${TOOLS_DIR}/OpenBLAS-${OPENBLAS_VERSION}")
+-
+-  if (NOT OPENBLAS_DIR)
+-      set(OPENBLAS_DIR ${OPENBLAS_DEFAULT_DIR})
+-  endif()
+-
+   message(STATUS "Using OpenBLAS for matrix multiplication")
+   add_compile_definitions(ENABLE_OPENBLAS)
+-
+-  if(NOT EXISTS "${OPENBLAS_DIR}/installed/lib/libopenblas.a")
+-    message("Can't find OpenBLAS, installing...")
+-    if (${OPENBLAS_DIR} STREQUAL ${OPENBLAS_DEFAULT_DIR})
+-      execute_process(COMMAND ${TOOLS_DIR}/download_openBLAS.sh ${OPENBLAS_VERSION})
+-    else()
+-      message(FATAL_ERROR "Can't find OpenBLAS in the supplied directory")
+-    endif()
++  find_library(OPENBLAS_LIB openblas REQUIRED)
++  find_path(OPENBLAS_INCLUDE_DIR openblas_config.h PATH_SUFFIXES openblas)
++  if (NOT OPENBLAS_INCLUDE_DIR)
++    message(FATAL_ERROR "Could not find OpenBLAS headers (openblas_config.h)")
+   endif()
+-
+-  add_library(${OPENBLAS_LIB} SHARED IMPORTED)
+-  set_target_properties(${OPENBLAS_LIB} PROPERTIES IMPORTED_LOCATION ${OPENBLAS_DIR}/installed/lib/libopenblas.a)
+   list(APPEND LIBS ${OPENBLAS_LIB})
+-  target_include_directories(${OPENBLAS_LIB} INTERFACE ${OPENBLAS_DIR}/installed/include)
++  list(APPEND LIBS_INCLUDES ${OPENBLAS_INCLUDE_DIR})
+ endif()
+ 
+ ###########
+@@ -260,21 +202,6 @@ add_custom_command(TARGET luna POST_BUILD
+     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:luna> ${BIN_DIR}/
+ )
+ 
+-# Install luna executable to user-local bin directory (~/.local/bin)
+-# This directory is typically already in PATH on macOS/Linux
+-set(USER_LOCAL_BIN "$ENV{HOME}/.local/bin")
+-install(TARGETS luna
+-    RUNTIME DESTINATION ${USER_LOCAL_BIN}
+-    COMPONENT Runtime
+-)
+-
+-# Automatically install to ~/.local/bin after build (so user can run 'luna' from anywhere)
+-add_custom_command(TARGET luna POST_BUILD
+-    COMMAND ${CMAKE_COMMAND} -E make_directory ${USER_LOCAL_BIN}
+-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:luna> ${USER_LOCAL_BIN}/
+-    COMMENT "Installing luna to ${USER_LOCAL_BIN} (add to PATH if needed)"
+-)
+-
+ ###################
+ ## Testing Setup ##
+ ###################
+@@ -324,7 +251,7 @@ endif()
+ message(STATUS "LUNA configured successfully")
+ message(STATUS "  - LUNA Version: ${LUNA_VERSION}")
+ message(STATUS "  - Build type: ${CMAKE_BUILD_TYPE}")
+-message(STATUS "  - PyTorch version: ${PYTORCH_VERSION}")
++message(STATUS "  - PyTorch version: ${Torch_VERSION}")
+ message(STATUS "  - Boost version: ${BOOST_VERSION}")
+ message(STATUS "  - Build tests: ${BUILD_TESTS}")
+ message(STATUS "  - Build benchmarks: ${BUILD_BENCHMARKS}")
+diff --git i/tools/download_onnx.sh w/tools/download_onnx.sh
+index 6431e37..50992f7 100755
+--- i/tools/download_onnx.sh
++++ w/tools/download_onnx.sh
+@@ -2,24 +2,28 @@
+ curdir=$pwd
+ mydir="${0%/*}"
+ version=$1
+-protobuf_version=$2
++protoc_path=${2:-$(command -v protoc)}
+ 
+ onnxdir=onnx-$version
+-protobufdir=protobuf-$protobuf_version
+ 
+ # This script downloads the protobuffer file from the ONNX repo.
+ # There are no C++ bindings for ONNX so we compile the protobuffer ourselves.
+ # see https://stackoverflow.com/questions/67301475/parse-an-onnx-model-using-c-extract-layers-input-and-output-shape-from-an-on
+ # for details.
+ 
++if [ -z "$protoc_path" ]; then
++    echo "Error: protoc not found. Pass the path as second argument or ensure it is on PATH."
++    exit 1
++fi
++
+ cd $mydir
+ 
+ mkdir -p $onnxdir
+ cd $onnxdir
+ echo "Downloading ONNX proto file"
+-wget -q https://raw.githubusercontent.com/onnx/onnx/v$version/onnx/onnx.proto3 -O onnx.proto3
++curl -sSL https://raw.githubusercontent.com/onnx/onnx/v$version/onnx/onnx.proto3 -o onnx.proto3
+ 
+ echo "Compiling the ONNX proto file"
+-../$protobufdir/installed/bin/protoc --cpp_out=. onnx.proto3
++$protoc_path --cpp_out=. onnx.proto3
+ 
+-cd $curdir
+\ No newline at end of file
++cd $curdir
