@@ -101,7 +101,7 @@ list(APPEND LIBS ${Boost_LIBRARIES})
 ## Protobuf ##
 ##############
 
-find_package(Protobuf 3.19.2 REQUIRED)
+find_package(Protobuf 4.25.3 REQUIRED)
 list(APPEND LIBS protobuf::libprotobuf)
 
 ##########

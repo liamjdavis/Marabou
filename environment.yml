@@ -3,11 +3,28 @@ channels:
   - conda-forge
 dependencies:
   - boost-cpp=1.84.0
-  - libprotobuf=3.19.2
-  - protobuf=3.19.2
+  # Bumped from 3.19.2 to 4.25.3: every conda-forge libtorch build (from 2.1.0
+  # onwards) requires libprotobuf>=4.x, so staying on 3.19.2 is incompatible
+  # with the Luna bound propagator backend. 4.25.3 is the LTS line. Marabou's
+  # only protobuf consumer is the generated onnx.proto3.pb.{cc,h}, regenerated
+  # at configure time by tools/download_onnx.sh using the conda-provided protoc.
+  - libprotobuf=4.25.3
+  - protobuf=4.25.3
   - openblas>=0.3.19
-  - pybind11>=2.13.6
+  # Upper-bounded at <3 to keep the env on pybind11 v2 (see commit 4e67a6b4).
+  # Without this cap, the libtorch addition below loosens the solver enough
+  # to float pybind11 to 3.0, which is a behavioral change orthogonal to the
+  # luna integration.
+  - pybind11>=2.13.6,<3
   - cmake>=3.16
   - ninja
   - python>=3.9
   - numpy>=1.21.0,<2
+  # C++ Torch runtime used by the Luna bound propagator backend.
+  # Note: conda-forge has no libtorch 2.2.x (feedstock jumps 2.1.x -> 2.3.x),
+  # so we use 2.3.1 instead of luna's upstream 2.2.1 pin.
+  # Build string pinned to cpu_generic_* to avoid both the CUDA build
+  # (~1GB of nccl/libnvjitlink) and the cpu_mkl_* build (~164MB Intel MKL,
+  # redundant with the openblas dep above). cpu_generic_* uses the same
+  # openblas we already depend on.
+  - libtorch=2.3.1=cpu_generic_*
