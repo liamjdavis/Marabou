@@ -249,8 +249,9 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
         }
     }
 #endif
+    String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "le_generic";
     String laGeneric = String( "(step t" ) + _queryId + "_" + std::to_string( id ) + " " +
-                       farkasClause + ":rule la_generic :args" + farkasArgs;
+                       farkasClause + ":rule " + ruleName + " :args" + farkasArgs;
 
     String res = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl " +
                  negatedSplitsClause + "):rule resolution :premises(t" + _queryId + "_" +
@@ -552,8 +553,9 @@ bool AletheProofWriter::writeReluLemma(
     farkasClause = String( "(cl " ) + causeBound + farkasClause + ")";
     farkasArgs = String( "(1 " ) + farkasArgs + "))\n";
 
+    String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "la_generic";
     String laGeneric = String( "(step fl" ) + _queryId + "_" + id + " " + farkasClause +
-                       ":rule la_generic :args" + farkasArgs;
+                       ":rule " + ruleName + " :args" + farkasArgs;
 
     String res = String( "(step cr" ) + _queryId + "_" + id + " (cl " + negatedSplitsClause +
                  causeBound + "):rule resolution :premises(fl" + _queryId + "_" + id + " " +
@@ -813,7 +815,8 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
                                gbEntry->lemma->wasWritten() && ( !isLemma || deps.exists( lemId ) );
         bool useSplitBound = ( lemId < 0 && gbEntry->isPhaseFixing );
 
-        farkasArgs += temp.get_str() + " ";
+        if ( !GlobalConfiguration::DEDICATED_ALEHTE_RULE )
+            farkasArgs += temp.get_str() + " ";
 
         if ( ( isLemmaIncluded || useSplitBound ) && !overrideGmp )
             farkasClause += String( "(not (" ) + ineqString + " x" + std::to_string( i ) +
