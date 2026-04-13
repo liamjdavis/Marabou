@@ -16,7 +16,7 @@
 #ifndef __LPFormulator_h__
 #define __LPFormulator_h__
 
-#include "GurobiWrapper.h"
+#include "LPSolver.h"
 #include "LayerOwner.h"
 #include "Map.h"
 #include "ParallelSolver.h"
@@ -71,59 +71,59 @@ public:
       tightening
     */
     void createLPRelaxation( const Map<unsigned, Layer *> &layers,
-                             GurobiWrapper &gurobi,
+                             LPSolver &gurobi,
                              unsigned lastLayer = UINT_MAX );
     void createLPRelaxationAfter( const Map<unsigned, Layer *> &layers,
-                                  GurobiWrapper &gurobi,
+                                  LPSolver &gurobi,
                                   unsigned firstLayer );
-    double solveLPRelaxation( GurobiWrapper &gurobi,
+    double solveLPRelaxation( LPSolver &gurobi,
                               const Map<unsigned, Layer *> &layers,
                               MinOrMax minOrMax,
                               String variableName,
                               unsigned lastLayer = UINT_MAX );
 
-    void addLayerToModel( GurobiWrapper &gurobi, const Layer *layer, bool createVariables );
+    void addLayerToModel( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
 private:
     LayerOwner *_layerOwner;
     bool _cutoffInUse;
     double _cutoffValue;
 
-    void addInputLayerToLpRelaxation( GurobiWrapper &gurobi, const Layer *layer );
+    void addInputLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer );
 
     void
-    addReluLayerToLpRelaxation( GurobiWrapper &gurobi, const Layer *layer, bool createVariables );
+    addReluLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
-    void addLeakyReluLayerToLpRelaxation( GurobiWrapper &gurobi,
+    void addLeakyReluLayerToLpRelaxation( LPSolver &gurobi,
                                           const Layer *layer,
                                           bool createVariables );
 
     void
-    addSignLayerToLpRelaxation( GurobiWrapper &gurobi, const Layer *layer, bool createVariables );
+    addSignLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
     void
-    addMaxLayerToLpRelaxation( GurobiWrapper &gurobi, const Layer *layer, bool createVariables );
+    addMaxLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
     void
-    addRoundLayerToLpRelaxation( GurobiWrapper &gurobi, const Layer *layer, bool createVariables );
+    addRoundLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
-    void addAbsoluteValueLayerToLpRelaxation( GurobiWrapper &gurobi,
+    void addAbsoluteValueLayerToLpRelaxation( LPSolver &gurobi,
                                               const Layer *layer,
                                               bool createVariables );
 
-    void addSigmoidLayerToLpRelaxation( GurobiWrapper &gurobi,
+    void addSigmoidLayerToLpRelaxation( LPSolver &gurobi,
                                         const Layer *layer,
                                         bool createVariables );
 
-    void addSoftmaxLayerToLpRelaxation( GurobiWrapper &gurobi,
+    void addSoftmaxLayerToLpRelaxation( LPSolver &gurobi,
                                         const Layer *layer,
                                         bool createVariables );
 
-    void addBilinearLayerToLpRelaxation( GurobiWrapper &gurobi,
+    void addBilinearLayerToLpRelaxation( LPSolver &gurobi,
                                          const Layer *layer,
                                          bool createVariables );
 
-    void addWeightedSumLayerToLpRelaxation( GurobiWrapper &gurobi,
+    void addWeightedSumLayerToLpRelaxation( LPSolver &gurobi,
                                             const Layer *layer,
                                             bool createVariables );
 
@@ -133,7 +133,7 @@ private:
       Optimize for the min/max value of variableName with respect to the constraints
       encoded in gurobi. If the query is infeasible, *infeasible is set to true.
     */
-    static double optimizeWithGurobi( GurobiWrapper &gurobi,
+    static double optimizeWithLPSolver( LPSolver &gurobi,
                                       MinOrMax minOrMax,
                                       String variableName,
                                       double cutoffValue,

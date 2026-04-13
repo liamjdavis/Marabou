@@ -16,7 +16,7 @@
 #ifndef __IterativePropagator_h__
 #define __IterativePropagator_h__
 
-#include "GurobiWrapper.h"
+#include "LPSolver.h"
 #include "LayerOwner.h"
 #include "MILPFormulator.h"
 #include "ParallelSolver.h"
@@ -59,7 +59,7 @@ private:
       Optimize for the min/max value of variableName with respect to the constraints
       encoded in gurobi. If the query is infeasible, *infeasible is set to true.
     */
-    static double optimizeWithGurobi( GurobiWrapper &gurobi,
+    static double optimizeWithLPSolver( LPSolver &gurobi,
                                       MinOrMax minOrMax,
                                       String variableName,
                                       double cutoffValue,

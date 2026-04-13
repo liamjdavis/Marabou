@@ -22,6 +22,9 @@
 #include "GlobalConfiguration.h"
 #include "MStringf.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 CuOptWrapper::CuOptWrapper()
     : _objectiveConstant( 0 )
     , _objectiveSense( CUOPT_MINIMIZE )
@@ -299,21 +302,42 @@ void CuOptWrapper::solve()
             Stringf( "cuOptCreateSolverSettings failed with status %d", status ).ascii() );
     }
 
-    // Set time limit if specified
-    if ( _timeoutInSeconds > 0 )
-    {
-        cuOptSetFloatParameter( settings, CUOPT_TIME_LIMIT, (cuopt_float_t)_timeoutInSeconds );
-    }
+    // Suppress cuOpt's internal "Setting parameter..." log output
+    int savedStdout = dup( STDOUT_FILENO );
+    int savedStderr = dup( STDERR_FILENO );
+    int devNull = open( "/dev/null", O_WRONLY );
+    dup2( devNull, STDOUT_FILENO );
+    dup2( devNull, STDERR_FILENO );
+    close( devNull );
 
     // Set verbosity
     if ( _verbosity == 0 )
-    {
         cuOptSetIntegerParameter( settings, CUOPT_LOG_TO_CONSOLE, 0 );
-    }
     else
-    {
         cuOptSetIntegerParameter( settings, CUOPT_LOG_TO_CONSOLE, 1 );
-    }
+
+    // Use DualSimplex for exact solutions. PDLP is a first-order approximate
+    // method that cannot reliably achieve the tight tolerances needed for
+    // verification (leads to unsound SAT results).
+    cuOptSetIntegerParameter( settings, CUOPT_METHOD, CUOPT_METHOD_DUAL_SIMPLEX );
+
+    // Tighten tolerances to match Gurobi's for verification correctness.
+    cuOptSetFloatParameter( settings, CUOPT_ABSOLUTE_PRIMAL_TOLERANCE, 1e-9 );
+    cuOptSetFloatParameter( settings, CUOPT_RELATIVE_PRIMAL_TOLERANCE, 1e-9 );
+    cuOptSetFloatParameter( settings, CUOPT_ABSOLUTE_DUAL_TOLERANCE, 1e-9 );
+    cuOptSetFloatParameter( settings, CUOPT_RELATIVE_DUAL_TOLERANCE, 1e-9 );
+    cuOptSetFloatParameter( settings, CUOPT_ABSOLUTE_GAP_TOLERANCE, 1e-9 );
+    cuOptSetFloatParameter( settings, CUOPT_RELATIVE_GAP_TOLERANCE, 1e-9 );
+
+    // Enable infeasibility detection (disabled by default in cuOpt)
+    cuOptSetIntegerParameter( settings, CUOPT_INFEASIBILITY_DETECTION, 1 );
+
+
+    // Restore stdout/stderr
+    dup2( savedStdout, STDOUT_FILENO );
+    dup2( savedStderr, STDERR_FILENO );
+    close( savedStdout );
+    close( savedStderr );
 
     // Solve
     status = cuOptSolve( problem, settings, &_solution );

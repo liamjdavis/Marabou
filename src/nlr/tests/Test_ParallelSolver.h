@@ -45,7 +45,7 @@ public:
         GurobiWrapper *gurobi = new GurobiWrapper();
         TS_ASSERT_THROWS_NOTHING( mock.enqueueSolver( solvers, gurobi ) );
         TS_ASSERT( !solvers.empty() );
-        GurobiWrapper *gurobiPtr = NULL;
+        LPSolver *gurobiPtr = NULL;
         TS_ASSERT_THROWS_NOTHING( solvers.pop( gurobiPtr ) );
         TS_ASSERT( solvers.empty() );
         delete gurobiPtr;

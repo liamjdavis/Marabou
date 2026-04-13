@@ -3052,7 +3052,7 @@ bool Engine::solveWithMILPEncoding( double timeoutInSeconds )
     else if ( _lpSolver->timeout() )
         _exitCode = IEngine::TIMEOUT;
     else
-        throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_GUROBI );
+        throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_LP_SOLVER );
     return false;
 }
 
@@ -3314,7 +3314,7 @@ bool Engine::minimizeCostWithLPSolver( const LinearExpression &costFunction )
     else if ( _lpSolver->optimal() )
         return true;
     else
-        throw CommonError( CommonError::UNEXPECTED_GUROBI_STATUS,
+        throw CommonError( CommonError::UNEXPECTED_LP_SOLVER_STATUS,
                            Stringf( "Current status: %u", _lpSolver->getStatusCode() ).ascii() );
 
     return false;

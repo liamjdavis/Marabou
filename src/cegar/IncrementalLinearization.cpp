@@ -18,7 +18,6 @@
 
 #include "Engine.h"
 #include "FloatUtils.h"
-#include "GurobiWrapper.h"
 #include "IQuery.h"
 #include "Options.h"
 #include "Query.h"

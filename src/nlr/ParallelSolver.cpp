@@ -29,12 +29,12 @@ namespace NLR {
 void ParallelSolver::clearSolverQueue( SolverQueue &freeSolvers )
 {
     // Remove the solvers
-    GurobiWrapper *freeSolver;
+    LPSolver *freeSolver;
     while ( freeSolvers.pop( freeSolver ) )
         delete freeSolver;
 }
 
-void ParallelSolver::enqueueSolver( SolverQueue &solvers, GurobiWrapper *solver )
+void ParallelSolver::enqueueSolver( SolverQueue &solvers, LPSolver *solver )
 {
     if ( !solvers.push( solver ) )
     {

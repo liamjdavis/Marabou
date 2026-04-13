@@ -16,7 +16,7 @@
 #ifndef __ParallelSolver_h__
 #define __ParallelSolver_h__
 
-#include "GurobiWrapper.h"
+#include "LPSolver.h"
 
 #include <atomic>
 #include <boost/lockfree/queue.hpp>
@@ -32,7 +32,7 @@ struct NeuronIndex;
 class ParallelSolver
 {
 public:
-    typedef boost::lockfree::queue<GurobiWrapper *, boost::lockfree::fixed_sized<true>> SolverQueue;
+    typedef boost::lockfree::queue<LPSolver *, boost::lockfree::fixed_sized<true>> SolverQueue;
 
     /*
       Arguments for the spawned thread. This is needed because Boost::thread does
@@ -40,7 +40,7 @@ public:
     */
     struct ThreadArgument
     {
-        ThreadArgument( GurobiWrapper *gurobi,
+        ThreadArgument( LPSolver *lpSolver,
                         Layer *layer,
                         const Map<unsigned, Layer *> *layers,
                         unsigned index,
@@ -57,7 +57,7 @@ public:
                         std::atomic_uint &cutoffs,
                         bool skipTightenLb,
                         bool skipTightenUb )
-            : _gurobi( gurobi )
+            : _lpSolver( lpSolver )
             , _layer( layer )
             , _layers( layers )
             , _index( index )
@@ -78,7 +78,7 @@ public:
         {
         }
 
-        ThreadArgument( GurobiWrapper *gurobi,
+        ThreadArgument( LPSolver *lpSolver,
                         Layer *layer,
                         unsigned index,
                         double currentLb,
@@ -94,7 +94,7 @@ public:
                         std::atomic_uint &cutoffs,
                         bool skipTightenLb,
                         bool skipTightenUb )
-            : _gurobi( gurobi )
+            : _lpSolver( lpSolver )
             , _layer( layer )
             , _layers( NULL )
             , _index( index )
@@ -115,7 +115,7 @@ public:
         {
         }
 
-        ThreadArgument( GurobiWrapper *gurobi,
+        ThreadArgument( LPSolver *lpSolver,
                         Layer *layer,
                         unsigned index,
                         double currentLb,
@@ -130,7 +130,7 @@ public:
                         std::atomic_uint &signChanges,
                         std::atomic_uint &cutoffs,
                         NeuronIndex *lastFixedNeuron )
-            : _gurobi( gurobi )
+            : _lpSolver( lpSolver )
             , _layer( layer )
             , _layers( NULL )
             , _index( index )
@@ -160,7 +160,7 @@ public:
                         unsigned lastIndexOfRelaxation,
                         unsigned targetIndex,
                         boost::thread *threads,
-                        const Map<GurobiWrapper *, unsigned> *solverToIndex )
+                        const Map<LPSolver *, unsigned> *solverToIndex )
             : _layer( layer )
             , _layers( layers )
             , _freeSolvers( freeSolvers )
@@ -176,7 +176,7 @@ public:
         {
         }
 
-        GurobiWrapper *_gurobi;
+        LPSolver *_lpSolver;
         Layer *_layer;
         const Map<unsigned, Layer *> *_layers;
         unsigned _index;
@@ -197,7 +197,7 @@ public:
         unsigned _lastIndexOfRelaxation;
         unsigned _targetIndex;
         boost::thread *_threads;
-        const Map<GurobiWrapper *, unsigned> *_solverToIndex;
+        const Map<LPSolver *, unsigned> *_solverToIndex;
     };
 
     /*
@@ -205,7 +205,7 @@ public:
     */
     static void clearSolverQueue( SolverQueue &freeSolvers );
 
-    static void enqueueSolver( SolverQueue &solvers, GurobiWrapper *solver );
+    static void enqueueSolver( SolverQueue &solvers, LPSolver *solver );
 };
 
 } // namespace NLR

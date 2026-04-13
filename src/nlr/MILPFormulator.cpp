@@ -15,7 +15,7 @@
 
 #include "MILPFormulator.h"
 
-#include "GurobiWrapper.h"
+#include "LPSolver.h"
 #include "InfeasibleQueryException.h"
 #include "LPFormulator.h"
 #include "Layer.h"
@@ -26,6 +26,7 @@
 #include "Vector.h"
 
 #include <boost/thread.hpp>
+#include <memory>
 
 namespace NLR {
 
@@ -51,11 +52,12 @@ void MILPFormulator::optimizeBoundsWithIncrementalMILPEncoding(
     _signChanges = 0;
     _cutoffs = 0;
 
-    GurobiWrapper gurobi;
+    std::unique_ptr<LPSolver> solverPtr( createLPSolver( Options::get()->getLPSolverType() ) );
+    LPSolver &gurobi = *solverPtr;
 
     double currentLb;
     double currentUb;
-    List<GurobiWrapper::Term> terms;
+    List<LPSolver::Term> terms;
     Map<String, double> dontCare;
 
     struct timespec gurobiStart = TimeUtils::sampleMicro();
@@ -103,7 +105,7 @@ void MILPFormulator::optimizeBoundsWithIncrementalMILPEncoding(
             Stringf variableName( "x%u", variable );
 
             terms.clear();
-            terms.append( GurobiWrapper::Term( 1, variableName ) );
+            terms.append( LPSolver::Term( 1, variableName ) );
 
             // Maximize, using just the LP relaxation for the current layer
             if ( tightenUpperBound( gurobi, layer, j, variable, currentUb ) )
@@ -153,14 +155,14 @@ void MILPFormulator::optimizeBoundsWithMILPEncoding( const Map<unsigned, Layer *
 {
     unsigned numberOfWorkers = Options::get()->getInt( Options::NUM_WORKERS );
 
-    Map<GurobiWrapper *, unsigned> solverToIndex;
+    Map<LPSolver *, unsigned> solverToIndex;
     // Create a queue of free workers
     // When a worker is working, it is popped off the queue, when it is done, it
     // is added back to the queue.
     SolverQueue freeSolvers( numberOfWorkers );
     for ( unsigned i = 0; i < numberOfWorkers; ++i )
     {
-        GurobiWrapper *gurobi = new GurobiWrapper();
+        LPSolver *gurobi = createLPSolver( Options::get()->getLPSolverType() );
         solverToIndex[gurobi] = i;
         enqueueSolver( freeSolvers, gurobi );
     }
@@ -220,14 +222,14 @@ void MILPFormulator::optimizeBoundsOfOneLayerWithMILPEncoding( const Map<unsigne
 {
     unsigned numberOfWorkers = Options::get()->getInt( Options::NUM_WORKERS );
 
-    Map<GurobiWrapper *, unsigned> solverToIndex;
+    Map<LPSolver *, unsigned> solverToIndex;
     // Create a queue of free workers
     // When a worker is working, it is popped off the queue, when it is done, it
     // is added back to the queue.
     SolverQueue freeSolvers( numberOfWorkers );
     for ( unsigned i = 0; i < numberOfWorkers; ++i )
     {
-        GurobiWrapper *gurobi = new GurobiWrapper();
+        LPSolver *gurobi = createLPSolver( Options::get()->getLPSolverType() );
         solverToIndex[gurobi] = i;
         enqueueSolver( freeSolvers, gurobi );
     }
@@ -291,7 +293,7 @@ void MILPFormulator::optimizeBoundsOfNeuronsWithMILPEncoding( ThreadArgument &ar
     unsigned targetIndex = args._targetIndex;
     unsigned lastIndexOfRelaxation = args._lastIndexOfRelaxation;
 
-    Map<GurobiWrapper *, unsigned> solverToIndex = *args._solverToIndex;
+    Map<LPSolver *, unsigned> solverToIndex = *args._solverToIndex;
     SolverQueue &freeSolvers = args._freeSolvers;
     std::mutex &mtx = args._mtx;
     std::atomic_bool &infeasible = args._infeasible;
@@ -373,7 +375,7 @@ void MILPFormulator::optimizeBoundsOfNeuronsWithMILPEncoding( ThreadArgument &ar
         }
 
         // Wait until there is an idle solver
-        GurobiWrapper *freeSolver;
+        LPSolver *freeSolver;
         while ( !freeSolvers.pop( freeSolver ) )
             boost::this_thread::sleep_for( waitTime );
 
@@ -429,7 +431,7 @@ void MILPFormulator::tightenSingleVariableBoundsWithMILPEncoding( ThreadArgument
           ReLUs, as their phase would become fixed in these cases)
         */
 
-        GurobiWrapper *gurobi = argument._gurobi;
+        LPSolver *gurobi = argument._lpSolver;
         Layer *layer = argument._layer;
         const Map<unsigned, Layer *> &layers = *( argument._layers );
         unsigned index = argument._index;
@@ -457,7 +459,7 @@ void MILPFormulator::tightenSingleVariableBoundsWithMILPEncoding( ThreadArgument
         if ( !skipTightenLb )
         {
             log( Stringf( "Computing lowerbound..." ).ascii() );
-            double lb = optimizeWithGurobi(
+            double lb = optimizeWithLPSolver(
                 *gurobi, MinOrMax::MIN, variableName, cutoffValue, &infeasible );
             log( Stringf( "Lowerbound computed: %f", lb ).ascii() );
 
@@ -486,7 +488,7 @@ void MILPFormulator::tightenSingleVariableBoundsWithMILPEncoding( ThreadArgument
         {
             log( Stringf( "Computing upperbound..." ).ascii() );
             gurobi->reset();
-            double ub = optimizeWithGurobi(
+            double ub = optimizeWithLPSolver(
                 *gurobi, MinOrMax::MAX, variableName, cutoffValue, &infeasible );
             log( Stringf( "Upperbound computed %f", ub ).ascii() );
 
@@ -527,7 +529,7 @@ void MILPFormulator::tightenSingleVariableBoundsWithMILPEncoding( ThreadArgument
         if ( !skipTightenLb )
         {
             log( Stringf( "Computing lowerbound..." ).ascii() );
-            double lb = optimizeWithGurobi(
+            double lb = optimizeWithLPSolver(
                 *gurobi, MinOrMax::MIN, variableName, cutoffValue, &infeasible );
             log( Stringf( "Lowerbound computed: %f", lb ).ascii() );
 
@@ -559,7 +561,7 @@ void MILPFormulator::tightenSingleVariableBoundsWithMILPEncoding( ThreadArgument
 
             log( Stringf( "Computing upperbound..." ).ascii() );
             gurobi->reset();
-            double ub = optimizeWithGurobi(
+            double ub = optimizeWithLPSolver(
                 *gurobi, MinOrMax::MAX, variableName, cutoffValue, &infeasible );
             log( Stringf( "Upperbound computed %f", ub ).ascii() );
 
@@ -585,12 +587,12 @@ void MILPFormulator::tightenSingleVariableBoundsWithMILPEncoding( ThreadArgument
     }
     catch ( boost::thread_interrupted & )
     {
-        enqueueSolver( argument._freeSolvers, argument._gurobi );
+        enqueueSolver( argument._freeSolvers, argument._lpSolver );
     }
 }
 
 void MILPFormulator::createMILPEncoding( const Map<unsigned, Layer *> &layers,
-                                         GurobiWrapper &gurobi,
+                                         LPSolver &gurobi,
                                          unsigned lastLayer )
 {
     // First, create the LP relaxation of the problem
@@ -606,7 +608,7 @@ void MILPFormulator::createMILPEncoding( const Map<unsigned, Layer *> &layers,
     }
 }
 
-void MILPFormulator::addLayerToModel( GurobiWrapper &gurobi,
+void MILPFormulator::addLayerToModel( LPSolver &gurobi,
                                       const Layer *layer,
                                       LayerOwner *layerOwner )
 {
@@ -626,7 +628,7 @@ void MILPFormulator::addLayerToModel( GurobiWrapper &gurobi,
     }
 }
 
-void MILPFormulator::addNeuronToModel( GurobiWrapper &gurobi,
+void MILPFormulator::addNeuronToModel( LPSolver &gurobi,
                                        const Layer *layer,
                                        unsigned neuron,
                                        LayerOwner *layerOwner )
@@ -666,21 +668,21 @@ void MILPFormulator::addNeuronToModel( GurobiWrapper &gurobi,
       y - ua <= 0
     */
 
-    gurobi.addVariable( Stringf( "a%u", targetVariable ), 0, 1, GurobiWrapper::BINARY );
+    gurobi.addVariable( Stringf( "a%u", targetVariable ), 0, 1, LPSolver::BINARY );
 
-    List<GurobiWrapper::Term> terms;
-    terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-    terms.append( GurobiWrapper::Term( -1, Stringf( "x%u", sourceVariable ) ) );
-    terms.append( GurobiWrapper::Term( -sourceLb, Stringf( "a%u", targetVariable ) ) );
+    List<LPSolver::Term> terms;
+    terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+    terms.append( LPSolver::Term( -1, Stringf( "x%u", sourceVariable ) ) );
+    terms.append( LPSolver::Term( -sourceLb, Stringf( "a%u", targetVariable ) ) );
     gurobi.addLeqConstraint( terms, -sourceLb );
 
     terms.clear();
-    terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-    terms.append( GurobiWrapper::Term( -sourceUb, Stringf( "a%u", targetVariable ) ) );
+    terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+    terms.append( LPSolver::Term( -sourceUb, Stringf( "a%u", targetVariable ) ) );
     gurobi.addLeqConstraint( terms, 0 );
 }
 
-void MILPFormulator::addReluLayerToMILPFormulation( GurobiWrapper &gurobi,
+void MILPFormulator::addReluLayerToMILPFormulation( LPSolver &gurobi,
                                                     const Layer *layer,
                                                     LayerOwner *layerOwner )
 {
@@ -690,14 +692,14 @@ void MILPFormulator::addReluLayerToMILPFormulation( GurobiWrapper &gurobi,
     }
 }
 
-double MILPFormulator::optimizeWithGurobi( GurobiWrapper &gurobi,
+double MILPFormulator::optimizeWithLPSolver( LPSolver &gurobi,
                                            MinOrMax minOrMax,
                                            String variableName,
                                            double cutoffValue,
                                            std::atomic_bool *infeasible )
 {
-    List<GurobiWrapper::Term> terms;
-    terms.append( GurobiWrapper::Term( 1, variableName ) );
+    List<LPSolver::Term> terms;
+    terms.append( LPSolver::Term( 1, variableName ) );
 
     if ( minOrMax == MAX )
         gurobi.setObjective( terms );
@@ -732,7 +734,7 @@ double MILPFormulator::optimizeWithGurobi( GurobiWrapper &gurobi,
         return gurobi.getObjectiveBound();
     }
 
-    throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_GUROBI );
+    throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_LP_SOLVER );
 }
 
 void MILPFormulator::storeUbIfNeeded( Layer *layer,
@@ -775,7 +777,7 @@ void MILPFormulator::setCutoff( double cutoff )
     _cutoffValue = cutoff;
 }
 
-bool MILPFormulator::tightenUpperBound( GurobiWrapper &gurobi,
+bool MILPFormulator::tightenUpperBound( LPSolver &gurobi,
                                         Layer *layer,
                                         unsigned neuron,
                                         unsigned variable,
@@ -785,8 +787,8 @@ bool MILPFormulator::tightenUpperBound( GurobiWrapper &gurobi,
 
     Stringf variableName( "x%u", variable );
 
-    List<GurobiWrapper::Term> terms;
-    terms.append( GurobiWrapper::Term( 1, variableName ) );
+    List<LPSolver::Term> terms;
+    terms.append( LPSolver::Term( 1, variableName ) );
 
     gurobi.reset();
     gurobi.setObjective( terms );
@@ -810,7 +812,7 @@ bool MILPFormulator::tightenUpperBound( GurobiWrapper &gurobi,
     }
     else
     {
-        throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_GUROBI );
+        throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_LP_SOLVER );
     }
 
     Map<String, double> dontCare;
@@ -840,7 +842,7 @@ bool MILPFormulator::tightenUpperBound( GurobiWrapper &gurobi,
     return false;
 }
 
-bool MILPFormulator::tightenLowerBound( GurobiWrapper &gurobi,
+bool MILPFormulator::tightenLowerBound( LPSolver &gurobi,
                                         Layer *layer,
                                         unsigned neuron,
                                         unsigned variable,
@@ -849,8 +851,8 @@ bool MILPFormulator::tightenLowerBound( GurobiWrapper &gurobi,
     double newLb = FloatUtils::negativeInfinity();
     Stringf variableName( "x%u", variable );
 
-    List<GurobiWrapper::Term> terms;
-    terms.append( GurobiWrapper::Term( 1, variableName ) );
+    List<LPSolver::Term> terms;
+    terms.append( LPSolver::Term( 1, variableName ) );
 
     gurobi.reset();
     gurobi.setCost( terms );
@@ -874,7 +876,7 @@ bool MILPFormulator::tightenLowerBound( GurobiWrapper &gurobi,
     }
     else
     {
-        throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_GUROBI );
+        throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_LP_SOLVER );
     }
 
     // If the bound is tighter, store it

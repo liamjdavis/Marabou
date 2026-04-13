@@ -172,7 +172,12 @@ public:
 
     inline void updateModel() override
     {
-        // No-op: cuOpt builds model on solve()
+        // Invalidate cached solution so that haveFeasibleSolution() returns
+        // false until the next solve(). This is critical: the Engine checks
+        // haveFeasibleSolution() to decide whether to re-solve the LP after
+        // bound updates. Gurobi's model->update() implicitly invalidates
+        // SolCount; we must do the same.
+        _hasSolution = false;
     }
 
     // Reset the underlying model

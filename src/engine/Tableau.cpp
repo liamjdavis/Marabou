@@ -467,7 +467,7 @@ void Tableau::setUpperBound( unsigned variable, double value )
 
 bool Tableau::existsValue( unsigned variable ) const
 {
-    if ( _lpSolverType == LPSolverType::GUROBI )
+    if ( _lpSolverType != LPSolverType::NATIVE )
     {
         return _lpSolver && _lpSolver->existsAssignment( Stringf( "x%u", variable ) );
     }
@@ -480,7 +480,7 @@ bool Tableau::existsValue( unsigned variable ) const
 
 double Tableau::getValue( unsigned variable ) const
 {
-    if ( _lpSolverType == LPSolverType::GUROBI )
+    if ( _lpSolverType != LPSolverType::NATIVE )
     {
         ASSERT( _lpSolver );
         return _lpSolver->getAssignment( Stringf( "x%u", variable ) );
@@ -1784,7 +1784,7 @@ bool Tableau::allBoundsValid() const
 
 void Tableau::updateVariableToComplyWithLowerBoundUpdate( unsigned variable, double value )
 {
-    if ( _lpSolverType == LPSolverType::GUROBI )
+    if ( _lpSolverType != LPSolverType::NATIVE )
         return;
 
     unsigned index = _variableToIndex[variable];
@@ -1806,7 +1806,7 @@ void Tableau::updateVariableToComplyWithLowerBoundUpdate( unsigned variable, dou
 
 void Tableau::updateVariableToComplyWithUpperBoundUpdate( unsigned variable, double value )
 {
-    if ( _lpSolverType == LPSolverType::GUROBI )
+    if ( _lpSolverType != LPSolverType::NATIVE )
         return;
 
     unsigned index = _variableToIndex[variable];

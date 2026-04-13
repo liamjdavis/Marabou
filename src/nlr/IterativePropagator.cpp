@@ -48,14 +48,14 @@ void IterativePropagator::optimizeBoundsWithIterativePropagation(
     // Time to wait if no idle worker is availble
     boost::chrono::milliseconds waitTime( numberOfWorkers - 1 );
 
-    Map<GurobiWrapper *, unsigned> solverToIndex;
+    Map<LPSolver *, unsigned> solverToIndex;
     // Create a queue of free workers
     // When a worker is working, it is popped off the queue, when it is done, it
     // is added back to the queue.
     SolverQueue freeSolvers( numberOfWorkers );
     for ( unsigned i = 0; i < numberOfWorkers; ++i )
     {
-        GurobiWrapper *gurobi = new GurobiWrapper();
+        LPSolver *gurobi = createLPSolver( Options::get()->getLPSolverType() );
         solverToIndex[gurobi] = i;
         enqueueSolver( freeSolvers, gurobi );
     }
@@ -164,7 +164,7 @@ void IterativePropagator::optimizeBoundsWithIterativePropagation(
                 }
 
                 // Wait until there is an idle solver
-                GurobiWrapper *freeSolver;
+                LPSolver *freeSolver;
                 while ( !freeSolvers.pop( freeSolver ) )
                     boost::this_thread::sleep_for( waitTime );
 
@@ -235,14 +235,14 @@ void IterativePropagator::setCutoff( double cutoff )
 }
 
 
-double IterativePropagator::optimizeWithGurobi( GurobiWrapper &gurobi,
+double IterativePropagator::optimizeWithLPSolver( LPSolver &gurobi,
                                                 MinOrMax minOrMax,
                                                 String variableName,
                                                 double cutoffValue,
                                                 std::atomic_bool *infeasible )
 {
-    List<GurobiWrapper::Term> terms;
-    terms.append( GurobiWrapper::Term( 1, variableName ) );
+    List<LPSolver::Term> terms;
+    terms.append( LPSolver::Term( 1, variableName ) );
 
     if ( minOrMax == MAX )
         gurobi.setObjective( terms );
@@ -277,7 +277,7 @@ double IterativePropagator::optimizeWithGurobi( GurobiWrapper &gurobi,
         return gurobi.getObjectiveBound();
     }
 
-    throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_GUROBI );
+    throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_LP_SOLVER );
 }
 
 void IterativePropagator::tightenSingleVariableBounds( ThreadArgument &argument )
@@ -296,18 +296,18 @@ void IterativePropagator::tightenSingleVariableBounds( ThreadArgument &argument 
                 tightenSingleVariableLowerBounds( argument );
         }
         SolverQueue &freeSolvers = argument._freeSolvers;
-        GurobiWrapper *gurobi = argument._gurobi;
+        LPSolver *gurobi = argument._lpSolver;
         enqueueSolver( freeSolvers, gurobi );
     }
     catch ( boost::thread_interrupted & )
     {
-        enqueueSolver( argument._freeSolvers, argument._gurobi );
+        enqueueSolver( argument._freeSolvers, argument._lpSolver );
     }
 }
 
 bool IterativePropagator::tightenSingleVariableLowerBounds( ThreadArgument &argument )
 {
-    GurobiWrapper *gurobi = argument._gurobi;
+    LPSolver *gurobi = argument._lpSolver;
     Layer *layer = argument._layer;
     unsigned index = argument._index;
     double currentLb = argument._currentLb;
@@ -325,7 +325,7 @@ bool IterativePropagator::tightenSingleVariableLowerBounds( ThreadArgument &argu
     Stringf variableName( "x%u", variable );
     gurobi->reset();
     double lb =
-        optimizeWithGurobi( *gurobi, MinOrMax::MIN, variableName, cutoffValue, &infeasible );
+        optimizeWithLPSolver( *gurobi, MinOrMax::MIN, variableName, cutoffValue, &infeasible );
 
     // Store the new bound if it is tighter
     if ( lb > currentLb )
@@ -360,7 +360,7 @@ bool IterativePropagator::tightenSingleVariableLowerBounds( ThreadArgument &argu
 
 bool IterativePropagator::tightenSingleVariableUpperBounds( ThreadArgument &argument )
 {
-    GurobiWrapper *gurobi = argument._gurobi;
+    LPSolver *gurobi = argument._lpSolver;
     Layer *layer = argument._layer;
     unsigned index = argument._index;
     double currentUb = argument._currentUb;
@@ -378,7 +378,7 @@ bool IterativePropagator::tightenSingleVariableUpperBounds( ThreadArgument &argu
     Stringf variableName( "x%u", variable );
     gurobi->reset();
     double ub =
-        optimizeWithGurobi( *gurobi, MinOrMax::MAX, variableName, cutoffValue, &infeasible );
+        optimizeWithLPSolver( *gurobi, MinOrMax::MAX, variableName, cutoffValue, &infeasible );
 
     // Store the new bound if it is tighter
     if ( ub < currentUb )

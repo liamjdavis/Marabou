@@ -101,7 +101,7 @@ int marabouMain( int argc, char **argv )
         }
 
         if ( options->getBool( Options::PRODUCE_PROOFS ) &&
-             ( options->getLPSolverType() == LPSolverType::GUROBI ) )
+             ( options->getLPSolverType() != LPSolverType::NATIVE ) )
         {
             options->setString( Options::LP_SOLVER, "native" );
             printf( "Proof production is not yet supported with MILP solvers, using native simplex "

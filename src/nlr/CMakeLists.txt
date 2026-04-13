@@ -19,7 +19,7 @@ network_level_reasoner_add_unit_test(NetworkLevelReasoner)
 network_level_reasoner_add_unit_test(WsLayerElimination)
 network_level_reasoner_add_unit_test(ParallelSolver)
 
-if (${ENABLE_GUROBI})
+if (${ENABLE_GUROBI} OR ${ENABLE_CUOPT})
     network_level_reasoner_add_unit_test(LPRelaxation)
 endif()
 

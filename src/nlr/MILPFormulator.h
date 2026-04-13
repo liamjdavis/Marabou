@@ -16,7 +16,7 @@
 #ifndef __MILPFormulator_h__
 #define __MILPFormulator_h__
 
-#include "GurobiWrapper.h"
+#include "LPSolver.h"
 #include "LPFormulator.h"
 #include "LayerOwner.h"
 
@@ -52,7 +52,7 @@ public:
     void setCutoff( double cutoff );
 
     void createMILPEncoding( const Map<unsigned, Layer *> &layers,
-                             GurobiWrapper &gurobi,
+                             LPSolver &gurobi,
                              unsigned lastLayer = UINT_MAX );
 
 private:
@@ -64,26 +64,26 @@ private:
     bool _cutoffInUse;
     double _cutoffValue;
 
-    bool tightenLowerBound( GurobiWrapper &gurobi,
+    bool tightenLowerBound( LPSolver &gurobi,
                             Layer *layer,
                             unsigned neuron,
                             unsigned variable,
                             double &currentLb );
 
-    bool tightenUpperBound( GurobiWrapper &gurobi,
+    bool tightenUpperBound( LPSolver &gurobi,
                             Layer *layer,
                             unsigned neuron,
                             unsigned variable,
                             double &currentUb );
 
     static void
-    addLayerToModel( GurobiWrapper &gurobi, const Layer *layer, LayerOwner *layerOwner );
+    addLayerToModel( LPSolver &gurobi, const Layer *layer, LayerOwner *layerOwner );
 
-    static void addReluLayerToMILPFormulation( GurobiWrapper &gurobi,
+    static void addReluLayerToMILPFormulation( LPSolver &gurobi,
                                                const Layer *layer,
                                                LayerOwner *layerOwner );
 
-    static void addNeuronToModel( GurobiWrapper &gurobi,
+    static void addNeuronToModel( LPSolver &gurobi,
                                   const Layer *layer,
                                   unsigned neuron,
                                   LayerOwner *layerOwner );
@@ -92,7 +92,7 @@ private:
       Optimize for the min/max value of variableName with respect to the constraints
       encoded in gurobi. If the query is infeasible, *infeasible is set to true.
     */
-    static double optimizeWithGurobi( GurobiWrapper &gurobi,
+    static double optimizeWithLPSolver( LPSolver &gurobi,
                                       MinOrMax minOrMax,
                                       String variableName,
                                       double cutoffValue,
