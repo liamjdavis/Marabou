@@ -16,8 +16,8 @@
 #ifndef __MILPFormulator_h__
 #define __MILPFormulator_h__
 
-#include "LPSolver.h"
 #include "LPFormulator.h"
+#include "LPSolver.h"
 #include "LayerOwner.h"
 
 #include <atomic>
@@ -76,12 +76,10 @@ private:
                             unsigned variable,
                             double &currentUb );
 
-    static void
-    addLayerToModel( LPSolver &gurobi, const Layer *layer, LayerOwner *layerOwner );
+    static void addLayerToModel( LPSolver &gurobi, const Layer *layer, LayerOwner *layerOwner );
 
-    static void addReluLayerToMILPFormulation( LPSolver &gurobi,
-                                               const Layer *layer,
-                                               LayerOwner *layerOwner );
+    static void
+    addReluLayerToMILPFormulation( LPSolver &gurobi, const Layer *layer, LayerOwner *layerOwner );
 
     static void addNeuronToModel( LPSolver &gurobi,
                                   const Layer *layer,
@@ -93,10 +91,10 @@ private:
       encoded in gurobi. If the query is infeasible, *infeasible is set to true.
     */
     static double optimizeWithLPSolver( LPSolver &gurobi,
-                                      MinOrMax minOrMax,
-                                      String variableName,
-                                      double cutoffValue,
-                                      std::atomic_bool *infeasible = NULL );
+                                        MinOrMax minOrMax,
+                                        String variableName,
+                                        double cutoffValue,
+                                        std::atomic_bool *infeasible = NULL );
 
     void storeUbIfNeeded( Layer *layer, unsigned neuron, unsigned variable, double newUb );
 

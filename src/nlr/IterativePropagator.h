@@ -60,10 +60,10 @@ private:
       encoded in gurobi. If the query is infeasible, *infeasible is set to true.
     */
     static double optimizeWithLPSolver( LPSolver &gurobi,
-                                      MinOrMax minOrMax,
-                                      String variableName,
-                                      double cutoffValue,
-                                      std::atomic_bool *infeasible = NULL );
+                                        MinOrMax minOrMax,
+                                        String variableName,
+                                        double cutoffValue,
+                                        std::atomic_bool *infeasible = NULL );
 
     /*
       Tighten the upper- and lower- bound of a varaible

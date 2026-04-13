@@ -16,8 +16,8 @@
 #include "LPFormulator.h"
 
 #include "DeepPolySoftmaxElement.h"
-#include "LPSolver.h"
 #include "InfeasibleQueryException.h"
+#include "LPSolver.h"
 #include "Layer.h"
 #include "MStringf.h"
 #include "NLRError.h"
@@ -52,10 +52,10 @@ double LPFormulator::solveLPRelaxation( LPSolver &gurobi,
 }
 
 double LPFormulator::optimizeWithLPSolver( LPSolver &gurobi,
-                                         MinOrMax minOrMax,
-                                         String variableName,
-                                         double cutoffValue,
-                                         std::atomic_bool *infeasible )
+                                           MinOrMax minOrMax,
+                                           String variableName,
+                                           double cutoffValue,
+                                           std::atomic_bool *infeasible )
 {
     List<LPSolver::Term> terms;
     terms.append( LPSolver::Term( 1, variableName ) );
@@ -693,9 +693,7 @@ void LPFormulator::createLPRelaxationAfter( const Map<unsigned, Layer *> &layers
     }
 }
 
-void LPFormulator::addLayerToModel( LPSolver &gurobi,
-                                    const Layer *layer,
-                                    bool createVariables )
+void LPFormulator::addLayerToModel( LPSolver &gurobi, const Layer *layer, bool createVariables )
 {
     switch ( layer->getLayerType() )
     {
@@ -841,7 +839,7 @@ void LPFormulator::addReluLayerToLpRelaxation( LPSolver &gurobi,
                 terms.clear();
                 terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
                 terms.append( LPSolver::Term( -sourceUb / ( sourceUb - sourceLb ),
-                                                   Stringf( "x%u", sourceVariable ) ) );
+                                              Stringf( "x%u", sourceVariable ) ) );
                 gurobi.addLeqConstraint( terms,
                                          ( -sourceUb * sourceLb ) / ( sourceUb - sourceLb ) );
             }
@@ -1062,8 +1060,7 @@ void LPFormulator::addSigmoidLayerToLpRelaxation( LPSolver &gurobi,
                     // lambda * l
                     terms.clear();
                     terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
-                    terms.append(
-                        LPSolver::Term( -lambda, Stringf( "x%u", sourceVariable ) ) );
+                    terms.append( LPSolver::Term( -lambda, Stringf( "x%u", sourceVariable ) ) );
                     gurobi.addGeqConstraint( terms, sourceLbSigmoid - sourceLb * lambda );
                 }
 
@@ -1085,8 +1082,7 @@ void LPFormulator::addSigmoidLayerToLpRelaxation( LPSolver &gurobi,
                     // lambda * u
                     terms.clear();
                     terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
-                    terms.append(
-                        LPSolver::Term( -lambda, Stringf( "x%u", sourceVariable ) ) );
+                    terms.append( LPSolver::Term( -lambda, Stringf( "x%u", sourceVariable ) ) );
                     gurobi.addLeqConstraint( terms, sourceUbSigmoid - sourceUb * lambda );
                 }
                 else
@@ -1181,8 +1177,7 @@ void LPFormulator::addSignLayerToLpRelaxation( LPSolver &gurobi,
             */
             terms.clear();
             terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
-            terms.append(
-                LPSolver::Term( -2.0 / sourceUb, Stringf( "x%u", sourceVariable ) ) );
+            terms.append( LPSolver::Term( -2.0 / sourceUb, Stringf( "x%u", sourceVariable ) ) );
             gurobi.addGeqConstraint( terms, -1 );
         }
     }
@@ -1367,8 +1362,7 @@ void LPFormulator::addSoftmaxLayerToLpRelaxation( LPSolver &gurobi,
                         unsigned sourceVariable = sourceLayer->neuronToVariable( sourceNeuron );
                         double dldj = DeepPolySoftmaxElement::dLSELowerBound(
                             sourceMids, sourceLbs, sourceUbs, index, inputIndex );
-                        terms.append(
-                            LPSolver::Term( -dldj, Stringf( "x%u", sourceVariable ) ) );
+                        terms.append( LPSolver::Term( -dldj, Stringf( "x%u", sourceVariable ) ) );
                         bias -= dldj * sourceMids[inputIndex];
                         ++inputIndex;
                     }
@@ -1387,8 +1381,7 @@ void LPFormulator::addSoftmaxLayerToLpRelaxation( LPSolver &gurobi,
                         unsigned sourceVariable = sourceLayer->neuronToVariable( sourceNeuron );
                         double dldj = DeepPolySoftmaxElement::dLSELowerBound2(
                             sourceMids, sourceLbs, sourceUbs, index, inputIndex );
-                        terms.append(
-                            LPSolver::Term( -dldj, Stringf( "x%u", sourceVariable ) ) );
+                        terms.append( LPSolver::Term( -dldj, Stringf( "x%u", sourceVariable ) ) );
                         bias -= dldj * sourceMids[inputIndex];
                         ++inputIndex;
                     }

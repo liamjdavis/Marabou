@@ -15,9 +15,9 @@
 
 #include "MILPFormulator.h"
 
-#include "LPSolver.h"
 #include "InfeasibleQueryException.h"
 #include "LPFormulator.h"
+#include "LPSolver.h"
 #include "Layer.h"
 #include "MStringf.h"
 #include "NLRError.h"
@@ -608,9 +608,7 @@ void MILPFormulator::createMILPEncoding( const Map<unsigned, Layer *> &layers,
     }
 }
 
-void MILPFormulator::addLayerToModel( LPSolver &gurobi,
-                                      const Layer *layer,
-                                      LayerOwner *layerOwner )
+void MILPFormulator::addLayerToModel( LPSolver &gurobi, const Layer *layer, LayerOwner *layerOwner )
 {
     switch ( layer->getLayerType() )
     {
@@ -693,10 +691,10 @@ void MILPFormulator::addReluLayerToMILPFormulation( LPSolver &gurobi,
 }
 
 double MILPFormulator::optimizeWithLPSolver( LPSolver &gurobi,
-                                           MinOrMax minOrMax,
-                                           String variableName,
-                                           double cutoffValue,
-                                           std::atomic_bool *infeasible )
+                                             MinOrMax minOrMax,
+                                             String variableName,
+                                             double cutoffValue,
+                                             std::atomic_bool *infeasible )
 {
     List<LPSolver::Term> terms;
     terms.append( LPSolver::Term( 1, variableName ) );

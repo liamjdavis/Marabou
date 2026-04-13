@@ -91,41 +91,32 @@ private:
 
     void addInputLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer );
 
-    void
-    addReluLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
-
-    void addLeakyReluLayerToLpRelaxation( LPSolver &gurobi,
-                                          const Layer *layer,
-                                          bool createVariables );
+    void addReluLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
     void
-    addSignLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
+    addLeakyReluLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
-    void
-    addMaxLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
+    void addSignLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
-    void
-    addRoundLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
+    void addMaxLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
+
+    void addRoundLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
     void addAbsoluteValueLayerToLpRelaxation( LPSolver &gurobi,
                                               const Layer *layer,
                                               bool createVariables );
 
-    void addSigmoidLayerToLpRelaxation( LPSolver &gurobi,
-                                        const Layer *layer,
-                                        bool createVariables );
+    void
+    addSigmoidLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
-    void addSoftmaxLayerToLpRelaxation( LPSolver &gurobi,
-                                        const Layer *layer,
-                                        bool createVariables );
+    void
+    addSoftmaxLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
-    void addBilinearLayerToLpRelaxation( LPSolver &gurobi,
-                                         const Layer *layer,
-                                         bool createVariables );
+    void
+    addBilinearLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
-    void addWeightedSumLayerToLpRelaxation( LPSolver &gurobi,
-                                            const Layer *layer,
-                                            bool createVariables );
+    void
+    addWeightedSumLayerToLpRelaxation( LPSolver &gurobi, const Layer *layer, bool createVariables );
 
     void optimizeBoundsOfNeuronsWithLpRlaxation( ThreadArgument &args, bool backward );
 
@@ -134,10 +125,10 @@ private:
       encoded in gurobi. If the query is infeasible, *infeasible is set to true.
     */
     static double optimizeWithLPSolver( LPSolver &gurobi,
-                                      MinOrMax minOrMax,
-                                      String variableName,
-                                      double cutoffValue,
-                                      std::atomic_bool *infeasible = NULL );
+                                        MinOrMax minOrMax,
+                                        String variableName,
+                                        double cutoffValue,
+                                        std::atomic_bool *infeasible = NULL );
 
     /*
       Tighten the upper- and lower- bound of a varaible with LPRelaxation

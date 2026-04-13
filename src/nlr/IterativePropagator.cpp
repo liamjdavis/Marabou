@@ -236,10 +236,10 @@ void IterativePropagator::setCutoff( double cutoff )
 
 
 double IterativePropagator::optimizeWithLPSolver( LPSolver &gurobi,
-                                                MinOrMax minOrMax,
-                                                String variableName,
-                                                double cutoffValue,
-                                                std::atomic_bool *infeasible )
+                                                  MinOrMax minOrMax,
+                                                  String variableName,
+                                                  double cutoffValue,
+                                                  std::atomic_bool *infeasible )
 {
     List<LPSolver::Term> terms;
     terms.append( LPSolver::Term( 1, variableName ) );
