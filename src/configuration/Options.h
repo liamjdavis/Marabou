@@ -209,6 +209,20 @@ public:
 #endif
     }
 
+    bool cuoptEnabled() const
+    {
+#ifdef ENABLE_CUOPT
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    bool externalSolverEnabled() const
+    {
+        return gurobiEnabled() || cuoptEnabled();
+    }
+
 private:
     /*
       Disable default constructor and copy constructor

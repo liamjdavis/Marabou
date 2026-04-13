@@ -122,10 +122,10 @@ const unsigned GlobalConfiguration::MAX_ROUNDS_OF_BACKWARD_ANALYSIS = 10;
 const bool GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES = true;
 const bool GlobalConfiguration::MINIMIZE_PROOF_DEPENDENCIES = true;
 
-#ifdef ENABLE_GUROBI
+#if defined( ENABLE_GUROBI ) || defined( ENABLE_CUOPT )
 const unsigned GlobalConfiguration::GUROBI_NUMBER_OF_THREADS = 1;
 const bool GlobalConfiguration::GUROBI_LOGGING = false;
-#endif // ENABLE_GUROBI
+#endif // ENABLE_GUROBI || ENABLE_CUOPT
 
 // Logging - note that it is enabled only in Debug mode
 const bool GlobalConfiguration::DNC_MANAGER_LOGGING = false;

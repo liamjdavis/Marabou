@@ -98,7 +98,8 @@ void Options::initializeDefaultValues()
     _stringOptions[EXPORT_ASSIGNMENT_FILE_PATH] = "assignment.txt";
     _stringOptions[SOI_SEARCH_STRATEGY] = "mcmc";
     _stringOptions[SOI_INITIALIZATION_STRATEGY] = "input-assignment";
-    _stringOptions[LP_SOLVER] = gurobiEnabled() ? "gurobi" : "native";
+    _stringOptions[LP_SOLVER] =
+        gurobiEnabled() ? "gurobi" : ( cuoptEnabled() ? "cuopt" : "native" );
     _stringOptions[SOFTMAX_BOUND_TYPE] = "lse";
 }
 
@@ -197,7 +198,7 @@ SymbolicBoundTighteningType Options::getSymbolicBoundTighteningType() const
 
 MILPSolverBoundTighteningType Options::getMILPSolverBoundTighteningType() const
 {
-    if ( gurobiEnabled() )
+    if ( externalSolverEnabled() )
     {
         String strategyString =
             String( _stringOptions.get( Options::MILP_SOLVER_BOUND_TIGHTENING_TYPE ) );
@@ -260,8 +261,16 @@ LPSolverType Options::getLPSolverType() const
     }
     else if ( solverString == "gurobi" )
         return LPSolverType::GUROBI;
+    else if ( solverString == "cuopt" )
+        return LPSolverType::CUOPT;
     else
-        return gurobiEnabled() ? LPSolverType::GUROBI : LPSolverType::NATIVE;
+    {
+        if ( gurobiEnabled() )
+            return LPSolverType::GUROBI;
+        if ( cuoptEnabled() )
+            return LPSolverType::CUOPT;
+        return LPSolverType::NATIVE;
+    }
 }
 
 SoftmaxBoundType Options::getSoftmaxBoundType() const

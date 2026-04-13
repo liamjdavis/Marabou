@@ -23,6 +23,10 @@ enum class LPSolverType {
 
     // Not open-sourced. Use this for optimal run-time performance.
     GUROBI,
+
+    // NVIDIA cuOpt GPU-accelerated LP solver. Supports LP relaxation
+    // but not indicator/piecewise-linear/bilinear constraints (no full MILP).
+    CUOPT,
 };
 
 #endif // __LPSolverType_h__

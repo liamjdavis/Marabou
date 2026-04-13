@@ -18,6 +18,7 @@
 
 #ifdef ENABLE_CUOPT
 
+#include "LPSolver.h"
 #include "List.h"
 #include "MString.h"
 #include "Map.h"
@@ -25,189 +26,163 @@
 
 #include <cuopt/linear_programming/cuopt_c.h>
 
-class CuOptWrapper
+class CuOptWrapper : public LPSolver
 {
 public:
-    enum VariableType {
-        CONTINUOUS = 0,
-        BINARY = 1,
-        INTEGER = 2,
-    };
-
-    /*
-      A term has the form: coefficient * variable
-    */
-    struct Term
-    {
-        Term( double coefficient, String variable )
-            : _coefficient( coefficient )
-            , _variable( variable )
-        {
-        }
-
-        Term()
-            : _coefficient( 0 )
-            , _variable( "" )
-        {
-        }
-
-        double _coefficient;
-        String _variable;
-    };
-
     CuOptWrapper();
     ~CuOptWrapper();
 
     // Add a new variable to the model
-    void addVariable( String name, double lb, double ub, VariableType type = CONTINUOUS );
+    void addVariable( String name, double lb, double ub, VariableType type = CONTINUOUS ) override;
 
     // Set the lower or upper bound for an existing variable
-    void setLowerBound( String name, double lb );
-    void setUpperBound( String name, double ub );
+    void setLowerBound( String name, double lb ) override;
+    void setUpperBound( String name, double ub ) override;
 
-    inline double getLowerBound( const String &name )
+    inline double getLowerBound( const String &name ) override
     {
         return _variableInfo[name]._lb;
     }
 
-    inline double getUpperBound( const String &name )
+    inline double getUpperBound( const String &name ) override
     {
         return _variableInfo[name]._ub;
     }
 
     // Add a new LEQ constraint, e.g. 3x + 4y <= -5
-    void addLeqConstraint( const List<Term> &terms, double scalar );
+    void addLeqConstraint( const List<Term> &terms, double scalar ) override;
 
     // Add a new GEQ constraint, e.g. 3x + 4y >= -5
-    void addGeqConstraint( const List<Term> &terms, double scalar );
+    void addGeqConstraint( const List<Term> &terms, double scalar ) override;
 
     // Add a new EQ constraint, e.g. 3x + 4y = -5
-    void addEqConstraint( const List<Term> &terms, double scalar );
+    void addEqConstraint( const List<Term> &terms, double scalar ) override;
 
     // Unsupported: throws CommonError
     void addPiecewiseLinearConstraint( String sourceVariable,
                                        String targetVariable,
                                        unsigned numPoints,
                                        const double *xPoints,
-                                       const double *yPoints );
+                                       const double *yPoints ) override;
 
     // Unsupported: throws CommonError
     void addLeqIndicatorConstraint( const String binVarName,
                                     const int binVal,
                                     const List<Term> &terms,
-                                    double scalar );
+                                    double scalar ) override;
 
     // Unsupported: throws CommonError
     void addGeqIndicatorConstraint( const String binVarName,
                                     const int binVal,
                                     const List<Term> &terms,
-                                    double scalar );
+                                    double scalar ) override;
 
     // Unsupported: throws CommonError
     void addEqIndicatorConstraint( const String binVarName,
                                    const int binVal,
                                    const List<Term> &terms,
-                                   double scalar );
+                                   double scalar ) override;
 
     // Unsupported: throws CommonError
-    void addBilinearConstraint( const String input1, const String input2, const String output );
+    void
+    addBilinearConstraint( const String input1, const String input2, const String output ) override;
 
     // A cost function to minimize, or an objective function to maximize
-    void setCost( const List<Term> &terms, double constant = 0 );
-    void setObjective( const List<Term> &terms, double constant = 0 );
+    void setCost( const List<Term> &terms, double constant = 0 ) override;
+    void setObjective( const List<Term> &terms, double constant = 0 ) override;
 
-    inline double getOptimalCostOrObjective()
+    inline double getOptimalCostOrObjective() override
     {
         return _lastObjectiveValue;
     }
 
     // No-op for cuOpt
-    void setCutoff( double cutoff );
+    void setCutoff( double cutoff ) override;
 
     // Returns true iff an optimal solution has been found
-    bool optimal();
+    bool optimal() override;
 
     // No-op: always returns false
-    bool cutoffOccurred();
+    bool cutoffOccurred() override;
 
     // Returns true iff the instance is infeasible
-    bool infeasible();
+    bool infeasible() override;
 
     // Returns true iff the instance timed out
-    bool timeout();
+    bool timeout() override;
 
     // Returns true iff a feasible solution has been found
-    bool haveFeasibleSolution();
+    bool haveFeasibleSolution() override;
 
     // Specify a time limit, in seconds
-    void setTimeLimit( double seconds );
+    void setTimeLimit( double seconds ) override;
 
     // No-op for cuOpt
-    inline void setVerbosity( unsigned verbosity )
+    inline void setVerbosity( unsigned verbosity ) override
     {
         _verbosity = verbosity;
     }
 
-    inline bool containsVariable( String name ) const
+    inline bool containsVariable( String name ) const override
     {
         return _variableInfo.exists( name );
     }
 
     // No-op for cuOpt
-    inline void setNumberOfThreads( unsigned threads )
+    inline void setNumberOfThreads( unsigned threads ) override
     {
         _numThreads = threads;
     }
 
     // No-op for cuOpt
-    inline void nonConvex()
+    inline void nonConvex() override
     {
     }
 
     // Solve and extract the solution, or the best known bound on the
     // objective function
-    void solve();
-    void extractSolution( Map<String, double> &values, double &costOrObjective );
-    double getObjectiveBound();
+    void solve() override;
+    void extractSolution( Map<String, double> &values, double &costOrObjective ) override;
+    double getObjectiveBound() override;
 
-    inline double getAssignment( const String &variable )
+    inline double getAssignment( const String &variable ) override
     {
         return _lastSolutionValues[_variableInfo[variable]._index];
     }
 
-    inline bool existsAssignment( const String &variable )
+    inline bool existsAssignment( const String &variable ) override
     {
         return _variableInfo.exists( variable ) && _hasSolution;
     }
 
-    inline unsigned getNumberOfSimplexIterations()
+    inline unsigned getNumberOfSimplexIterations() override
     {
         return 0;
     }
 
-    inline unsigned getNumberOfNodes()
+    inline unsigned getNumberOfNodes() override
     {
         return 0;
     }
 
-    inline unsigned getStatusCode()
+    inline unsigned getStatusCode() override
     {
         return _terminationStatus;
     }
 
-    inline void updateModel()
+    inline void updateModel() override
     {
         // No-op: cuOpt builds model on solve()
     }
 
     // Reset the underlying model
-    void reset();
+    void reset() override;
 
     // Clear the underlying model and create a fresh model
-    void resetModel();
+    void resetModel() override;
 
     // No-op for cuOpt
-    void dumpModel( String name );
+    void dumpModel( String name ) override;
 
 private:
     struct VariableInfo
@@ -252,32 +227,17 @@ private:
 
 #else
 
+#include "LPSolver.h"
 #include "MString.h"
 #include "Map.h"
 
-class CuOptWrapper
+class CuOptWrapper : public LPSolver
 {
 public:
     /*
       This is a DUMMY class, for compilation purposes when cuOpt is
       disabled.
     */
-    enum VariableType {
-        CONTINUOUS = 0,
-        BINARY = 1,
-        INTEGER = 2,
-    };
-
-    struct Term
-    {
-        Term( double, String )
-        {
-        }
-        Term()
-        {
-        }
-    };
-
     CuOptWrapper()
     {
     }
@@ -285,122 +245,126 @@ public:
     {
     }
 
-    void addVariable( String, double, double, VariableType type = CONTINUOUS )
+    void addVariable( String, double, double, VariableType type = CONTINUOUS ) override
     {
         (void)type;
     }
-    void setLowerBound( String, double ){};
-    void setUpperBound( String, double ){};
-    double getLowerBound( const String & )
+    void setLowerBound( String, double ) override{};
+    void setUpperBound( String, double ) override{};
+    double getLowerBound( const String & ) override
     {
         return 0;
     };
-    double getUpperBound( const String & )
+    double getUpperBound( const String & ) override
     {
         return 0;
     };
-    void addLeqConstraint( const List<Term> &, double )
+    void addLeqConstraint( const List<Term> &, double ) override
     {
     }
-    void addGeqConstraint( const List<Term> &, double )
+    void addGeqConstraint( const List<Term> &, double ) override
     {
     }
-    void addEqConstraint( const List<Term> &, double )
+    void addEqConstraint( const List<Term> &, double ) override
     {
     }
-    void addPiecewiseLinearConstraint( String, String, unsigned, const double *, const double * )
+    void addPiecewiseLinearConstraint( String,
+                                       String,
+                                       unsigned,
+                                       const double *,
+                                       const double * ) override
     {
     }
-    void addLeqIndicatorConstraint( const String, const int, const List<Term> &, double )
+    void addLeqIndicatorConstraint( const String, const int, const List<Term> &, double ) override
     {
     }
-    void addGeqIndicatorConstraint( const String, const int, const List<Term> &, double )
+    void addGeqIndicatorConstraint( const String, const int, const List<Term> &, double ) override
     {
     }
-    void addEqIndicatorConstraint( const String, const int, const List<Term> &, double )
+    void addEqIndicatorConstraint( const String, const int, const List<Term> &, double ) override
     {
     }
-    void addBilinearConstraint( const String, const String, const String )
+    void addBilinearConstraint( const String, const String, const String ) override
     {
     }
-    void setCost( const List<Term> &, double /* constant */ = 0 )
+    void setCost( const List<Term> &, double /* constant */ = 0 ) override
     {
     }
-    void setObjective( const List<Term> &, double /* constant */ = 0 )
+    void setObjective( const List<Term> &, double /* constant */ = 0 ) override
     {
     }
-    double getOptimalCostOrObjective()
+    double getOptimalCostOrObjective() override
     {
         return 0;
     };
-    void setCutoff( double ){};
-    void solve()
+    void setCutoff( double ) override{};
+    void solve() override
     {
     }
-    void extractSolution( Map<String, double> &, double & )
+    void extractSolution( Map<String, double> &, double & ) override
     {
     }
-    void reset()
+    void reset() override
     {
     }
-    void resetModel()
+    void resetModel() override
     {
     }
-    bool optimal()
+    bool optimal() override
     {
         return true;
     }
-    bool cutoffOccurred()
+    bool cutoffOccurred() override
     {
         return false;
     };
-    bool infeasible()
+    bool infeasible() override
     {
         return false;
     };
-    bool timeout()
+    bool timeout() override
     {
         return false;
     };
-    bool haveFeasibleSolution()
+    bool haveFeasibleSolution() override
     {
         return true;
     };
-    void setTimeLimit( double ){};
-    void setVerbosity( unsigned ){};
-    bool containsVariable( String /*name*/ ) const
+    void setTimeLimit( double ) override{};
+    void setVerbosity( unsigned ) override{};
+    bool containsVariable( String /*name*/ ) const override
     {
         return false;
     };
-    void setNumberOfThreads( unsigned ){};
-    void nonConvex(){};
-    double getObjectiveBound()
+    void setNumberOfThreads( unsigned ) override{};
+    void nonConvex() override{};
+    double getObjectiveBound() override
     {
         return 0;
     };
-    double getAssignment( const String & )
+    double getAssignment( const String & ) override
     {
         return 0;
     };
-    unsigned getNumberOfSimplexIterations()
+    unsigned getNumberOfSimplexIterations() override
     {
         return 0;
     };
-    unsigned getNumberOfNodes()
+    unsigned getNumberOfNodes() override
     {
         return 0;
     };
-    unsigned getStatusCode()
+    unsigned getStatusCode() override
     {
         return 0;
     };
-    void updateModel(){};
-    bool existsAssignment( const String & )
+    void updateModel() override{};
+    bool existsAssignment( const String & ) override
     {
         return false;
     };
 
-    void dump()
+    void dumpModel( String ) override
     {
     }
     static void log( const String & );

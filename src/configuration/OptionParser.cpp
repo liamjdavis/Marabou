@@ -75,11 +75,11 @@ void OptionParser::initialize()
         boost::program_options::value<int>( &( *_intOptions )[Options::TIMEOUT] )
             ->default_value( ( *_intOptions )[Options::TIMEOUT] ),
         "Global timeout in seconds. 0 means no timeout." )
-#ifdef ENABLE_GUROBI
+#if defined( ENABLE_GUROBI ) || defined( ENABLE_CUOPT )
         ( "milp",
           boost::program_options::bool_switch( &( *_boolOptions )[Options::SOLVE_WITH_MILP] )
               ->default_value( ( *_boolOptions )[Options::SOLVE_WITH_MILP] ),
-          "Solve the input query with a MILP encoding in Gruobi." )
+          "Solve the input query with a MILP encoding (requires Gurobi)." )
 #endif
         ;
 
@@ -242,11 +242,11 @@ void OptionParser::initialize()
             ->default_value(
                 ( *_boolOptions )[Options::DO_NOT_MERGE_CONSECUTIVE_WEIGHTED_SUM_LAYERS] ),
         "Do no merge consecutive weighted-sum layers." )
-#ifdef ENABLE_GUROBI
+#if defined( ENABLE_GUROBI ) || defined( ENABLE_CUOPT )
         ( "lp-solver",
           boost::program_options::value<std::string>( &( ( *_stringOptions )[Options::LP_SOLVER] ) )
               ->default_value( ( *_stringOptions )[Options::LP_SOLVER] ),
-          "Solver for the LPs during the complete analysis: native/gurobi." )(
+          "Solver for the LPs during the complete analysis: native/gurobi/cuopt." )(
             "num-simulations",
             boost::program_options::value<int>(
                 &( ( *_intOptions )[Options::NUMBER_OF_SIMULATIONS] ) )

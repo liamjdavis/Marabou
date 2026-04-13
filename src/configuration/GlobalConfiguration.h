@@ -272,13 +272,13 @@ public:
     static const bool MINIMIZE_PROOF_DEPENDENCIES;
 
 
-#ifdef ENABLE_GUROBI
+#if defined( ENABLE_GUROBI ) || defined( ENABLE_CUOPT )
     /*
-      The number of threads Gurobi spawns
+      The number of threads the external LP solver spawns
     */
     static const unsigned GUROBI_NUMBER_OF_THREADS;
     static const bool GUROBI_LOGGING;
-#endif // ENABLE_GUROBI
+#endif // ENABLE_GUROBI || ENABLE_CUOPT
 
     /*
       Logging options
