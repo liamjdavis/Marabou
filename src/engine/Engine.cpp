@@ -59,11 +59,11 @@ Engine::Engine()
     , _symbolicBoundTighteningType( Options::get()->getSymbolicBoundTighteningType() )
     , _solveWithMILP( Options::get()->getBool( Options::SOLVE_WITH_MILP ) )
     , _lpSolverType( Options::get()->getLPSolverType() )
-    , _gurobi( nullptr )
+    , _lpSolver( nullptr )
     , _milpEncoder( nullptr )
     , _soiManager( nullptr )
     , _simulationSize( Options::get()->getInt( Options::NUMBER_OF_SIMULATIONS ) )
-    , _isGurobyEnabled( Options::get()->gurobiEnabled() )
+    , _isExternalSolverEnabled( Options::get()->externalSolverEnabled() )
     , _performLpTighteningAfterSplit(
           Options::get()->getBool( Options::PERFORM_LP_TIGHTENING_AFTER_SPLIT ) )
     , _milpSolverBoundTighteningType( Options::get()->getMILPSolverBoundTighteningType() )
@@ -206,15 +206,15 @@ bool Engine::solve( double timeoutInSeconds )
     updateDirections();
     if ( _lpSolverType == LPSolverType::NATIVE )
         storeInitialEngineState();
-    else if ( _lpSolverType == LPSolverType::GUROBI )
+    else
     {
-        ENGINE_LOG( "Encoding convex relaxation into Gurobi..." );
-        _gurobi = std::unique_ptr<GurobiWrapper>( new GurobiWrapper() );
-        _tableau->setGurobi( &( *_gurobi ) );
+        ENGINE_LOG( "Encoding convex relaxation into LP solver..." );
+        _lpSolver.reset( createLPSolver( _lpSolverType ) );
+        _tableau->setLPSolver( _lpSolver.get() );
         _milpEncoder = std::unique_ptr<MILPEncoder>( new MILPEncoder( *_tableau ) );
         _milpEncoder->setStatistics( &_statistics );
-        _milpEncoder->encodeQuery( *_gurobi, *_preprocessedQuery, true );
-        ENGINE_LOG( "Encoding convex relaxation into Gurobi - done" );
+        _milpEncoder->encodeQuery( *_lpSolver, *_preprocessedQuery, true );
+        ENGINE_LOG( "Encoding convex relaxation into LP solver - done" );
     }
 
     mainLoopStatistics();
@@ -377,11 +377,11 @@ bool Engine::solve( double timeoutInSeconds )
                 performSimplexStep();
             else
             {
-                ENGINE_LOG( "Checking LP feasibility with Gurobi..." );
-                DEBUG( { checkGurobiBoundConsistency(); } );
-                ASSERT( _lpSolverType == LPSolverType::GUROBI );
+                ENGINE_LOG( "Checking LP feasibility with LP solver..." );
+                DEBUG( { checkLPSolverBoundConsistency(); } );
+                ASSERT( _lpSolverType != LPSolverType::NATIVE );
                 LinearExpression dontCare;
-                minimizeCostWithGurobi( dontCare );
+                minimizeCostWithLPSolver( dontCare );
             }
             continue;
         }
@@ -1496,12 +1496,12 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
         }
         else
         {
-            ASSERT( _lpSolverType == LPSolverType::GUROBI );
+            ASSERT( _lpSolverType != LPSolverType::NATIVE );
 
             ASSERT( GlobalConfiguration::USE_DEEPSOI_LOCAL_SEARCH == true );
 
             if ( _verbosity > 0 )
-                printf( "Using Gurobi to solve LP...\n" );
+                printf( "Using external LP solver...\n" );
 
             unsigned n = _preprocessedQuery->getNumberOfVariables();
             unsigned m = _preprocessedQuery->getEquations().size();
@@ -1669,7 +1669,7 @@ void Engine::performMILPSolverBoundedTighteningForSingleLayer( unsigned targetIn
     if ( _produceUNSATProofs )
         return;
 
-    if ( _networkLevelReasoner && _isGurobyEnabled && _performLpTighteningAfterSplit &&
+    if ( _networkLevelReasoner && _isExternalSolverEnabled && _performLpTighteningAfterSplit &&
          _milpSolverBoundTighteningType != MILPSolverBoundTighteningType::NONE )
     {
         _networkLevelReasoner->obtainCurrentBounds();
@@ -1759,10 +1759,10 @@ void Engine::extractSolution( IQuery &inputQuery, Preprocessor *preprocessor )
 
 bool Engine::allVarsWithinBounds() const
 {
-    if ( _lpSolverType == LPSolverType::GUROBI )
+    if ( _lpSolverType != LPSolverType::NATIVE )
     {
-        ASSERT( _gurobi );
-        return _gurobi->haveFeasibleSolution();
+        ASSERT( _lpSolver );
+        return _lpSolver->haveFeasibleSolution();
     }
     else
         return !_tableau->existsBasicOutOfBounds();
@@ -3019,22 +3019,22 @@ bool Engine::solveWithMILPEncoding( double timeoutInSeconds )
         return false;
     }
 
-    ENGINE_LOG( "Encoding the input query with Gurobi...\n" );
-    _gurobi = std::unique_ptr<GurobiWrapper>( new GurobiWrapper() );
-    _tableau->setGurobi( &( *_gurobi ) );
+    ENGINE_LOG( "Encoding the input query with LP solver...\n" );
+    _lpSolver.reset( createLPSolver( _lpSolverType ) );
+    _tableau->setLPSolver( _lpSolver.get() );
     _milpEncoder = std::unique_ptr<MILPEncoder>( new MILPEncoder( *_tableau ) );
-    _milpEncoder->encodeQuery( *_gurobi, *_preprocessedQuery );
-    ENGINE_LOG( "Query encoded in Gurobi...\n" );
+    _milpEncoder->encodeQuery( *_lpSolver, *_preprocessedQuery );
+    ENGINE_LOG( "Query encoded in LP solver...\n" );
 
-    double timeoutForGurobi = ( timeoutInSeconds == 0 ? FloatUtils::infinity() : timeoutInSeconds );
-    ENGINE_LOG( Stringf( "Gurobi timeout set to %f\n", timeoutForGurobi ).ascii() )
-    _gurobi->setTimeLimit( timeoutForGurobi );
+    double solverTimeout = ( timeoutInSeconds == 0 ? FloatUtils::infinity() : timeoutInSeconds );
+    ENGINE_LOG( Stringf( "LP solver timeout set to %f\n", solverTimeout ).ascii() )
+    _lpSolver->setTimeLimit( solverTimeout );
     if ( !_sncMode )
-        _gurobi->setNumberOfThreads( Options::get()->getInt( Options::NUM_WORKERS ) );
-    _gurobi->setVerbosity( _verbosity > 0 );
-    _gurobi->solve();
+        _lpSolver->setNumberOfThreads( Options::get()->getInt( Options::NUM_WORKERS ) );
+    _lpSolver->setVerbosity( _verbosity > 0 );
+    _lpSolver->solve();
 
-    if ( _gurobi->haveFeasibleSolution() )
+    if ( _lpSolver->haveFeasibleSolution() )
     {
         if ( allNonlinearConstraintsHold() )
         {
@@ -3047,9 +3047,9 @@ bool Engine::solveWithMILPEncoding( double timeoutInSeconds )
             return false;
         }
     }
-    else if ( _gurobi->infeasible() )
+    else if ( _lpSolver->infeasible() )
         _exitCode = IEngine::UNSAT;
-    else if ( _gurobi->timeout() )
+    else if ( _lpSolver->timeout() )
         _exitCode = IEngine::TIMEOUT;
     else
         throw NLRError( NLRError::UNEXPECTED_RETURN_STATUS_FROM_GUROBI );
@@ -3188,12 +3188,12 @@ void Engine::minimizeHeuristicCost( const LinearExpression &heuristicCost )
 {
     ENGINE_LOG( "Optimizing w.r.t. the current heuristic cost..." );
 
-    if ( _lpSolverType == LPSolverType::GUROBI )
+    if ( _lpSolverType != LPSolverType::NATIVE )
     {
-        minimizeCostWithGurobi( heuristicCost );
+        minimizeCostWithLPSolver( heuristicCost );
 
-        ENGINE_LOG(
-            Stringf( "Current heuristic cost: %f", _gurobi->getOptimalCostOrObjective() ).ascii() );
+        ENGINE_LOG( Stringf( "Current heuristic cost: %f", _lpSolver->getOptimalCostOrObjective() )
+                        .ascii() );
     }
     else
     {
@@ -3271,16 +3271,16 @@ void Engine::bumpUpPseudoImpactOfPLConstraintsNotInSoI()
 
 void Engine::informLPSolverOfBounds()
 {
-    if ( _lpSolverType == LPSolverType::GUROBI )
+    if ( _lpSolverType != LPSolverType::NATIVE )
     {
         struct timespec start = TimeUtils::sampleMicro();
         for ( unsigned i = 0; i < _preprocessedQuery->getNumberOfVariables(); ++i )
         {
             String variableName = _milpEncoder->getVariableNameFromVariable( i );
-            _gurobi->setLowerBound( variableName, _tableau->getLowerBound( i ) );
-            _gurobi->setUpperBound( variableName, _tableau->getUpperBound( i ) );
+            _lpSolver->setLowerBound( variableName, _tableau->getLowerBound( i ) );
+            _lpSolver->setUpperBound( variableName, _tableau->getUpperBound( i ) );
         }
-        _gurobi->updateModel();
+        _lpSolver->updateModel();
         struct timespec end = TimeUtils::sampleMicro();
         _statistics.incLongAttribute( Statistics::TIME_ADDING_CONSTRAINTS_TO_MILP_SOLVER_MICRO,
                                       TimeUtils::timePassed( start, end ) );
@@ -3292,42 +3292,42 @@ void Engine::informLPSolverOfBounds()
     }
 }
 
-bool Engine::minimizeCostWithGurobi( const LinearExpression &costFunction )
+bool Engine::minimizeCostWithLPSolver( const LinearExpression &costFunction )
 {
-    ASSERT( _gurobi && _milpEncoder );
+    ASSERT( _lpSolver && _milpEncoder );
 
     struct timespec simplexStart = TimeUtils::sampleMicro();
 
-    _milpEncoder->encodeCostFunction( *_gurobi, costFunction );
-    _gurobi->setTimeLimit( FloatUtils::infinity() );
-    _gurobi->solve();
+    _milpEncoder->encodeCostFunction( *_lpSolver, costFunction );
+    _lpSolver->setTimeLimit( FloatUtils::infinity() );
+    _lpSolver->solve();
 
     struct timespec simplexEnd = TimeUtils::sampleMicro();
 
     _statistics.incLongAttribute( Statistics::TIME_SIMPLEX_STEPS_MICRO,
                                   TimeUtils::timePassed( simplexStart, simplexEnd ) );
     _statistics.incLongAttribute( Statistics::NUM_SIMPLEX_STEPS,
-                                  _gurobi->getNumberOfSimplexIterations() );
+                                  _lpSolver->getNumberOfSimplexIterations() );
 
-    if ( _gurobi->infeasible() )
+    if ( _lpSolver->infeasible() )
         throw InfeasibleQueryException();
-    else if ( _gurobi->optimal() )
+    else if ( _lpSolver->optimal() )
         return true;
     else
         throw CommonError( CommonError::UNEXPECTED_GUROBI_STATUS,
-                           Stringf( "Current status: %u", _gurobi->getStatusCode() ).ascii() );
+                           Stringf( "Current status: %u", _lpSolver->getStatusCode() ).ascii() );
 
     return false;
 }
 
-void Engine::checkGurobiBoundConsistency() const
+void Engine::checkLPSolverBoundConsistency() const
 {
-    if ( _gurobi && _milpEncoder )
+    if ( _lpSolver && _milpEncoder )
     {
         for ( unsigned i = 0; i < _preprocessedQuery->getNumberOfVariables(); ++i )
         {
             String iName = _milpEncoder->getVariableNameFromVariable( i );
-            double gurobiLowerBound = _gurobi->getLowerBound( iName );
+            double gurobiLowerBound = _lpSolver->getLowerBound( iName );
             double lowerBound = _tableau->getLowerBound( i );
             if ( !FloatUtils::areEqual( gurobiLowerBound, lowerBound ) )
             {
@@ -3339,7 +3339,7 @@ void Engine::checkGurobiBoundConsistency() const
                                              lowerBound )
                                         .ascii() );
             }
-            double gurobiUpperBound = _gurobi->getUpperBound( iName );
+            double gurobiUpperBound = _lpSolver->getUpperBound( iName );
             double upperBound = _tableau->getUpperBound( i );
 
             if ( !FloatUtils::areEqual( gurobiUpperBound, upperBound ) )

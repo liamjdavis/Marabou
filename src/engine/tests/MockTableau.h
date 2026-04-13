@@ -606,7 +606,7 @@ public:
     {
     }
 
-    void setGurobi( GurobiWrapper * /* gurobi */ )
+    void setLPSolver( LPSolver * /* solver */ )
     {
     }
 

@@ -18,7 +18,7 @@
 
 #include "DeepPolySoftmaxElement.h"
 #include "FloatUtils.h"
-#include "GurobiWrapper.h"
+#include "LPSolver.h"
 #include "TimeUtils.h"
 
 MILPEncoder::MILPEncoder( const ITableau &tableau )
@@ -27,7 +27,7 @@ MILPEncoder::MILPEncoder( const ITableau &tableau )
 {
 }
 
-void MILPEncoder::encodeQuery( GurobiWrapper &gurobi, const Query &inputQuery, bool relax )
+void MILPEncoder::encodeQuery( LPSolver &gurobi, const Query &inputQuery, bool relax )
 {
     struct timespec start = TimeUtils::sampleMicro();
 
@@ -77,7 +77,7 @@ void MILPEncoder::encodeQuery( GurobiWrapper &gurobi, const Query &inputQuery, b
             break;
         default:
             throw MarabouError( MarabouError::UNSUPPORTED_PIECEWISE_LINEAR_CONSTRAINT,
-                                "GurobiWrapper::encodeQuery: "
+                                "LPSolver::encodeQuery: "
                                 "Unsupported piecewise-linear constraints\n" );
         }
     }
@@ -101,7 +101,7 @@ void MILPEncoder::encodeQuery( GurobiWrapper &gurobi, const Query &inputQuery, b
             break;
         default:
             throw MarabouError( MarabouError::UNSUPPORTED_TRANSCENDENTAL_CONSTRAINT,
-                                "GurobiWrapper::encodeQuery: "
+                                "LPSolver::encodeQuery: "
                                 "Unsupported non-linear constraints\n" );
         }
     }
@@ -123,12 +123,12 @@ String MILPEncoder::getVariableNameFromVariable( unsigned variable )
     return _variableToVariableName[variable];
 }
 
-void MILPEncoder::encodeEquation( GurobiWrapper &gurobi, const Equation &equation )
+void MILPEncoder::encodeEquation( LPSolver &gurobi, const Equation &equation )
 {
-    List<GurobiWrapper::Term> terms;
+    List<LPSolver::Term> terms;
     double scalar = equation._scalar;
     for ( const auto &term : equation._addends )
-        terms.append( GurobiWrapper::Term( term._coefficient, Stringf( "x%u", term._variable ) ) );
+        terms.append( LPSolver::Term( term._coefficient, Stringf( "x%u", term._variable ) ) );
     switch ( equation._type )
     {
     case Equation::EQ:
@@ -145,7 +145,7 @@ void MILPEncoder::encodeEquation( GurobiWrapper &gurobi, const Equation &equatio
     }
 }
 
-void MILPEncoder::encodeReLUConstraint( GurobiWrapper &gurobi, ReluConstraint *relu, bool relax )
+void MILPEncoder::encodeReLUConstraint( LPSolver &gurobi, ReluConstraint *relu, bool relax )
 {
     if ( !relu->isActive() || relu->phaseFixed() )
     {
@@ -166,29 +166,27 @@ void MILPEncoder::encodeReLUConstraint( GurobiWrapper &gurobi, ReluConstraint *r
       When a = 0, the constriants become:
           f - b <= - lb_b, f <= 0
     */
-    gurobi.addVariable( Stringf( "a%u", _binVarIndex ),
-                        0,
-                        1,
-                        relax ? GurobiWrapper::CONTINUOUS : GurobiWrapper::BINARY );
+    gurobi.addVariable(
+        Stringf( "a%u", _binVarIndex ), 0, 1, relax ? LPSolver::CONTINUOUS : LPSolver::BINARY );
 
     unsigned sourceVariable = relu->getB();
     unsigned targetVariable = relu->getF();
     double sourceLb = _tableau.getLowerBound( sourceVariable );
     double targetUb = _tableau.getUpperBound( targetVariable );
 
-    List<GurobiWrapper::Term> terms;
-    terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-    terms.append( GurobiWrapper::Term( -1, Stringf( "x%u", sourceVariable ) ) );
-    terms.append( GurobiWrapper::Term( -sourceLb, Stringf( "a%u", _binVarIndex ) ) );
+    List<LPSolver::Term> terms;
+    terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+    terms.append( LPSolver::Term( -1, Stringf( "x%u", sourceVariable ) ) );
+    terms.append( LPSolver::Term( -sourceLb, Stringf( "a%u", _binVarIndex ) ) );
     gurobi.addLeqConstraint( terms, -sourceLb );
 
     terms.clear();
-    terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-    terms.append( GurobiWrapper::Term( -targetUb, Stringf( "a%u", _binVarIndex++ ) ) );
+    terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+    terms.append( LPSolver::Term( -targetUb, Stringf( "a%u", _binVarIndex++ ) ) );
     gurobi.addLeqConstraint( terms, 0 );
 }
 
-void MILPEncoder::encodeLeakyReLUConstraint( GurobiWrapper &gurobi,
+void MILPEncoder::encodeLeakyReLUConstraint( LPSolver &gurobi,
                                              LeakyReluConstraint *lRelu,
                                              bool relax )
 {
@@ -204,16 +202,16 @@ void MILPEncoder::encodeLeakyReLUConstraint( GurobiWrapper &gurobi,
 
     if ( sourceLb >= 0 )
     {
-        List<GurobiWrapper::Term> terms;
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -1, Stringf( "x%u", sourceVariable ) ) );
+        List<LPSolver::Term> terms;
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -1, Stringf( "x%u", sourceVariable ) ) );
         gurobi.addEqConstraint( terms, 0 );
     }
     else if ( sourceUb <= 0 )
     {
-        List<GurobiWrapper::Term> terms;
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -slope, Stringf( "x%u", sourceVariable ) ) );
+        List<LPSolver::Term> terms;
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -slope, Stringf( "x%u", sourceVariable ) ) );
         gurobi.addEqConstraint( terms, 0 );
     }
     else
@@ -227,9 +225,9 @@ void MILPEncoder::encodeLeakyReLUConstraint( GurobiWrapper &gurobi,
             */
 
             double lambda = ( sourceUb - slope * sourceLb ) / ( sourceUb - sourceLb );
-            List<GurobiWrapper::Term> terms;
-            terms.append( GurobiWrapper::Term( lambda, Stringf( "x%u", sourceVariable ) ) );
-            terms.append( GurobiWrapper::Term( -1, Stringf( "x%u", targetVariable ) ) );
+            List<LPSolver::Term> terms;
+            terms.append( LPSolver::Term( lambda, Stringf( "x%u", sourceVariable ) ) );
+            terms.append( LPSolver::Term( -1, Stringf( "x%u", targetVariable ) ) );
             gurobi.addGeqConstraint( terms, ( lambda - 1 ) * sourceUb );
         }
         else
@@ -251,12 +249,12 @@ void MILPEncoder::encodeLeakyReLUConstraint( GurobiWrapper &gurobi,
     }
 }
 
-void MILPEncoder::encodeMaxConstraint( GurobiWrapper &gurobi, MaxConstraint *max, bool relax )
+void MILPEncoder::encodeMaxConstraint( LPSolver &gurobi, MaxConstraint *max, bool relax )
 {
     if ( !max->isActive() )
         return;
 
-    List<GurobiWrapper::Term> terms;
+    List<LPSolver::Term> terms;
     List<PhaseStatus> phases = max->getAllCases();
     for ( unsigned i = 0; i < phases.size(); ++i )
     {
@@ -264,9 +262,9 @@ void MILPEncoder::encodeMaxConstraint( GurobiWrapper &gurobi, MaxConstraint *max
         gurobi.addVariable( Stringf( "a%u_%u", _binVarIndex, i ),
                             0,
                             1,
-                            relax ? GurobiWrapper::CONTINUOUS : GurobiWrapper::BINARY );
+                            relax ? LPSolver::CONTINUOUS : LPSolver::BINARY );
 
-        terms.append( GurobiWrapper::Term( 1, Stringf( "a%u_%u", _binVarIndex, i ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "a%u_%u", _binVarIndex, i ) ) );
     }
 
     // add constraint: a_1 + a_2 + ... + = 1
@@ -289,8 +287,8 @@ void MILPEncoder::encodeMaxConstraint( GurobiWrapper &gurobi, MaxConstraint *max
             double yUb = _tableau.getUpperBound( y );
             double eliminatedValue = split.getBoundTightenings().begin()->_value;
 
-            terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", y ) ) );
-            terms.append( GurobiWrapper::Term( yUb - eliminatedValue, binVarName ) );
+            terms.append( LPSolver::Term( 1, Stringf( "x%u", y ) ) );
+            terms.append( LPSolver::Term( yUb - eliminatedValue, binVarName ) );
             gurobi.addLeqConstraint( terms, yUb );
         }
         else
@@ -305,8 +303,8 @@ void MILPEncoder::encodeMaxConstraint( GurobiWrapper &gurobi, MaxConstraint *max
             } );
             unsigned aux = split.getBoundTightenings().begin()->_variable;
             double auxUb = _tableau.getUpperBound( aux );
-            terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", aux ) ) );
-            terms.append( GurobiWrapper::Term( auxUb, binVarName ) );
+            terms.append( LPSolver::Term( 1, Stringf( "x%u", aux ) ) );
+            terms.append( LPSolver::Term( auxUb, binVarName ) );
             gurobi.addLeqConstraint( terms, auxUb );
         }
         terms.clear();
@@ -316,7 +314,7 @@ void MILPEncoder::encodeMaxConstraint( GurobiWrapper &gurobi, MaxConstraint *max
     _binVarIndex++;
 }
 
-void MILPEncoder::encodeAbsoluteValueConstraint( GurobiWrapper &gurobi,
+void MILPEncoder::encodeAbsoluteValueConstraint( LPSolver &gurobi,
                                                  AbsoluteValueConstraint *abs,
                                                  bool relax )
 {
@@ -348,26 +346,24 @@ void MILPEncoder::encodeAbsoluteValueConstraint( GurobiWrapper &gurobi,
       When a = 0, the constriants become:
       f - b <= ub_f - lb_b, f + b <= 0
     */
-    gurobi.addVariable( Stringf( "a%u", _binVarIndex ),
-                        0,
-                        1,
-                        relax ? GurobiWrapper::CONTINUOUS : GurobiWrapper::BINARY );
+    gurobi.addVariable(
+        Stringf( "a%u", _binVarIndex ), 0, 1, relax ? LPSolver::CONTINUOUS : LPSolver::BINARY );
 
-    List<GurobiWrapper::Term> terms;
-    terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-    terms.append( GurobiWrapper::Term( -1, Stringf( "x%u", sourceVariable ) ) );
-    terms.append( GurobiWrapper::Term( targetUb - sourceLb, Stringf( "a%u", _binVarIndex ) ) );
+    List<LPSolver::Term> terms;
+    terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+    terms.append( LPSolver::Term( -1, Stringf( "x%u", sourceVariable ) ) );
+    terms.append( LPSolver::Term( targetUb - sourceLb, Stringf( "a%u", _binVarIndex ) ) );
     gurobi.addLeqConstraint( terms, targetUb - sourceLb );
 
     terms.clear();
-    terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-    terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", sourceVariable ) ) );
-    terms.append( GurobiWrapper::Term( -( targetUb + sourceUb ), Stringf( "a%u", _binVarIndex ) ) );
+    terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+    terms.append( LPSolver::Term( 1, Stringf( "x%u", sourceVariable ) ) );
+    terms.append( LPSolver::Term( -( targetUb + sourceUb ), Stringf( "a%u", _binVarIndex ) ) );
     gurobi.addLeqConstraint( terms, 0 );
     ++_binVarIndex;
 }
 
-void MILPEncoder::encodeDisjunctionConstraint( GurobiWrapper &gurobi,
+void MILPEncoder::encodeDisjunctionConstraint( LPSolver &gurobi,
                                                DisjunctionConstraint *disj,
                                                bool relax )
 {
@@ -375,7 +371,7 @@ void MILPEncoder::encodeDisjunctionConstraint( GurobiWrapper &gurobi,
         return;
 
     // terms for Gurobi
-    List<GurobiWrapper::Term> terms;
+    List<LPSolver::Term> terms;
     List<PiecewiseLinearCaseSplit> disjuncts = disj->getCaseSplits();
     for ( unsigned i = 0; i < disjuncts.size(); ++i )
     {
@@ -383,9 +379,9 @@ void MILPEncoder::encodeDisjunctionConstraint( GurobiWrapper &gurobi,
         gurobi.addVariable( Stringf( "a%u_%u", _binVarIndex, i ),
                             0,
                             1,
-                            relax ? GurobiWrapper::CONTINUOUS : GurobiWrapper::BINARY );
+                            relax ? LPSolver::CONTINUOUS : LPSolver::BINARY );
 
-        terms.append( GurobiWrapper::Term( 1, Stringf( "a%u_%u", _binVarIndex, i ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "a%u_%u", _binVarIndex, i ) ) );
     }
 
     // add constraint: a_1 + a_2 + ... + >= 1
@@ -401,7 +397,7 @@ void MILPEncoder::encodeDisjunctionConstraint( GurobiWrapper &gurobi,
         {
             // add indicator constraint: a_1 => disjunct1, etc.
             terms.append(
-                GurobiWrapper::Term( 1, getVariableNameFromVariable( tightening._variable ) ) );
+                LPSolver::Term( 1, getVariableNameFromVariable( tightening._variable ) ) );
             if ( tightening._type == Tightening::UB )
                 gurobi.addLeqIndicatorConstraint( binVarName, 1, terms, tightening._value );
             else
@@ -414,7 +410,7 @@ void MILPEncoder::encodeDisjunctionConstraint( GurobiWrapper &gurobi,
     _binVarIndex++;
 }
 
-void MILPEncoder::encodeSignConstraint( GurobiWrapper &gurobi, SignConstraint *sign, bool relax )
+void MILPEncoder::encodeSignConstraint( LPSolver &gurobi, SignConstraint *sign, bool relax )
 {
     ASSERT( GlobalConfiguration::PL_CONSTRAINTS_ADD_AUX_EQUATIONS_AFTER_PREPROCESSING );
 
@@ -444,20 +440,18 @@ void MILPEncoder::encodeSignConstraint( GurobiWrapper &gurobi, SignConstraint *s
       Moreover, when f is 1, 1 <= -2 / lb_b * b + 1, thus, b >= 0.
       When f is -1, -1 >= 2/ub_b * b - 1, thus, b <= 0.
     */
-    gurobi.addVariable( Stringf( "a%u", _binVarIndex ),
-                        0,
-                        1,
-                        relax ? GurobiWrapper::CONTINUOUS : GurobiWrapper::BINARY );
+    gurobi.addVariable(
+        Stringf( "a%u", _binVarIndex ), 0, 1, relax ? LPSolver::CONTINUOUS : LPSolver::BINARY );
 
-    List<GurobiWrapper::Term> terms;
-    terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-    terms.append( GurobiWrapper::Term( -2, Stringf( "a%u", _binVarIndex ) ) );
+    List<LPSolver::Term> terms;
+    terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+    terms.append( LPSolver::Term( -2, Stringf( "a%u", _binVarIndex ) ) );
     gurobi.addEqConstraint( terms, -1 );
 
     ++_binVarIndex;
 }
 
-void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstraint *sigmoid )
+void MILPEncoder::encodeSigmoidConstraint( LPSolver &gurobi, SigmoidConstraint *sigmoid )
 {
     unsigned sourceVariable = sigmoid->getB(); // x_b
     unsigned targetVariable = sigmoid->getF(); // x_f
@@ -470,10 +464,10 @@ void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstra
     }
     else if ( FloatUtils::lt( sourceLb, 0 ) && FloatUtils::gt( sourceUb, 0 ) )
     {
-        List<GurobiWrapper::Term> terms;
+        List<LPSolver::Term> terms;
         String binVarName = Stringf( "a%u", _binVarIndex ); // a = 1 -> the case where x_b >= 0,
                                                             // otherwise where x_b <= 0
-        gurobi.addVariable( binVarName, 0, 1, GurobiWrapper::BINARY );
+        gurobi.addVariable( binVarName, 0, 1, LPSolver::BINARY );
 
         // Constraint where x_b >= 0
         // Upper line is tangent and lower line is secant for an overapproximation with a
@@ -485,8 +479,8 @@ void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstra
         double tangentPoint = sourceUb / 2;
         double yAtTangentPoint = sigmoid->sigmoid( tangentPoint );
         double tangentSlope = sigmoid->sigmoidDerivative( tangentPoint );
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -tangentSlope, Stringf( "x%u", sourceVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -tangentSlope, Stringf( "x%u", sourceVariable ) ) );
         gurobi.addLeqIndicatorConstraint(
             binVarName, binVal, terms, -tangentSlope * tangentPoint + yAtTangentPoint );
         terms.clear();
@@ -495,18 +489,18 @@ void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstra
         double y_l = sigmoid->sigmoid( 0 );
         double y_u = sigmoid->sigmoid( sourceUb );
         double secantSlope = ( y_u - y_l ) / sourceUb;
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -secantSlope, Stringf( "x%u", sourceVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -secantSlope, Stringf( "x%u", sourceVariable ) ) );
         gurobi.addGeqIndicatorConstraint( binVarName, binVal, terms, y_l );
         terms.clear();
 
         // lower bound of x_b
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", sourceVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", sourceVariable ) ) );
         gurobi.addGeqIndicatorConstraint( binVarName, binVal, terms, 0 );
         terms.clear();
 
         // lower bound of x_f
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
         gurobi.addGeqIndicatorConstraint( binVarName, binVal, terms, y_l );
         terms.clear();
 
@@ -520,8 +514,8 @@ void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstra
         tangentPoint = sourceLb / 2;
         yAtTangentPoint = sigmoid->sigmoid( tangentPoint );
         tangentSlope = sigmoid->sigmoidDerivative( tangentPoint );
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -tangentSlope, Stringf( "x%u", sourceVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -tangentSlope, Stringf( "x%u", sourceVariable ) ) );
         gurobi.addGeqIndicatorConstraint(
             binVarName, binVal, terms, -tangentSlope * tangentPoint + yAtTangentPoint );
         terms.clear();
@@ -530,19 +524,19 @@ void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstra
         y_u = y_l;
         y_l = sigmoid->sigmoid( sourceLb );
         secantSlope = ( y_u - y_l ) / ( 0 - sourceLb );
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -secantSlope, Stringf( "x%u", sourceVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -secantSlope, Stringf( "x%u", sourceVariable ) ) );
         gurobi.addLeqIndicatorConstraint(
             binVarName, binVal, terms, -secantSlope * sourceLb + y_l );
         terms.clear();
 
         // upper bound of x_b
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", sourceVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", sourceVariable ) ) );
         gurobi.addLeqIndicatorConstraint( binVarName, binVal, terms, 0 );
         terms.clear();
 
         // upper bound of x_f
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
         gurobi.addLeqIndicatorConstraint( binVarName, binVal, terms, y_u );
         terms.clear();
 
@@ -555,9 +549,9 @@ void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstra
         double yAtTangentPoint = sigmoid->sigmoid( tangentPoint );
         double tangentSlope = sigmoid->sigmoidDerivative( tangentPoint );
 
-        List<GurobiWrapper::Term> terms;
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -tangentSlope, Stringf( "x%u", sourceVariable ) ) );
+        List<LPSolver::Term> terms;
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -tangentSlope, Stringf( "x%u", sourceVariable ) ) );
 
         if ( FloatUtils::gte( sourceLb, 0 ) )
         {
@@ -573,8 +567,8 @@ void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstra
         double y_u = sigmoid->sigmoid( sourceUb );
 
         double secantSlope = ( y_u - y_l ) / ( sourceUb - sourceLb );
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -secantSlope, Stringf( "x%u", sourceVariable ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -secantSlope, Stringf( "x%u", sourceVariable ) ) );
 
         if ( FloatUtils::gte( sourceLb, 0 ) )
         {
@@ -588,7 +582,7 @@ void MILPEncoder::encodeSigmoidConstraint( GurobiWrapper &gurobi, SigmoidConstra
     }
 }
 
-void MILPEncoder::encodeSoftmaxConstraint( GurobiWrapper &gurobi, SoftmaxConstraint *softmax )
+void MILPEncoder::encodeSoftmaxConstraint( LPSolver &gurobi, SoftmaxConstraint *softmax )
 {
     Vector<double> sourceLbs;
     Vector<double> sourceUbs;
@@ -618,8 +612,8 @@ void MILPEncoder::encodeSoftmaxConstraint( GurobiWrapper &gurobi, SoftmaxConstra
         {
             // lower-bound
             bool wellFormed = true;
-            List<GurobiWrapper::Term> terms;
-            terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariables[i] ) ) );
+            List<LPSolver::Term> terms;
+            terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariables[i] ) ) );
             double symbolicLowerBias;
             bool useLSE2 = false;
             for ( const auto &lb : targetLbs )
@@ -639,8 +633,7 @@ void MILPEncoder::encodeSoftmaxConstraint( GurobiWrapper &gurobi, SoftmaxConstra
                         sourceMids, sourceLbs, sourceUbs, i, j );
                     if ( !FloatUtils::wellFormed( dldj ) )
                         wellFormed = false;
-                    terms.append(
-                        GurobiWrapper::Term( -dldj, Stringf( "x%u", sourceVariables[j] ) ) );
+                    terms.append( LPSolver::Term( -dldj, Stringf( "x%u", sourceVariables[j] ) ) );
                     symbolicLowerBias -= dldj * sourceMids[j];
                 }
             }
@@ -656,8 +649,7 @@ void MILPEncoder::encodeSoftmaxConstraint( GurobiWrapper &gurobi, SoftmaxConstra
                         sourceMids, sourceLbs, sourceUbs, i, j );
                     if ( !FloatUtils::wellFormed( dldj ) )
                         wellFormed = false;
-                    terms.append(
-                        GurobiWrapper::Term( -dldj, Stringf( "x%u", sourceVariables[j] ) ) );
+                    terms.append( LPSolver::Term( -dldj, Stringf( "x%u", sourceVariables[j] ) ) );
                     symbolicLowerBias -= dldj * sourceMids[j];
                 }
             }
@@ -671,14 +663,14 @@ void MILPEncoder::encodeSoftmaxConstraint( GurobiWrapper &gurobi, SoftmaxConstra
             if ( !FloatUtils::wellFormed( symbolicUpperBias ) )
                 wellFormed = false;
             terms.clear();
-            terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariables[i] ) ) );
+            terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariables[i] ) ) );
             for ( unsigned j = 0; j < size; ++j )
             {
                 double dudj = NLR::DeepPolySoftmaxElement::dLSEUpperbound(
                     sourceMids, targetLbs, targetUbs, i, j );
                 if ( !FloatUtils::wellFormed( dudj ) )
                     wellFormed = false;
-                terms.append( GurobiWrapper::Term( -dudj, Stringf( "x%u", sourceVariables[j] ) ) );
+                terms.append( LPSolver::Term( -dudj, Stringf( "x%u", sourceVariables[j] ) ) );
                 symbolicUpperBias -= dudj * sourceMids[j];
             }
             if ( wellFormed )
@@ -687,7 +679,7 @@ void MILPEncoder::encodeSoftmaxConstraint( GurobiWrapper &gurobi, SoftmaxConstra
     }
 }
 
-void MILPEncoder::encodeBilinearConstraint( GurobiWrapper &gurobi,
+void MILPEncoder::encodeBilinearConstraint( LPSolver &gurobi,
                                             BilinearConstraint *bilinear,
                                             bool relax )
 {
@@ -702,16 +694,16 @@ void MILPEncoder::encodeBilinearConstraint( GurobiWrapper &gurobi,
         double sourceLb2 = _tableau.getLowerBound( sourceVariable2 );
         double sourceUb2 = _tableau.getUpperBound( sourceVariable2 );
 
-        List<GurobiWrapper::Term> terms;
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -sourceLb2, Stringf( "x%u", sourceVariable1 ) ) );
-        terms.append( GurobiWrapper::Term( -sourceLb1, Stringf( "x%u", sourceVariable2 ) ) );
+        List<LPSolver::Term> terms;
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -sourceLb2, Stringf( "x%u", sourceVariable1 ) ) );
+        terms.append( LPSolver::Term( -sourceLb1, Stringf( "x%u", sourceVariable2 ) ) );
         gurobi.addGeqConstraint( terms, -sourceLb1 * sourceLb2 );
 
         terms.clear();
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -sourceUb2, Stringf( "x%u", sourceVariable1 ) ) );
-        terms.append( GurobiWrapper::Term( -sourceLb1, Stringf( "x%u", sourceVariable2 ) ) );
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -sourceUb2, Stringf( "x%u", sourceVariable1 ) ) );
+        terms.append( LPSolver::Term( -sourceLb1, Stringf( "x%u", sourceVariable2 ) ) );
         gurobi.addLeqConstraint( terms, -sourceLb1 * sourceUb2 );
     }
     else
@@ -726,7 +718,7 @@ void MILPEncoder::encodeBilinearConstraint( GurobiWrapper &gurobi,
     }
 }
 
-void MILPEncoder::encodeRoundConstraint( GurobiWrapper &gurobi, RoundConstraint *round, bool relax )
+void MILPEncoder::encodeRoundConstraint( LPSolver &gurobi, RoundConstraint *round, bool relax )
 {
     /*
       We have already introduced during preprocessing
@@ -744,21 +736,21 @@ void MILPEncoder::encodeRoundConstraint( GurobiWrapper &gurobi, RoundConstraint 
         gurobi.addVariable( varName,
                             _tableau.getLowerBound( targetVariable ),
                             _tableau.getUpperBound( targetVariable ),
-                            GurobiWrapper::INTEGER );
-        List<GurobiWrapper::Term> terms;
-        terms.append( GurobiWrapper::Term( 1, Stringf( "x%u", targetVariable ) ) );
-        terms.append( GurobiWrapper::Term( -1, Stringf( "i%u", _intVarIndex ) ) );
+                            LPSolver::INTEGER );
+        List<LPSolver::Term> terms;
+        terms.append( LPSolver::Term( 1, Stringf( "x%u", targetVariable ) ) );
+        terms.append( LPSolver::Term( -1, Stringf( "i%u", _intVarIndex ) ) );
         gurobi.addEqConstraint( terms, 0 );
         ++_intVarIndex;
     }
 }
 
-void MILPEncoder::encodeCostFunction( GurobiWrapper &gurobi, const LinearExpression &cost )
+void MILPEncoder::encodeCostFunction( LPSolver &gurobi, const LinearExpression &cost )
 {
-    List<GurobiWrapper::Term> terms;
+    List<LPSolver::Term> terms;
     for ( const auto &pair : cost._addends )
     {
-        terms.append( GurobiWrapper::Term( pair.second, Stringf( "x%u", pair.first ) ) );
+        terms.append( LPSolver::Term( pair.second, Stringf( "x%u", pair.first ) ) );
     }
     gurobi.setCost( terms, cost._constant );
 }

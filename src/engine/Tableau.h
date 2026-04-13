@@ -16,10 +16,10 @@
 #ifndef __Tableau_h__
 #define __Tableau_h__
 
-#include "GurobiWrapper.h"
 #include "IBasisFactorization.h"
 #include "IBoundManager.h"
 #include "ITableau.h"
+#include "LPSolver.h"
 #include "LPSolverType.h"
 #include "MString.h"
 #include "Map.h"
@@ -384,7 +384,7 @@ public:
     void notifyLowerBound( unsigned variable, double bound );
     void notifyUpperBound( unsigned variable, double bound );
 
-    void setGurobi( GurobiWrapper *gurobi );
+    void setLPSolver( LPSolver *solver );
 
     /*
       Have the Tableau start reporting statistics.
@@ -650,7 +650,7 @@ private:
     */
     LPSolverType _lpSolverType;
 
-    GurobiWrapper *_gurobi;
+    LPSolver *_lpSolver;
 
     /*
       Free all allocated memory.

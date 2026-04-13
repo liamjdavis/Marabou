@@ -24,7 +24,7 @@
 
 class EntrySelectionStrategy;
 class Equation;
-class GurobiWrapper;
+class LPSolver;
 class IBoundManager;
 class ICostFunctionManager;
 class PiecewiseLinearCaseSplit;
@@ -172,7 +172,7 @@ public:
     virtual void performDegeneratePivot() = 0;
     virtual void storeState( TableauState &state, TableauStateStorageLevel level ) const = 0;
     virtual void restoreState( const TableauState &state, TableauStateStorageLevel level ) = 0;
-    virtual void setGurobi( GurobiWrapper *gurobi ) = 0;
+    virtual void setLPSolver( LPSolver *solver ) = 0;
     virtual void setStatistics( Statistics *statistics ) = 0;
     virtual const double *getRightHandSide() const = 0;
     virtual void forwardTransformation( const double *y, double *x ) const = 0;

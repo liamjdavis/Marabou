@@ -28,10 +28,10 @@
 #include "DivideStrategy.h"
 #include "GlobalConfiguration.h"
 #include "GroundBoundManager.h"
-#include "GurobiWrapper.h"
 #include "IEngine.h"
 #include "IQuery.h"
 #include "JsonWriter.h"
+#include "LPSolver.h"
 #include "LPSolverType.h"
 #include "LinearExpression.h"
 #include "MILPEncoder.h"
@@ -508,9 +508,9 @@ private:
     LPSolverType _lpSolverType;
 
     /*
-      GurobiWrapper object
+      External LP solver object (Gurobi or CuOpt)
     */
-    std::unique_ptr<GurobiWrapper> _gurobi;
+    std::unique_ptr<LPSolver> _lpSolver;
 
     /*
       MILPEncoder
@@ -528,7 +528,7 @@ private:
       there is a chance that multiple Engine object be accessing the Options object.
     */
     unsigned _simulationSize;
-    bool _isGurobyEnabled;
+    bool _isExternalSolverEnabled;
     bool _performLpTighteningAfterSplit;
     MILPSolverBoundTighteningType _milpSolverBoundTighteningType;
 
@@ -820,7 +820,7 @@ private:
       the cost function is minimized. Throw InfeasibleQueryException if
       the constraints in _gurobi are infeasible. Throw an error otherwise.
     */
-    bool minimizeCostWithGurobi( const LinearExpression &costFunction );
+    bool minimizeCostWithLPSolver( const LinearExpression &costFunction );
 
     /*
       Get Context reference
@@ -839,7 +839,7 @@ private:
       DEBUG only
       Check that the variable bounds in Gurobi is up-to-date.
     */
-    void checkGurobiBoundConsistency() const;
+    void checkLPSolverBoundConsistency() const;
 
     /*
       Proof Production data structures

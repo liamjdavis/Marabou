@@ -64,7 +64,7 @@ Tableau::Tableau( IBoundManager &boundManager )
     , _costFunctionManager( NULL )
     , _rhsIsAllZeros( true )
     , _lpSolverType( Options::get()->getLPSolverType() )
-    , _gurobi( nullptr )
+    , _lpSolver( nullptr )
 {
 }
 
@@ -469,7 +469,7 @@ bool Tableau::existsValue( unsigned variable ) const
 {
     if ( _lpSolverType == LPSolverType::GUROBI )
     {
-        return _gurobi && _gurobi->existsAssignment( Stringf( "x%u", variable ) );
+        return _lpSolver && _lpSolver->existsAssignment( Stringf( "x%u", variable ) );
     }
     else
     {
@@ -482,8 +482,8 @@ double Tableau::getValue( unsigned variable ) const
 {
     if ( _lpSolverType == LPSolverType::GUROBI )
     {
-        ASSERT( _gurobi );
-        return _gurobi->getAssignment( Stringf( "x%u", variable ) );
+        ASSERT( _lpSolver );
+        return _lpSolver->getAssignment( Stringf( "x%u", variable ) );
     }
     else
     {
@@ -2216,9 +2216,9 @@ double Tableau::getSumOfInfeasibilities() const
     return result;
 }
 
-void Tableau::setGurobi( GurobiWrapper *gurobi )
+void Tableau::setLPSolver( LPSolver *solver )
 {
-    _gurobi = gurobi;
+    _lpSolver = solver;
 }
 
 void Tableau::setStatistics( Statistics *statistics )
