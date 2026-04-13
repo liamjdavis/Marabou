@@ -485,8 +485,8 @@ void SignConstraint::notifyUpperBound( unsigned variable, double bound )
 
 List<PiecewiseLinearConstraint::Fix> SignConstraint::getPossibleFixes() const
 {
-    // This should never be called when we are using Gurobi to solve LPs.
-    ASSERT( _gurobi == NULL );
+    // This should never be called when we are using an external LP solver.
+    ASSERT( _lpSolver == NULL );
 
     ASSERT( !satisfied() );
     ASSERT( existsAssignment( _b ) );
@@ -537,9 +537,9 @@ void SignConstraint::getEntailedTightenings( List<Tightening> &tightenings ) con
 
 void SignConstraint::updateVariableIndex( unsigned oldIndex, unsigned newIndex )
 {
-    // Variable reindexing can only occur in preprocessing before Gurobi is
-    // registered.
-    ASSERT( _gurobi == NULL );
+    // Variable reindexing can only occur in preprocessing before the LP
+    // solver is registered.
+    ASSERT( _lpSolver == NULL );
 
     ASSERT( oldIndex == _b || oldIndex == _f );
     ASSERT( !_boundManager );

@@ -15,6 +15,7 @@
 
 #include "FloatUtils.h"
 #include "GlobalConfiguration.h"
+#include "GurobiWrapper.h"
 #include "MILPEncoder.h"
 #include "MarabouError.h"
 #include "MockTableau.h"

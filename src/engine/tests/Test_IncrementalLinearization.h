@@ -14,6 +14,7 @@
 **/
 
 #include "FloatUtils.h"
+#include "GurobiWrapper.h"
 #include "IncrementalLinearization.h"
 #include "MILPEncoder.h"
 #include "MarabouError.h"

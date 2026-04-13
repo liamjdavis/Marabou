@@ -202,8 +202,8 @@ bool DisjunctionConstraint::satisfied() const
 
 List<PiecewiseLinearConstraint::Fix> DisjunctionConstraint::getPossibleFixes() const
 {
-    // Reluplex does not currently work with Gurobi.
-    ASSERT( _gurobi == NULL );
+    // Reluplex does not currently work with an external LP solver.
+    ASSERT( _lpSolver == NULL );
 
     return List<PiecewiseLinearConstraint::Fix>();
 }
@@ -211,8 +211,8 @@ List<PiecewiseLinearConstraint::Fix> DisjunctionConstraint::getPossibleFixes() c
 List<PiecewiseLinearConstraint::Fix>
 DisjunctionConstraint::getSmartFixes( ITableau * /* tableau */ ) const
 {
-    // Reluplex does not currently work with Gurobi.
-    ASSERT( _gurobi == NULL );
+    // Reluplex does not currently work with an external LP solver.
+    ASSERT( _lpSolver == NULL );
 
     return getPossibleFixes();
 }
@@ -343,9 +343,9 @@ void DisjunctionConstraint::dump( String &output ) const
 
 void DisjunctionConstraint::updateVariableIndex( unsigned oldIndex, unsigned newIndex )
 {
-    // Variable reindexing can only occur in preprocessing before Gurobi is
-    // registered.
-    ASSERT( _gurobi == NULL );
+    // Variable reindexing can only occur in preprocessing before the LP
+    // solver is registered.
+    ASSERT( _lpSolver == NULL );
 
     ASSERT( !participatingVariable( newIndex ) );
 

@@ -391,8 +391,8 @@ bool ReluConstraint::satisfied() const
 
 List<PiecewiseLinearConstraint::Fix> ReluConstraint::getPossibleFixes() const
 {
-    // Reluplex does not currently work with Gurobi.
-    ASSERT( _gurobi == NULL );
+    // Reluplex does not currently work with an external LP solver.
+    ASSERT( _lpSolver == NULL );
 
     ASSERT( !satisfied() );
     ASSERT( existsAssignment( _b ) );
@@ -450,8 +450,8 @@ List<PiecewiseLinearConstraint::Fix> ReluConstraint::getPossibleFixes() const
 
 List<PiecewiseLinearConstraint::Fix> ReluConstraint::getSmartFixes( ITableau *tableau ) const
 {
-    // Reluplex does not currently work with Gurobi.
-    ASSERT( _gurobi == NULL );
+    // Reluplex does not currently work with an external LP solver.
+    ASSERT( _lpSolver == NULL );
 
     ASSERT( !satisfied() );
     ASSERT( existsAssignment( _f ) && existsAssignment( _b ) );
@@ -733,9 +733,9 @@ void ReluConstraint::dump( String &output ) const
 
 void ReluConstraint::updateVariableIndex( unsigned oldIndex, unsigned newIndex )
 {
-    // Variable reindexing can only occur in preprocessing before Gurobi is
-    // registered.
-    ASSERT( _gurobi == NULL );
+    // Variable reindexing can only occur in preprocessing before the LP
+    // solver is registered.
+    ASSERT( _lpSolver == NULL );
 
     ASSERT( oldIndex == _b || oldIndex == _f || ( _auxVarInUse && oldIndex == _aux ) );
     ASSERT( !_lowerBounds.exists( newIndex ) && !_upperBounds.exists( newIndex ) &&

@@ -357,8 +357,8 @@ bool LeakyReluConstraint::satisfied() const
 
 List<PiecewiseLinearConstraint::Fix> LeakyReluConstraint::getPossibleFixes() const
 {
-    // Reluplex does not currently work with Gurobi.
-    ASSERT( _gurobi == NULL );
+    // Reluplex does not currently work with an external LP solver.
+    ASSERT( _lpSolver == NULL );
 
     ASSERT( !satisfied() );
     ASSERT( existsAssignment( _b ) );
@@ -614,9 +614,9 @@ void LeakyReluConstraint::dump( String &output ) const
 
 void LeakyReluConstraint::updateVariableIndex( unsigned oldIndex, unsigned newIndex )
 {
-    // Variable reindexing can only occur in preprocessing before Gurobi is
-    // registered.
-    ASSERT( _gurobi == NULL );
+    // Variable reindexing can only occur in preprocessing before the LP
+    // solver is registered.
+    ASSERT( _lpSolver == NULL );
 
     ASSERT( participatingVariable( oldIndex ) );
     ASSERT( !_lowerBounds.exists( newIndex ) && !_upperBounds.exists( newIndex ) &&

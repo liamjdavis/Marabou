@@ -374,15 +374,15 @@ bool MaxConstraint::isCaseInfeasible( unsigned variable ) const
 
 List<PiecewiseLinearConstraint::Fix> MaxConstraint::getPossibleFixes() const
 {
-    // Reluplex does not currently work with Gurobi.
-    ASSERT( _gurobi == NULL );
+    // Reluplex does not currently work with an external LP solver.
+    ASSERT( _lpSolver == NULL );
     return List<PiecewiseLinearConstraint::Fix>();
 }
 
 List<PiecewiseLinearConstraint::Fix> MaxConstraint::getSmartFixes( ITableau * ) const
 {
-    // Reluplex does not currently work with Gurobi.
-    ASSERT( _gurobi == NULL );
+    // Reluplex does not currently work with an external LP solver.
+    ASSERT( _lpSolver == NULL );
     return getPossibleFixes();
 }
 
@@ -462,9 +462,9 @@ PiecewiseLinearCaseSplit MaxConstraint::getCaseSplit( PhaseStatus phase ) const
 
 void MaxConstraint::updateVariableIndex( unsigned oldIndex, unsigned newIndex )
 {
-    // Variable re-indexing can only occur in preprocessing before Gurobi is
-    // registered.
-    ASSERT( _gurobi == NULL );
+    // Variable re-indexing can only occur in preprocessing before the LP
+    // solver is registered.
+    ASSERT( _lpSolver == NULL );
 
     _lowerBounds[newIndex] = _lowerBounds[oldIndex];
     _upperBounds[newIndex] = _upperBounds[oldIndex];

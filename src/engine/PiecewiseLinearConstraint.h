@@ -49,7 +49,7 @@
 
 #include "FloatUtils.h"
 #include "GroundBoundManager.h"
-#include "GurobiWrapper.h"
+#include "LPSolver.h"
 #include "IBoundManager.h"
 #include "ITableau.h"
 #include "LinearExpression.h"
@@ -356,11 +356,11 @@ public:
     }
 
     /*
-      Register the GurobiWrapper object. We will query it for assignment.
+      Register the LPSolver object. We will query it for assignment.
     */
-    inline void registerGurobi( GurobiWrapper *gurobi )
+    inline void registerLPSolver( LPSolver *lpSolver )
     {
-        _gurobi = gurobi;
+        _lpSolver = lpSolver;
     }
 
     inline void registerTableau( ITableau *tableau )
@@ -555,9 +555,9 @@ protected:
     Statistics *_statistics;
 
     /*
-      The gurobi object for solving the LPs during the search.
+      The LP solver object for solving the LPs during the search.
     */
-    GurobiWrapper *_gurobi;
+    LPSolver *_lpSolver;
 
     CVC4::context::CDO<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> *_cdPhaseFixingEntry;
 
@@ -646,8 +646,8 @@ protected:
     /**********************************************************************/
     inline bool existsAssignment( unsigned variable ) const
     {
-        if ( _gurobi )
-            return _gurobi->existsAssignment( Stringf( "x%u", variable ) );
+        if ( _lpSolver )
+            return _lpSolver->existsAssignment( Stringf( "x%u", variable ) );
         else if ( _tableau )
             return _tableau->existsValue( variable );
         else
@@ -656,12 +656,12 @@ protected:
 
     inline double getAssignment( unsigned variable ) const
     {
-        if ( _gurobi == nullptr )
+        if ( _lpSolver == nullptr )
         {
             return _tableau->getValue( variable );
         }
         else
-            return _gurobi->getAssignment( Stringf( "x%u", variable ) );
+            return _lpSolver->getAssignment( Stringf( "x%u", variable ) );
     }
 
     List<unsigned> _tableauAuxVars;
