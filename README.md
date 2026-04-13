@@ -118,6 +118,31 @@ except that you need  to run the following command instead of `cmake ../`:
 cmake ../ -DENABLE_GUROBI=ON
 ```
 
+#### Compile Marabou with NVIDIA cuOpt (optional)
+
+Marabou can be configured to use NVIDIA cuOpt for GPU-accelerated LP/MILP
+solving. This requires an NVIDIA GPU with CUDA 12+ support.
+
+All cuOpt dependencies (`libcuopt`, `libraft`) are included in the conda
+environment defined in `environment.yml`. After creating and activating the
+environment, build with:
+```bash
+cmake ../ -DENABLE_CUOPT=ON
+```
+
+cuOpt can be enabled alongside Gurobi:
+```bash
+cmake ../ -DENABLE_CUOPT=ON -DENABLE_GUROBI=ON
+```
+
+**Note:** The cuOpt unit tests are incompatible with AddressSanitizer (ASAN).
+When building with `-DRUN_MEMORY_TEST=ON` (the default), the cuOpt tests are
+automatically skipped. To run them, build with `-DRUN_MEMORY_TEST=OFF`:
+```bash
+cmake ../ -DENABLE_CUOPT=ON -DRUN_MEMORY_TEST=OFF
+ctest -R CuOptWrapper --output-on-failure
+```
+
 #### Other CMake options
 
 The `cmake ../` command can take other options, for example:

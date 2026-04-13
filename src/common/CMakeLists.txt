@@ -21,6 +21,13 @@ common_add_unit_test(Error)
 common_add_unit_test(File)
 common_add_unit_test(FloatUtils)
 common_add_unit_test(GurobiWrapper)
+
+# cuOpt tests require a GPU and are incompatible with ASAN
+if (${ENABLE_CUOPT} AND ${RUN_MEMORY_TEST})
+    message(STATUS "Skipping CuOptWrapper test: ASAN is incompatible with CUDA")
+else()
+    common_add_unit_test(CuOptWrapper)
+endif()
 common_add_unit_test(HashMap)
 common_add_unit_test(HashSet)
 common_add_unit_test(HeapData)

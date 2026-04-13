@@ -151,6 +151,19 @@ if (${ENABLE_GUROBI})
   target_include_directories(${GUROBI_LIB2} INTERFACE ${GUROBI_DIR}/include/)
 endif()
 
+###########
+## cuOpt ##
+###########
+
+option(ENABLE_CUOPT "Enable NVIDIA cuOpt GPU LP solver" OFF)
+
+if (${ENABLE_CUOPT})
+  message(STATUS "Using cuOpt for GPU LP solving")
+  find_package(cuopt REQUIRED)
+  add_compile_definitions(ENABLE_CUOPT)
+  list(APPEND LIBS cuopt::cuopt)
+endif()
+
 ##############
 ## OpenBLAS ##
 ##############

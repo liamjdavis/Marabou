@@ -1,13 +1,18 @@
 name: marabou
 channels:
+  - rapidsai
   - conda-forge
+  - nvidia
 dependencies:
   - boost-cpp=1.84.0
-  - libprotobuf=3.19.2
-  - protobuf=3.19.2
+  - libprotobuf>=3.19.2,<5
+  - protobuf>=3.19.2,<5
   - openblas>=0.3.19
   - pybind11>=2.13.6
-  - cmake>=3.16
+  - cmake>=3.30.4
   - ninja
   - python>=3.9
   - numpy>=1.21.0,<2
+  - libcuopt
+  - libraft
+  - cuda-version>=12.0
