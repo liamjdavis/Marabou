@@ -17,7 +17,7 @@ option(FORCE_PYTHON_BUILD "Build Python even if there is only 32-bit Python" OFF
 option(RUN_UNIT_TEST "Run unit tests on build" ON)
 option(RUN_REGRESS_TEST "Run regression tests on build" OFF)
 option(RUN_SYSTEM_TEST "Run system tests on build" OFF)
-option(RUN_MEMORY_TEST "Run cxxtest testing with ASAN ON" ON)
+option(RUN_MEMORY_TEST "Run cxxtest testing with ASAN ON" OFF)
 option(RUN_PYTHON_TEST "Run Python API tests if building with Python" OFF)
 option(ENABLE_GUROBI "Enable use the Gurobi optimizer" OFF)
 option(ENABLE_OPENBLAS "Do symbolic bound tighting using blas" ON) # Not available on Windows

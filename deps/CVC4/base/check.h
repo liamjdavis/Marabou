@@ -34,17 +34,17 @@
 #ifndef CVC4__CHECK_H
 #define CVC4__CHECK_H
 
+#include "base/exception.h"
+
 #include <cstdarg>
 #include <ostream>
-
-#include "base/exception.h"
 
 #ifdef _WIN32
 #define __PRETTY_FUNCTION__ __FUNCSIG__
 #endif
 
 // Define CVC4_NO_RETURN macro replacement for [[noreturn]].
-#if defined(SWIG)
+#if defined( SWIG )
 #define CVC4_NO_RETURN
 // SWIG does not yet support [[noreturn]] so emit nothing instead.
 #else
@@ -52,25 +52,25 @@
 // Not checking for whether the compiler supports [[noreturn]] using
 // __has_cpp_attribute as GCC 4.8 is too widespread and does not support this.
 // We instead assume this is C++11 (or later) and [[noreturn]] is available.
-#endif  // defined(SWIG)
+#endif // defined(SWIG)
 
 // Define CVC4_PREDICT_FALSE(x) that helps the compiler predict that x will be
 // false (if there is compiler support).
 #ifdef __has_builtin
-#if __has_builtin(__builtin_expect)
-#define CVC4_PREDICT_FALSE(x) (__builtin_expect(x, false))
-#define CVC4_PREDICT_TRUE(x) (__builtin_expect(x, true))
+#if __has_builtin( __builtin_expect )
+#define CVC4_PREDICT_FALSE( x ) ( __builtin_expect( x, false ) )
+#define CVC4_PREDICT_TRUE( x ) ( __builtin_expect( x, true ) )
 #else
-#define CVC4_PREDICT_FALSE(x) x
-#define CVC4_PREDICT_TRUE(x) x
+#define CVC4_PREDICT_FALSE( x ) x
+#define CVC4_PREDICT_TRUE( x ) x
 #endif
 #else
-#define CVC4_PREDICT_FALSE(x) x
-#define CVC4_PREDICT_TRUE(x) x
+#define CVC4_PREDICT_FALSE( x ) x
+#define CVC4_PREDICT_TRUE( x ) x
 #endif
 
 #ifdef __has_cpp_attribute
-#if __has_cpp_attribute(fallthrough)
+#if __has_cpp_attribute( fallthrough )
 #define CVC4_FALLTHROUGH [[fallthrough]]
 #endif // __has_cpp_attribute(fallthrough)
 #endif // __has_cpp_attribute
@@ -97,24 +97,28 @@ namespace CVC4 {
 // this class is discouraged.
 class FatalStream
 {
- public:
-  FatalStream(const char* function, const char* file, int line);
-  CVC4_NO_RETURN ~FatalStream();
+public:
+    FatalStream( const char *function, const char *file, int line );
+    CVC4_NO_RETURN ~FatalStream();
 
-  std::ostream& stream();
+    std::ostream &stream();
 
- private:
-  void Flush();
+private:
+    void Flush();
 };
 
 // Helper class that changes the type of an std::ostream& into a void. See
 // "Implementation notes" for more information.
 class OstreamVoider
 {
- public:
-  OstreamVoider() {}
-  // The operator precedence between operator& and operator<< is critical here.
-  void operator&(std::ostream&) {}
+public:
+    OstreamVoider()
+    {
+    }
+    // The operator precedence between operator& and operator<< is critical here.
+    void operator&( std::ostream & )
+    {
+    }
 };
 
 // CVC4_FATAL() always aborts a function and provides a convenient way of
@@ -128,8 +132,7 @@ class OstreamVoider
 //       CVC4_FATAL() << "Unknown T type " << t.enum();
 //     }
 //   }
-#define CVC4_FATAL() \
-  FatalStream(__PRETTY_FUNCTION__, __FILE__, __LINE__).stream()
+#define CVC4_FATAL() FatalStream( __PRETTY_FUNCTION__, __FILE__, __LINE__ ).stream()
 
 /* GCC <= 9.2 ignores CVC4_NO_RETURN of ~FatalStream() if
  * used in template classes (e.g., CDHashMap::save()).  As a workaround we
@@ -140,9 +143,9 @@ class OstreamVoider
 // If `cond` is true, log an error message and abort the process.
 // Otherwise, does nothing. This leaves a hanging std::ostream& that can be
 // inserted into.
-#define CVC4_FATAL_IF(cond, function, file, line) \
-  CVC4_PREDICT_FALSE(!(cond))                     \
-  ? (void)0 : OstreamVoider() & FatalStream(function, file, line).stream()
+#define CVC4_FATAL_IF( cond, function, file, line )                                                \
+    CVC4_PREDICT_FALSE( !( cond ) )                                                                \
+    ? (void)0 : OstreamVoider() & FatalStream( function, file, line ).stream()
 
 // If `cond` is false, log an error message and abort()'s the process.
 // Otherwise, does nothing. This leaves a hanging std::ostream& that can be
@@ -151,56 +154,58 @@ class OstreamVoider
 //   AlwaysAssert(x >= 0) << "x must be positive";
 //   AlwaysAssert(x >= 0) << "expected a positive value. Got " << x << "
 //   instead";
-#define AlwaysAssert(cond)                                        \
-  CVC4_FATAL_IF(!(cond), __PRETTY_FUNCTION__, __FILE__, __LINE__) \
-      << "Check failure\n\n " << #cond << "\n"
+#define AlwaysAssert( cond )                                                                       \
+    CVC4_FATAL_IF( !( cond ), __PRETTY_FUNCTION__, __FILE__, __LINE__ )                            \
+        << "Check failure\n\n " << #cond << "\n"
 
 // Assert is a variant of AlwaysAssert() that is only checked when
 // CVC4_ASSERTIONS is defined. We rely on the optimizer to remove the deadcode.
 #ifdef CVC4_ASSERTIONS
-#define Assert(cond) AlwaysAssert(cond)
+#define Assert( cond ) AlwaysAssert( cond )
 #else
-#define Assert(cond) \
-  CVC4_FATAL_IF(false, __PRETTY_FUNCTION__, __FILE__, __LINE__)
+#define Assert( cond ) CVC4_FATAL_IF( false, __PRETTY_FUNCTION__, __FILE__, __LINE__ )
 #endif /* CVC4_DEBUG */
 
 class AssertArgumentException : public Exception
 {
- protected:
-  AssertArgumentException() : Exception() {}
+protected:
+    AssertArgumentException()
+        : Exception()
+    {
+    }
 
-  void construct(const char* header,
-                 const char* extra,
-                 const char* function,
-                 const char* file,
-                 unsigned line,
-                 const char* fmt,
-                 va_list args);
+    void construct( const char *header,
+                    const char *extra,
+                    const char *function,
+                    const char *file,
+                    unsigned line,
+                    const char *fmt,
+                    va_list args );
 
-  void construct(const char* header,
-                 const char* extra,
-                 const char* function,
-                 const char* file,
-                 unsigned line);
+    void construct( const char *header,
+                    const char *extra,
+                    const char *function,
+                    const char *file,
+                    unsigned line );
 
- public:
-  AssertArgumentException(const char* condStr,
-                          const char* argDesc,
-                          const char* function,
-                          const char* file,
-                          unsigned line,
-                          const char* fmt,
-                          ...);
+public:
+    AssertArgumentException( const char *condStr,
+                             const char *argDesc,
+                             const char *function,
+                             const char *file,
+                             unsigned line,
+                             const char *fmt,
+                             ... );
 
-  AssertArgumentException(const char* condStr,
-                          const char* argDesc,
-                          const char* function,
-                          const char* file,
-                          unsigned line);
+    AssertArgumentException( const char *condStr,
+                             const char *argDesc,
+                             const char *function,
+                             const char *file,
+                             unsigned line );
 
 }; /* class AssertArgumentException */
 
-#define Unreachable() CVC4_FATAL() << "Unreachable code reached"
+#define CVC4_Unreachable() CVC4_FATAL() << "Unreachable code reached"
 
 #define Unhandled() CVC4_FATAL() << "Unhandled case encountered"
 
@@ -210,47 +215,48 @@ class AssertArgumentException : public Exception
 // of the same name found in `onnx.proto3.pb.h`.
 //#define InternalError() CVC4_FATAL() << "Internal error detected"
 
-#define IllegalArgument(arg, msg, ...)    \
-  throw ::CVC4::IllegalArgumentException( \
-      "",                                 \
-      #arg,                               \
-      __PRETTY_FUNCTION__,                \
-      ::CVC4::IllegalArgumentException::formatVariadic(msg).c_str());
+#define IllegalArgument( arg, msg, ... )                                                           \
+    throw ::CVC4::IllegalArgumentException(                                                        \
+        "",                                                                                        \
+        #arg,                                                                                      \
+        __PRETTY_FUNCTION__,                                                                       \
+        ::CVC4::IllegalArgumentException::formatVariadic( msg ).c_str() );
 // This cannot use check argument directly as this forces
 // CheckArgument to use a va_list. This is unsupported in Swig.
-#define PrettyCheckArgument(cond, arg, msg, ...)                            \
-  do                                                                      \
-  {                                                                       \
-    if (__builtin_expect((!(cond)), false))                               \
-    {                                                                     \
-      throw ::CVC4::IllegalArgumentException(                             \
-          #cond,                                                          \
-          #arg,                                                           \
-          __PRETTY_FUNCTION__,                                            \
-          ::CVC4::IllegalArgumentException::formatVariadic(msg).c_str()); \
-    }                                                                     \
-  } while (0)
-#define AlwaysAssertArgument(cond, arg, msg, ...)                         \
-  do                                                                    \
-  {                                                                     \
-    if (__builtin_expect((!(cond)), false))                             \
-    {                                                                   \
-      throw ::CVC4::AssertArgumentException(                            \
-          #cond, #arg, __PRETTY_FUNCTION__, __FILE__, __LINE__, ##msg); \
-    }                                                                   \
-  } while (0)
+#define PrettyCheckArgument( cond, arg, msg, ... )                                                 \
+    do                                                                                             \
+    {                                                                                              \
+        if ( __builtin_expect( ( !( cond ) ), false ) )                                            \
+        {                                                                                          \
+            throw ::CVC4::IllegalArgumentException(                                                \
+                #cond,                                                                             \
+                #arg,                                                                              \
+                __PRETTY_FUNCTION__,                                                               \
+                ::CVC4::IllegalArgumentException::formatVariadic( msg ).c_str() );                 \
+        }                                                                                          \
+    }                                                                                              \
+    while ( 0 )
+#define AlwaysAssertArgument( cond, arg, msg, ... )                                                \
+    do                                                                                             \
+    {                                                                                              \
+        if ( __builtin_expect( ( !( cond ) ), false ) )                                            \
+        {                                                                                          \
+            throw ::CVC4::AssertArgumentException(                                                 \
+                #cond, #arg, __PRETTY_FUNCTION__, __FILE__, __LINE__, ##msg );                     \
+        }                                                                                          \
+    }                                                                                              \
+    while ( 0 )
 
 #ifdef CVC4_ASSERTIONS
-#define AssertArgument(cond, arg, msg, ...) AlwaysAssertArgument(cond, arg, ##msg)
-#define DebugCheckArgument(cond, arg, msg, ...) CheckArgument(cond, arg, ##msg)
-#else                                     /* ! CVC4_ASSERTIONS */
-#define AssertArgument(cond, arg, msg, ...) /*__builtin_expect( ( cond ), true \
-                                             )*/
-#define DebugCheckArgument( \
-    cond, arg, msg, ...) /*__builtin_expect( ( cond ), true )*/
-#endif                 /* CVC4_ASSERTIONS */
+#define AssertArgument( cond, arg, msg, ... ) AlwaysAssertArgument( cond, arg, ##msg )
+#define DebugCheckArgument( cond, arg, msg, ... ) CheckArgument( cond, arg, ##msg )
+#else                                             /* ! CVC4_ASSERTIONS */
+#define AssertArgument( cond, arg, msg, ... )     /*__builtin_expect( ( cond ), true               \
+                                                   )*/
+#define DebugCheckArgument( cond, arg, msg, ... ) /*__builtin_expect( ( cond ), true )*/
+#endif                                            /* CVC4_ASSERTIONS */
 
-}  // namespace CVC4
+} // namespace CVC4
 
-#endif /* CVC4
+#endif /* CVC4                                                                                     \
 __CHECK_H */

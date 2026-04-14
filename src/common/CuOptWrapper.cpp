@@ -22,8 +22,14 @@
 #include "GlobalConfiguration.h"
 #include "MStringf.h"
 
-#include <fcntl.h>
-#include <unistd.h>
+#include <chrono>
+#include <cstdio>
+#include <cuda_runtime.h>
+
+static int g_solveCount = 0;
+static double g_totalSolveMs = 0;
+static double g_totalSetupMs = 0;
+static double g_totalExtractMs = 0;
 
 CuOptWrapper::CuOptWrapper()
     : _objectiveConstant( 0 )
@@ -31,25 +37,22 @@ CuOptWrapper::CuOptWrapper()
     , _timeoutInSeconds( 0 )
     , _verbosity( 0 )
     , _numThreads( 0 )
-    , _solution( nullptr )
-    , _terminationStatus( CUOPT_TERIMINATION_STATUS_NO_TERMINATION )
+    , _terminationStatus( CUOPT_TERMINATION_STATUS_NO_TERMINATION )
     , _lastObjectiveValue( 0 )
+    , _lastDualObjectiveValue( 0 )
     , _hasSolution( false )
+    , _raftHandle( nullptr )
+    , _cppProblem( nullptr )
+    , _lastCppSolution( nullptr )
+    , _problemInitialized( false )
 {
 }
 
 CuOptWrapper::~CuOptWrapper()
 {
-    destroySolutionIfNeeded();
-}
-
-void CuOptWrapper::destroySolutionIfNeeded()
-{
-    if ( _solution )
-    {
-        cuOptDestroySolution( &_solution );
-        _solution = nullptr;
-    }
+    delete _lastCppSolution;
+    delete _cppProblem;
+    delete _raftHandle;
 }
 
 void CuOptWrapper::addVariable( String name, double lb, double ub, VariableType type )
@@ -176,7 +179,6 @@ void CuOptWrapper::setCost( const List<Term> &terms, double constant )
 {
     _objectiveSense = CUOPT_MINIMIZE;
 
-    // Reset coefficients to zero
     for ( unsigned i = 0; i < _objectiveCoefficients.size(); ++i )
         _objectiveCoefficients[i] = 0.0;
 
@@ -194,7 +196,6 @@ void CuOptWrapper::setObjective( const List<Term> &terms, double constant )
 {
     _objectiveSense = CUOPT_MAXIMIZE;
 
-    // Reset coefficients to zero
     for ( unsigned i = 0; i < _objectiveCoefficients.size(); ++i )
         _objectiveCoefficients[i] = 0.0;
 
@@ -210,7 +211,6 @@ void CuOptWrapper::setObjective( const List<Term> &terms, double constant )
 
 void CuOptWrapper::setCutoff( double )
 {
-    // No-op: cuOpt does not support cutoff
 }
 
 void CuOptWrapper::setTimeLimit( double seconds )
@@ -220,166 +220,213 @@ void CuOptWrapper::setTimeLimit( double seconds )
 
 void CuOptWrapper::solve()
 {
-    destroySolutionIfNeeded();
+    auto t0 = std::chrono::high_resolution_clock::now();
+
     _hasSolution = false;
-    _terminationStatus = CUOPT_TERIMINATION_STATUS_NO_TERMINATION;
+    _terminationStatus = CUOPT_TERMINATION_STATUS_NO_TERMINATION;
 
-    cuopt_int_t numVariables = (cuopt_int_t)_variableNames.size();
-    cuopt_int_t numConstraints = (cuopt_int_t)_constraints.size();
+    int numVariables = (int)_variableNames.size();
+    int numConstraints = (int)_constraints.size();
 
-    // Build variable bounds and types arrays
-    std::vector<cuopt_float_t> varLB( numVariables );
-    std::vector<cuopt_float_t> varUB( numVariables );
-    std::vector<char> varTypes( numVariables );
+    // Build variable bounds
+    std::vector<double> varLB( numVariables );
+    std::vector<double> varUB( numVariables );
 
     for ( const auto &entry : _variableInfo )
     {
         unsigned idx = entry.second._index;
         varLB[idx] = entry.second._lb;
         varUB[idx] = entry.second._ub;
-        varTypes[idx] = entry.second._type;
     }
 
     // Build objective coefficients
-    std::vector<cuopt_float_t> objCoeffs( numVariables );
-    for ( cuopt_int_t i = 0; i < numVariables; ++i )
+    std::vector<double> objCoeffs( numVariables );
+    for ( int i = 0; i < numVariables; ++i )
         objCoeffs[i] = _objectiveCoefficients[i];
 
-    // Build CSR constraint matrix
-    std::vector<cuopt_int_t> rowOffsets;
-    std::vector<cuopt_int_t> colIndices;
-    std::vector<cuopt_float_t> values;
-    std::vector<cuopt_float_t> constraintLB;
-    std::vector<cuopt_float_t> constraintUB;
-
-    rowOffsets.reserve( numConstraints + 1 );
-    rowOffsets.push_back( 0 );
-
-    for ( const auto &constraint : _constraints )
+    if ( !_problemInitialized )
     {
-        for ( const auto &term : constraint._terms )
+        auto tInit0 = std::chrono::high_resolution_clock::now();
+        // First solve: create GPU handle and problem, build + cache CSR
+        _raftHandle = new raft::handle_t();
+        auto tRaft = std::chrono::high_resolution_clock::now();
+        double raftMs = std::chrono::duration<double, std::milli>( tRaft - tInit0 ).count();
+        fprintf( stderr, "[cuopt] raft::handle_t init: %.1f ms\n", raftMs );
+
+        _cppProblem = new CppProblem( _raftHandle );
+
+        _cachedRowOffsets.clear();
+        _cachedColIndices.clear();
+        _cachedValues.clear();
+        _cachedConstraintLB.clear();
+        _cachedConstraintUB.clear();
+
+        _cachedRowOffsets.reserve( numConstraints + 1 );
+        _cachedRowOffsets.push_back( 0 );
+
+        for ( const auto &constraint : _constraints )
         {
-            colIndices.push_back( (cuopt_int_t)term.first );
-            values.push_back( term.second );
+            for ( const auto &term : constraint._terms )
+            {
+                _cachedColIndices.push_back( (int)term.first );
+                _cachedValues.push_back( term.second );
+            }
+            _cachedRowOffsets.push_back( (int)_cachedColIndices.size() );
+            _cachedConstraintLB.push_back( constraint._lb );
+            _cachedConstraintUB.push_back( constraint._ub );
         }
-        rowOffsets.push_back( (cuopt_int_t)colIndices.size() );
-        constraintLB.push_back( constraint._lb );
-        constraintUB.push_back( constraint._ub );
+
+        int nnz = (int)_cachedValues.size();
+
+        _cppProblem->set_csr_constraint_matrix( _cachedValues.data(),
+                                                nnz,
+                                                _cachedColIndices.data(),
+                                                nnz,
+                                                _cachedRowOffsets.data(),
+                                                numConstraints + 1 );
+
+        _cppProblem->set_constraint_lower_bounds( _cachedConstraintLB.data(), numConstraints );
+        _cppProblem->set_constraint_upper_bounds( _cachedConstraintUB.data(), numConstraints );
+
+        // Set variable types
+        std::vector<cuopt::linear_programming::var_t> varTypes( numVariables );
+        for ( const auto &entry : _variableInfo )
+        {
+            unsigned idx = entry.second._index;
+            varTypes[idx] = ( entry.second._type == CUOPT_INTEGER )
+                              ? cuopt::linear_programming::var_t::INTEGER
+                              : cuopt::linear_programming::var_t::CONTINUOUS;
+        }
+        _cppProblem->set_variable_types( varTypes.data(), numVariables );
+
+        _problemInitialized = true;
+        auto tInit1 = std::chrono::high_resolution_clock::now();
+        double initMs = std::chrono::duration<double, std::milli>( tInit1 - tInit0 ).count();
+        fprintf( stderr,
+                 "[cuopt] First-solve init: %.1f ms (vars=%d, cons=%d, nnz=%d)\n",
+                 initMs,
+                 numVariables,
+                 numConstraints,
+                 nnz );
     }
 
-    // Create the problem
-    cuOptOptimizationProblem problem = nullptr;
-    cuopt_int_t status = cuOptCreateRangedProblem( numConstraints,
-                                                   numVariables,
-                                                   _objectiveSense,
-                                                   (cuopt_float_t)_objectiveConstant,
-                                                   objCoeffs.data(),
-                                                   rowOffsets.data(),
-                                                   colIndices.data(),
-                                                   values.data(),
-                                                   constraintLB.data(),
-                                                   constraintUB.data(),
-                                                   varLB.data(),
-                                                   varUB.data(),
-                                                   varTypes.data(),
-                                                   &problem );
+    // Every solve: update variable bounds + objective
+    _cppProblem->set_variable_lower_bounds( varLB.data(), numVariables );
+    _cppProblem->set_variable_upper_bounds( varUB.data(), numVariables );
+    _cppProblem->set_objective_coefficients( objCoeffs.data(), numVariables );
+    _cppProblem->set_objective_offset( _objectiveConstant );
+    _cppProblem->set_maximize( _objectiveSense == CUOPT_MAXIMIZE );
 
-    if ( status != CUOPT_SUCCESS )
-    {
-        throw CommonError(
-            CommonError::CUOPT_EXCEPTION,
-            Stringf( "cuOptCreateRangedProblem failed with status %d", status ).ascii() );
-    }
+    auto tSetup = std::chrono::high_resolution_clock::now();
+    double setupMs = std::chrono::duration<double, std::milli>( tSetup - t0 ).count();
 
-    // Create solver settings
-    cuOptSolverSettings settings = nullptr;
-    status = cuOptCreateSolverSettings( &settings );
-    if ( status != CUOPT_SUCCESS )
-    {
-        cuOptDestroyProblem( &problem );
-        throw CommonError(
-            CommonError::CUOPT_EXCEPTION,
-            Stringf( "cuOptCreateSolverSettings failed with status %d", status ).ascii() );
-    }
-
-    // Suppress cuOpt's internal "Setting parameter..." log output
-    int savedStdout = dup( STDOUT_FILENO );
-    int savedStderr = dup( STDERR_FILENO );
-    int devNull = open( "/dev/null", O_WRONLY );
-    dup2( devNull, STDOUT_FILENO );
-    dup2( devNull, STDERR_FILENO );
-    close( devNull );
-
-    // Set verbosity
-    if ( _verbosity == 0 )
-        cuOptSetIntegerParameter( settings, CUOPT_LOG_TO_CONSOLE, 0 );
-    else
-        cuOptSetIntegerParameter( settings, CUOPT_LOG_TO_CONSOLE, 1 );
-
-    // Use DualSimplex for exact solutions. PDLP is a first-order approximate
-    // method that cannot reliably achieve the tight tolerances needed for
-    // verification (leads to unsound SAT results).
-    cuOptSetIntegerParameter( settings, CUOPT_METHOD, CUOPT_METHOD_DUAL_SIMPLEX );
-
-    // Tighten tolerances to match Gurobi's for verification correctness.
-    cuOptSetFloatParameter( settings, CUOPT_ABSOLUTE_PRIMAL_TOLERANCE, 1e-9 );
-    cuOptSetFloatParameter( settings, CUOPT_RELATIVE_PRIMAL_TOLERANCE, 1e-9 );
-    cuOptSetFloatParameter( settings, CUOPT_ABSOLUTE_DUAL_TOLERANCE, 1e-9 );
-    cuOptSetFloatParameter( settings, CUOPT_RELATIVE_DUAL_TOLERANCE, 1e-9 );
-    cuOptSetFloatParameter( settings, CUOPT_ABSOLUTE_GAP_TOLERANCE, 1e-9 );
-    cuOptSetFloatParameter( settings, CUOPT_RELATIVE_GAP_TOLERANCE, 1e-9 );
-
-    // Enable infeasibility detection (disabled by default in cuOpt)
-    cuOptSetIntegerParameter( settings, CUOPT_INFEASIBILITY_DETECTION, 1 );
-
-
-    // Restore stdout/stderr
-    dup2( savedStdout, STDOUT_FILENO );
-    dup2( savedStderr, STDERR_FILENO );
-    close( savedStdout );
-    close( savedStderr );
+    // DualSimplex only — wins Concurrent race anyway, uses far less GPU memory
+    CppSettings settings;
+    settings.method = cuopt::linear_programming::method_t::DualSimplex;
+    settings.tolerances.absolute_primal_tolerance = 1e-6;
+    settings.tolerances.relative_primal_tolerance = 1e-6;
+    settings.tolerances.absolute_dual_tolerance = 1e-6;
+    settings.tolerances.relative_dual_tolerance = 1e-6;
+    settings.tolerances.absolute_gap_tolerance = 1e-6;
+    settings.tolerances.relative_gap_tolerance = 1e-6;
+    settings.detect_infeasibility = true;
+    settings.log_to_console = ( _verbosity > 0 );
 
     // Solve
-    status = cuOptSolve( problem, settings, &_solution );
+    auto tSolve0 = std::chrono::high_resolution_clock::now();
+    auto solution =
+        cuopt::linear_programming::solve_lp( *_cppProblem, settings, /*problem_checking=*/false );
+    auto tSolve1 = std::chrono::high_resolution_clock::now();
+    double solveMs = std::chrono::duration<double, std::milli>( tSolve1 - tSolve0 ).count();
 
-    // Get termination status regardless of solve return code
-    if ( _solution )
+    _lastCppSolution = new CppSolution( std::move( solution ) );
+
+    auto status = _lastCppSolution->get_termination_status();
+    _terminationStatus = static_cast<int>( status );
+
+    // Extract solution if feasible
+    if ( status == cuopt::linear_programming::pdlp_termination_status_t::Optimal ||
+         status == cuopt::linear_programming::pdlp_termination_status_t::PrimalFeasible )
     {
-        cuOptGetTerminationStatus( _solution, &_terminationStatus );
+        auto &primal = _lastCppSolution->get_primal_solution();
 
-        // Extract solution values if we have a feasible solution
-        if ( _terminationStatus == CUOPT_TERIMINATION_STATUS_OPTIMAL ||
-             _terminationStatus == CUOPT_TERIMINATION_STATUS_PRIMAL_FEASIBLE ||
-             _terminationStatus == CUOPT_TERIMINATION_STATUS_FEASIBLE_FOUND )
+        _lastSolutionValues.clear();
+        _lastSolutionValues = Vector<double>( numVariables, 0.0 );
+
+        std::vector<double> hostVals( numVariables );
+        cudaMemcpy( hostVals.data(),
+                    primal.data(),
+                    numVariables * sizeof( double ),
+                    cudaMemcpyDeviceToHost );
+
+        for ( int i = 0; i < numVariables; ++i )
+            _lastSolutionValues[i] = hostVals[i];
+
+        _lastObjectiveValue = _lastCppSolution->get_objective_value();
+        _lastDualObjectiveValue = _lastCppSolution->get_dual_objective_value();
+        _hasSolution = true;
+    }
+
+    // Extract stats before freeing GPU memory
+    auto tEnd = std::chrono::high_resolution_clock::now();
+    double extractMs = std::chrono::duration<double, std::milli>( tEnd - tSolve1 ).count();
+    double totalMs = std::chrono::duration<double, std::milli>( tEnd - t0 ).count();
+
+    g_solveCount++;
+    g_totalSolveMs += solveMs;
+    g_totalSetupMs += setupMs;
+    g_totalExtractMs += extractMs;
+
+    // Print every 100 solves + first 10
+    if ( g_solveCount <= 10 || g_solveCount % 100 == 0 )
+    {
+        auto info = _lastCppSolution->get_additional_termination_information();
+        const char *methodName = "?";
+        switch ( static_cast<int>( info.solved_by ) )
         {
-            _lastSolutionValues.clear();
-            _lastSolutionValues = Vector<double>( numVariables, 0.0 );
-            std::vector<cuopt_float_t> solVals( numVariables );
-            cuOptGetPrimalSolution( _solution, solVals.data() );
-            for ( cuopt_int_t i = 0; i < numVariables; ++i )
-                _lastSolutionValues[i] = solVals[i];
-
-            cuopt_float_t objVal = 0;
-            cuOptGetObjectiveValue( _solution, &objVal );
-            _lastObjectiveValue = objVal;
-            _hasSolution = true;
+        case 0:
+            methodName = "Concurrent";
+            break;
+        case 1:
+            methodName = "PDLP";
+            break;
+        case 2:
+            methodName = "DualSimplex";
+            break;
+        case 3:
+            methodName = "Barrier";
+            break;
+        case 4:
+            methodName = "Unset";
+            break;
         }
+
+        size_t freeMem = 0, totalMem = 0;
+        cudaMemGetInfo( &freeMem, &totalMem );
+
+        fprintf( stderr,
+                 "[cuopt] #%d: solve=%.1fms cuopt_t=%.3fs method=%s iters=%d "
+                 "status=%d gap=%.2e gpu=%zuMB/%zuMB | cum: solve=%.0fms\n",
+                 g_solveCount,
+                 solveMs,
+                 info.solve_time,
+                 methodName,
+                 info.number_of_steps_taken,
+                 _terminationStatus,
+                 info.gap,
+                 freeMem / ( 1024 * 1024 ),
+                 totalMem / ( 1024 * 1024 ),
+                 g_totalSolveMs );
     }
 
-    // Clean up problem and settings (keep solution)
-    cuOptDestroySolverSettings( &settings );
-    cuOptDestroyProblem( &problem );
-
-    if ( status != CUOPT_SUCCESS && !_solution )
-    {
-        throw CommonError( CommonError::CUOPT_EXCEPTION,
-                           Stringf( "cuOptSolve failed with status %d", status ).ascii() );
-    }
+    // Free GPU memory immediately — solution already extracted to host
+    delete _lastCppSolution;
+    _lastCppSolution = nullptr;
 }
 
 bool CuOptWrapper::optimal()
 {
-    return _terminationStatus == CUOPT_TERIMINATION_STATUS_OPTIMAL;
+    return _terminationStatus == CUOPT_TERMINATION_STATUS_OPTIMAL;
 }
 
 bool CuOptWrapper::cutoffOccurred()
@@ -389,12 +436,12 @@ bool CuOptWrapper::cutoffOccurred()
 
 bool CuOptWrapper::infeasible()
 {
-    return _terminationStatus == CUOPT_TERIMINATION_STATUS_INFEASIBLE;
+    return _terminationStatus == CUOPT_TERMINATION_STATUS_INFEASIBLE;
 }
 
 bool CuOptWrapper::timeout()
 {
-    return _terminationStatus == CUOPT_TERIMINATION_STATUS_TIME_LIMIT;
+    return _terminationStatus == CUOPT_TERMINATION_STATUS_TIME_LIMIT;
 }
 
 bool CuOptWrapper::haveFeasibleSolution()
@@ -417,13 +464,8 @@ void CuOptWrapper::extractSolution( Map<String, double> &values, double &costOrO
 
 double CuOptWrapper::getObjectiveBound()
 {
-    if ( _solution )
-    {
-        cuopt_float_t bound = 0;
-        cuopt_int_t status = cuOptGetSolutionBound( _solution, &bound );
-        if ( status == CUOPT_SUCCESS )
-            return bound;
-    }
+    if ( _hasSolution )
+        return _lastDualObjectiveValue;
 
     if ( _objectiveSense == CUOPT_MINIMIZE )
         return -CUOPT_INFINITY;
@@ -433,8 +475,8 @@ double CuOptWrapper::getObjectiveBound()
 
 void CuOptWrapper::reset()
 {
-    destroySolutionIfNeeded();
-    _terminationStatus = CUOPT_TERIMINATION_STATUS_NO_TERMINATION;
+    // Keep persistent problem and raft handle alive
+    _terminationStatus = CUOPT_TERMINATION_STATUS_NO_TERMINATION;
     _lastObjectiveValue = 0;
     _lastSolutionValues.clear();
     _hasSolution = false;
@@ -443,17 +485,28 @@ void CuOptWrapper::reset()
 void CuOptWrapper::resetModel()
 {
     reset();
+    delete _lastCppSolution;
+    _lastCppSolution = nullptr;
+    delete _cppProblem;
+    _cppProblem = nullptr;
+    delete _raftHandle;
+    _raftHandle = nullptr;
+    _problemInitialized = false;
     _variableInfo.clear();
     _variableNames.clear();
     _constraints.clear();
     _objectiveCoefficients.clear();
     _objectiveConstant = 0;
     _objectiveSense = CUOPT_MINIMIZE;
+    _cachedRowOffsets.clear();
+    _cachedColIndices.clear();
+    _cachedValues.clear();
+    _cachedConstraintLB.clear();
+    _cachedConstraintUB.clear();
 }
 
 void CuOptWrapper::dumpModel( String )
 {
-    // No-op: cuOpt does not support model dumping
 }
 
 void CuOptWrapper::log( const String &message )

@@ -24,7 +24,17 @@
 #include "Map.h"
 #include "Vector.h"
 
-#include <cuopt/linear_programming/cuopt_c.h>
+#include <cuopt/linear_programming/constants.h>
+#include <cuopt/linear_programming/optimization_problem.hpp>
+#include <cuopt/linear_programming/pdlp/solver_settings.hpp>
+#include <cuopt/linear_programming/pdlp/solver_solution.hpp>
+#include <cuopt/linear_programming/solve.hpp>
+#include <raft/core/handle.hpp>
+#include <vector>
+
+using CppProblem = cuopt::linear_programming::optimization_problem_t<int, double>;
+using CppSettings = cuopt::linear_programming::pdlp_solver_settings_t<int, double>;
+using CppSolution = cuopt::linear_programming::optimization_problem_solution_t<int, double>;
 
 class CuOptWrapper : public LPSolver
 {
@@ -32,10 +42,7 @@ public:
     CuOptWrapper();
     ~CuOptWrapper();
 
-    // Add a new variable to the model
     void addVariable( String name, double lb, double ub, VariableType type = CONTINUOUS ) override;
-
-    // Set the lower or upper bound for an existing variable
     void setLowerBound( String name, double lb ) override;
     void setUpperBound( String name, double ub ) override;
 
@@ -49,45 +56,34 @@ public:
         return _variableInfo[name]._ub;
     }
 
-    // Add a new LEQ constraint, e.g. 3x + 4y <= -5
     void addLeqConstraint( const List<Term> &terms, double scalar ) override;
-
-    // Add a new GEQ constraint, e.g. 3x + 4y >= -5
     void addGeqConstraint( const List<Term> &terms, double scalar ) override;
-
-    // Add a new EQ constraint, e.g. 3x + 4y = -5
     void addEqConstraint( const List<Term> &terms, double scalar ) override;
 
-    // Unsupported: throws CommonError
     void addPiecewiseLinearConstraint( String sourceVariable,
                                        String targetVariable,
                                        unsigned numPoints,
                                        const double *xPoints,
                                        const double *yPoints ) override;
 
-    // Unsupported: throws CommonError
     void addLeqIndicatorConstraint( const String binVarName,
                                     const int binVal,
                                     const List<Term> &terms,
                                     double scalar ) override;
 
-    // Unsupported: throws CommonError
     void addGeqIndicatorConstraint( const String binVarName,
                                     const int binVal,
                                     const List<Term> &terms,
                                     double scalar ) override;
 
-    // Unsupported: throws CommonError
     void addEqIndicatorConstraint( const String binVarName,
                                    const int binVal,
                                    const List<Term> &terms,
                                    double scalar ) override;
 
-    // Unsupported: throws CommonError
     void
     addBilinearConstraint( const String input1, const String input2, const String output ) override;
 
-    // A cost function to minimize, or an objective function to maximize
     void setCost( const List<Term> &terms, double constant = 0 ) override;
     void setObjective( const List<Term> &terms, double constant = 0 ) override;
 
@@ -96,28 +92,14 @@ public:
         return _lastObjectiveValue;
     }
 
-    // No-op for cuOpt
     void setCutoff( double cutoff ) override;
-
-    // Returns true iff an optimal solution has been found
     bool optimal() override;
-
-    // No-op: always returns false
     bool cutoffOccurred() override;
-
-    // Returns true iff the instance is infeasible
     bool infeasible() override;
-
-    // Returns true iff the instance timed out
     bool timeout() override;
-
-    // Returns true iff a feasible solution has been found
     bool haveFeasibleSolution() override;
-
-    // Specify a time limit, in seconds
     void setTimeLimit( double seconds ) override;
 
-    // No-op for cuOpt
     inline void setVerbosity( unsigned verbosity ) override
     {
         _verbosity = verbosity;
@@ -128,19 +110,15 @@ public:
         return _variableInfo.exists( name );
     }
 
-    // No-op for cuOpt
     inline void setNumberOfThreads( unsigned threads ) override
     {
         _numThreads = threads;
     }
 
-    // No-op for cuOpt
     inline void nonConvex() override
     {
     }
 
-    // Solve and extract the solution, or the best known bound on the
-    // objective function
     void solve() override;
     void extractSolution( Map<String, double> &values, double &costOrObjective ) override;
     double getObjectiveBound() override;
@@ -172,21 +150,11 @@ public:
 
     inline void updateModel() override
     {
-        // Invalidate cached solution so that haveFeasibleSolution() returns
-        // false until the next solve(). This is critical: the Engine checks
-        // haveFeasibleSolution() to decide whether to re-solve the LP after
-        // bound updates. Gurobi's model->update() implicitly invalidates
-        // SolCount; we must do the same.
         _hasSolution = false;
     }
 
-    // Reset the underlying model
     void reset() override;
-
-    // Clear the underlying model and create a fresh model
     void resetModel() override;
-
-    // No-op for cuOpt
     void dumpModel( String name ) override;
 
 private:
@@ -200,7 +168,7 @@ private:
 
     struct Constraint
     {
-        Vector<std::pair<unsigned, double>> _terms; // (varIndex, coefficient)
+        Vector<std::pair<unsigned, double>> _terms;
         double _lb;
         double _ub;
     };
@@ -211,7 +179,7 @@ private:
     Vector<Constraint> _constraints;
     Vector<double> _objectiveCoefficients;
     double _objectiveConstant;
-    cuopt_int_t _objectiveSense;
+    int _objectiveSense;
 
     // Solver settings
     double _timeoutInSeconds;
@@ -219,13 +187,24 @@ private:
     unsigned _numThreads;
 
     // Solution state
-    cuOptSolution _solution;
-    cuopt_int_t _terminationStatus;
+    int _terminationStatus;
     double _lastObjectiveValue;
+    double _lastDualObjectiveValue;
     Vector<double> _lastSolutionValues;
     bool _hasSolution;
 
-    void destroySolutionIfNeeded();
+    // C++ API persistent state
+    raft::handle_t *_raftHandle;
+    CppProblem *_cppProblem;
+    CppSolution *_lastCppSolution;
+    bool _problemInitialized;
+
+    // Cached CSR (constraint matrix unchanged between solves)
+    std::vector<int> _cachedRowOffsets;
+    std::vector<int> _cachedColIndices;
+    std::vector<double> _cachedValues;
+    std::vector<double> _cachedConstraintLB;
+    std::vector<double> _cachedConstraintUB;
 
     static void log( const String &message );
 };
@@ -239,10 +218,6 @@ private:
 class CuOptWrapper : public LPSolver
 {
 public:
-    /*
-      This is a DUMMY class, for compilation purposes when cuOpt is
-      disabled.
-    */
     CuOptWrapper()
     {
     }
