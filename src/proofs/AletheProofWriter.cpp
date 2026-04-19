@@ -249,7 +249,7 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
         }
     }
 #endif
-    String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "le_generic";
+    String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "la_generic";
     String laGeneric = String( "(step t" ) + _queryId + "_" + std::to_string( id ) + " " +
                        farkasClause + ":rule " + ruleName + " :args" + farkasArgs;
 
