@@ -269,6 +269,9 @@ public:
 
     const List<unsigned> getNativeAuxVars() const override;
 
+    PiecewiseLinearCaseSplit getInactiveSplit() const;
+    PiecewiseLinearCaseSplit getActiveSplit() const;
+
 #ifdef BUILD_CADICAL
     /*
      Creates boolean abstraction of phases and adds abstracted variables to the SAT solver
@@ -301,6 +304,8 @@ public:
       Returns a cadical variable of this constraint, for decision
      */
     unsigned getVariableForDecision() const override;
+
+
 #endif
 
 private:
@@ -315,8 +320,6 @@ private:
     */
     PhaseStatus _direction;
 
-    PiecewiseLinearCaseSplit getInactiveSplit() const;
-    PiecewiseLinearCaseSplit getActiveSplit() const;
 
     bool _haveEliminatedVariables;
 

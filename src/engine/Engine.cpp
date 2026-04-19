@@ -163,6 +163,22 @@ void Engine::applySnCSplit( PiecewiseLinearCaseSplit sncSplit, String queryId )
     _queryId = queryId;
     preContextPushHook();
     _searchTreeHandler.pushContext();
+
+    for ( const auto &bound : sncSplit.getBoundTightenings() )
+    {
+        PiecewiseLinearConstraint *plc = _varToPLC[bound._variable];
+        // TODO extend to other plcs
+        if (!plc->phaseFixed() && plc->getType() == RELU )
+        {
+            ReluConstraint *relu = ( ReluConstraint * )plc;
+            if ( relu->getActiveSplit().getBoundTightenings().exists( bound ) )
+                relu->setPhaseStatus( RELU_PHASE_ACTIVE );
+            else if ( relu->getInactiveSplit().getBoundTightenings().exists( bound ) )
+                plc->setPhaseStatus( RELU_PHASE_INACTIVE );
+            _cdclCore.addLiteralToPropagate( plc->propagatePhaseAsLit() );
+        }
+    }
+
     applySplit( sncSplit );
     _boundManager.propagateTightenings();
 }
