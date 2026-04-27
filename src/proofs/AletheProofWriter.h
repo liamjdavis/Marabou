@@ -168,6 +168,7 @@ private:
     void writeDerivedClauseContent( int64_t id,
                                     const std::vector<int> &clause,
                                     const std::vector<int64_t> &antecedents );
+    void writeSncLitTrivialClause( int64_t id, unsigned sncVar );
 
 #endif
 

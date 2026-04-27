@@ -480,6 +480,7 @@ bool BoundManager::addLemmaExplanationAndTightenBound( unsigned var,
                                         constraint.getType(),
                                         minTargetBound,
                                         _engine->getNumOfLemmas() + 1 );
+        _engine->incNumOfLemmas();
 
         if ( !_engine->shouldSolveWithCDCL() )
             _engine->getUNSATCertificateCurrentPointer()->addPLCLemma( PLCExpl );
@@ -494,8 +495,6 @@ bool BoundManager::addLemmaExplanationAndTightenBound( unsigned var,
             ASSERT( constraint.getPhaseFixingEntry() == nullptr || areAlmostEqual );
             constraint.setPhaseFixingEntry( phaseFixingEntry );
         }
-
-        _engine->incNumOfLemmas();
     }
 
     return true;

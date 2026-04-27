@@ -554,8 +554,8 @@ bool AletheProofWriter::writeReluLemma(
     farkasArgs = String( "(1 " ) + farkasArgs + "))\n";
 
     String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "la_generic";
-    String laGeneric = String( "(step fl" ) + _queryId + "_" + id + " " + farkasClause +
-                       ":rule " + ruleName + " :args" + farkasArgs;
+    String laGeneric = String( "(step fl" ) + _queryId + "_" + id + " " + farkasClause + ":rule " +
+                       ruleName + " :args" + farkasArgs;
 
     String res = String( "(step cr" ) + _queryId + "_" + id + " (cl " + negatedSplitsClause +
                  causeBound + "):rule resolution :premises(fl" + _queryId + "_" + id + " " +
@@ -960,7 +960,10 @@ void AletheProofWriter::add_original_clause( int64_t id,
                                              bool /*restored*/ )
 {
     if ( clause.size() == 1 && _cdclCore->getSncLits().exists( clause.front() ) )
+    {
+        writeSncLitTrivialClause( id, abs( clause.front() ) );
         return;
+    }
 
     std::sort(
         _lastExplainedEntries.begin(),
@@ -1063,13 +1066,15 @@ void AletheProofWriter::writeLemmaResolution(
         {
             String lemmaBound = getBoundAsClause(
                 Tightening( causing, entry->lemma->getMinTargetBound(), Tightening::UB ) );
-            preRule = String( "(step _rt" ) + std::to_string( id ) + " (cl (or (not " + lemmaBound +
-                      ")(not (>= x" + std::to_string( causing ) + " 0.0)))):rule la_tautology)\n";
-            preRule += String( "(step rt" ) + std::to_string( id ) + " (cl (not " + lemmaBound +
-                       ")(not (>= x" + std::to_string( causing ) + " 0.0))):rule or :premises(_rt" +
-                       std::to_string( id ) + "))\n";
+            preRule = String( "(step _rt" ) + _queryId + "_" + std::to_string( id ) +
+                      " (cl (or (not " + lemmaBound + ")(not (>= x" + std::to_string( causing ) +
+                      " 0.0)))):rule la_tautology)\n";
+            preRule += String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl (not " +
+                       lemmaBound + ")(not (>= x" + std::to_string( causing ) +
+                       " 0.0))):rule or :premises(_rt" + _queryId + "_" + std::to_string( id ) +
+                       "))\n";
             proofRule += String( "cr" ) + _queryId + "_" + std::to_string( lemId ) + " rt" +
-                         std::to_string( id ) + "))\n";
+                         _queryId + "_" + std::to_string( id ) + "))\n";
         }
         else
         {
@@ -1082,13 +1087,13 @@ void AletheProofWriter::writeLemmaResolution(
             String lemmaBound = getBoundAsClause(
                 Tightening( causing, entry->lemma->getMinTargetBound(), Tightening::LB ) );
 
-            preRule = String( "(step rt" ) + std::to_string( id ) + " (cl " + tableauLit + "(not " +
-                      lemmaBound + ")(not a" + constraintId + ")(not (<= x" +
+            preRule = String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl " +
+                      tableauLit + "(not " + lemmaBound + ")(not a" + constraintId + ")(not (<= x" +
                       std::to_string( affected ) + " 0.0 ))(not (>= x" + counterpartAux +
                       " 0.0))):rule la_generic :args(-1 1 1 1 1))\n";
 
-            proofRule += String( " rt" ) + std::to_string( id ) + " " + tableauEq + " cr" +
-                         _queryId + "_" + std::to_string( lemId ) + " rl" + _queryId + "_" +
+            proofRule += String( " rt" ) + _queryId + "_" + std::to_string( id ) + " " + tableauEq +
+                         " cr" + _queryId + "_" + std::to_string( lemId ) + " rl" + _queryId + "_" +
                          std::to_string( lemId ) + " l" + counterpartAux + "))\n";
         }
     }
@@ -1148,8 +1153,7 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
                      splitsClause + "):rule resolution :premises(";
 
     for ( int64_t step : antecedents )
-        if ( step > _cdclCore->getSncLits().size() )
-            resLine += String( " r" ) + _queryId + "_" + std::to_string( step );
+        resLine += String( " r" ) + _queryId + "_" + std::to_string( step );
 
     resLine += "))\n";
 
@@ -1234,4 +1238,16 @@ void AletheProofWriter::initializeProofFile( const String &filename )
     AletheProofWriter::proofFilename = filename;
     AletheProofWriter::proofFile = File( filename );
 }
+
+void AletheProofWriter::writeSncLitTrivialClause( int64_t id, unsigned sncVar )
+{
+    String trivial = String( "(step _r" ) + _queryId + "_" + std::to_string( id ) +
+                     " (cl (or (not a" + std::to_string( sncVar ) + ") a" +
+                     std::to_string( sncVar ) + ")):rule la_tautology)\n";
+    trivial += String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl (not a" +
+               std::to_string( sncVar ) + ") a" + std::to_string( sncVar ) +
+               "):rule or :premises(_r" + _queryId + "_" + std::to_string( id ) + "))\n";
+    _proof.append( trivial );
+}
+
 #endif
