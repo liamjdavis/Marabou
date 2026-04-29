@@ -959,12 +959,6 @@ void AletheProofWriter::add_original_clause( int64_t id,
                                              const std::vector<int> &clause,
                                              bool /*restored*/ )
 {
-    if ( clause.size() == 1 && _cdclCore->getSncLits().exists( clause.front() ) )
-    {
-        writeSncLitTrivialClause( id, abs( clause.front() ) );
-        return;
-    }
-
     std::sort(
         _lastExplainedEntries.begin(),
         _lastExplainedEntries.end(),
@@ -983,6 +977,11 @@ void AletheProofWriter::add_original_clause( int64_t id,
 
         _lastContradiction.initializeToEmpty();
         _lastContradictionClause.clear();
+    }
+    else if ( clause.size() == 1 && _cdclCore->getSncLits().exists( clause.front() ) )
+    {
+        writeSncLitTrivialClause( id, abs( clause.front() ) );
+        return;
     }
     else
     {
