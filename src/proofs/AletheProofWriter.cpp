@@ -47,12 +47,7 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
     , _plc( problemConstraints.begin(), problemConstraints.end() )
     , _n( upperBounds.size() )
     , _m( explanationSize )
-    , _proof()
-    , _assumptions()
     , _stepCounter( 1 )
-    , _varToPlc()
-    , _idToSplits()
-    , _nodeToSplits()
     , _queryId( queryId )
     , _proofEntries( {} )
 #if BUILD_CADICAL
@@ -77,6 +72,7 @@ void AletheProofWriter::writeTableauAssumptions()
 {
     ASSERT( _assumptions.empty() );
 
+    // Import SMT assertions
     List<String> smtLib = SmtLibWriter::convertToSmtLib(
         _m,
         _n,
@@ -150,6 +146,8 @@ void AletheProofWriter::writePLCAssumption()
             String b = std::to_string( relu->getB() );
             String aux = std::to_string( relu->getAux() );
             String counterpartAux = std::to_string( plc->getTableauAuxVars().front() );
+
+            // Use common SMT representation
             String bEqualsF = String( "(= x" ) + b + " x" + f + ")";
 
             plcAssumption += String( "(assume relu" ) + constraintNum + " (ite (!(>= x" + b +
@@ -157,6 +155,7 @@ void AletheProofWriter::writePLCAssumption()
                              " 0.0)))\n";
             plcAssumptions.append( plcAssumption );
 
+            // Eagerly write basic ite resolution steps used in lemmas
             String ite1 = String( "(step ri1_" ) + constraintNum + " (cl (>= x" + b + " 0.0)(<= x" +
                           f + " 0.0)):rule ite1 :premises(relu" + constraintNum + "))\n";
             String ite2 = String( "(step ri2_" ) + constraintNum + " (cl (not (>= x" + b +
@@ -172,6 +171,8 @@ void AletheProofWriter::writePLCAssumption()
             String tableauEq = "e" + std::to_string( identifierInt - ( _n - _m ) );
             String tableauLit = convertTableauAssumptionToClause( identifierInt - ( _n - _m ) );
 
+            // Eagerly write basic bound resolution steps used in lemmas
+            // Clauses used to derive one split bound from the other (for both ReLU possible phases)
             String activeBound1 = String( "(step ab1_" ) + constraintNum + " (cl (not " + bEqualsF +
                                   ")" + tableauLit + "(<= x" + aux + " 0.0)(not (>= x" +
                                   counterpartAux + " 0.0))):rule la_generic :args(1 -1 1 1))\n";
@@ -219,6 +220,8 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
     String farkasClause = "";
     String farkasParticipants = "";
     String negatedSplitsClause = "";
+
+    // Collect all Farkas lemma information
     farkasStrings( contradiction,
                    _groundBoundManager.getCounter(),
                    farkasArgs,
@@ -234,10 +237,12 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
 #ifdef BUILD_CADICAL
     if ( _cdclCore )
     {
+        // If used in CDCL, use the numeral clause as the basis for the Alethe clause
         std::vector<int> contradictionClause =
             std::vector<int>( _lastContradictionClause.begin(), _lastContradictionClause.end() );
         negatedSplitsClause += clauseToPhases( contradictionClause );
 
+        // Apply lemmas to deduce activation phases
         for ( const int lit : contradictionClause )
         {
             String identifier = std::to_string( abs( lit ) );
@@ -248,6 +253,7 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
         }
     }
 #endif
+    // Write la_generic\bounded_farkas rule, followed by the corresponding resolution
     String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "la_generic";
     String laGeneric = String( "(step t" ) + _queryId + "_" + std::to_string( id ) + " " +
                        farkasClause + ":rule " + ruleName + " :args" + farkasArgs;
@@ -261,6 +267,7 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
 
 void AletheProofWriter::finalizeProof()
 {
+    // Lazily collect info from all proof entries used in the proof
     for ( auto stepEntry : _proofEntries )
     {
         // Lemma Resolution
@@ -277,6 +284,7 @@ void AletheProofWriter::finalizeProof()
     AletheProofWriter::proofFileMutex.lock();
     AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
 
+    // Write remaining proof steps + steps from entries
     for ( const String &s : _proof )
         AletheProofWriter::proofFile.write( s );
 
@@ -286,6 +294,7 @@ void AletheProofWriter::finalizeProof()
     if ( !_cdclCore )
         return;
 
+    // Store the last resolution step for conclusion in SnC mode
     String resId;
     if ( !_proofEntries.empty() )
         resId = String( "r" ) + _queryId + "_" + std::to_string( _proofEntries.back().id );
@@ -317,11 +326,13 @@ void AletheProofWriter::deleteProof()
 void AletheProofWriter::writeInstanceToFile( IFile &file )
 {
     file.open( File::MODE_WRITE_TRUNCATE );
+    // Gather and write all assumptions
     writeBoundAssumptions();
     writePLCAssumption();
     for ( const String &s : _assumptions )
         file.write( s );
 
+    // Collect info from all proof entries used in the proof
     for ( auto stepEntry : _proofEntries )
     {
         // Lemma Resolution
@@ -335,6 +346,7 @@ void AletheProofWriter::writeInstanceToFile( IFile &file )
             writeDerivedClauseContent( stepEntry.id, stepEntry.clause, stepEntry.antecedents );
     }
 
+    // Write whole proof
     for ( const String &s : _proof )
         file.write( s );
 
@@ -361,6 +373,7 @@ void AletheProofWriter::writeChildrenConclusion( const UnsatCertificateNode *nod
     Set<int> phaseIdentifiers = {};
     List<PiecewiseLinearCaseSplit> splitDeps = {};
 
+    // Detect which child corresponds to which phase
     for ( const auto &tightening : tighteningDeps )
     {
         if ( firstChildSplit.getBoundTightenings().exists( tightening ) ||
@@ -396,6 +409,7 @@ void AletheProofWriter::writeChildrenConclusion( const UnsatCertificateNode *nod
         }
     }
 
+    // Write resolution
     _nodeToSplits.insert( node->getId(), filteredTighteneings );
 
     ASSERT( node->isValidNonLeaf() );
@@ -500,6 +514,7 @@ bool AletheProofWriter::writeReluLemma(
     const ReluConstraint *relu )
 {
     ASSERT( lemmaEntry->lemma && lemmaEntry->lemma->getConstraintType() == RELU );
+    // Collect all lemma info
     const std::shared_ptr<PLCLemma> lemma = lemmaEntry->lemma;
 
     unsigned causingVar = lemma->getCausingVars().front();
@@ -521,6 +536,7 @@ bool AletheProofWriter::writeReluLemma(
     String negatedSplitsClause = "";
     String causeBound = getBoundAsClause( Tightening( causingVar, targetBound, causingVarBound ) );
 
+    // Apply calculations of the Farkas lemma, to prove the causing bound
     farkasStrings( explanations.front(),
                    lemmaEntry->id,
                    farkasArgs,
@@ -533,6 +549,7 @@ bool AletheProofWriter::writeReluLemma(
 #ifdef BUILD_CADICAL
     if ( _cdclCore )
     {
+        // Add additional info in CDCL mode
         std::vector<int> entryClause =
             std::vector<int>( lemmaEntry->clause.begin(), lemmaEntry->clause.end() );
 
@@ -552,6 +569,7 @@ bool AletheProofWriter::writeReluLemma(
     farkasClause = String( "(cl " ) + causeBound + farkasClause + ")";
     farkasArgs = String( "(1 " ) + farkasArgs + "))\n";
 
+    // Write la_generic\bounded_farkas for proving the causing bound, followed by a resolution step
     String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "la_generic";
     String laGeneric = String( "(step fl" ) + _queryId + "_" + id + " " + farkasClause + ":rule " +
                        ruleName + " :args" + farkasArgs;
@@ -560,6 +578,8 @@ bool AletheProofWriter::writeReluLemma(
                  causeBound + "):rule resolution :premises(fl" + _queryId + "_" + id + " " +
                  farkasParticipants + "))\n";
 
+    // Collect information for proving the derivation rule from the lemma (derive the derived bound,
+    // based on the causing bound
     unsigned b = relu->getB();
     unsigned f = relu->getF();
     unsigned aux = relu->getAux();
@@ -592,8 +612,11 @@ bool AletheProofWriter::writeReluLemma(
     }
     String conclusion = getBoundAsClause( Tightening( affectedVar, bound, affectedVarBound ) );
 
+    // Prepare the shared prefix, and conclude with the remaning rules based on the exact derivation
+    // type
     String pref = String( "(step rl" ) + _queryId + "_" + id + " (cl " + negatedSplitsClause +
                   conclusion + "):rule resolution :premises(cr" + _queryId + "_" + id;
+    // if the lb of b or f is positive, then ub of aux is zero
     if ( ( causingVar == f || causingVar == b ) && causingVarBound == Tightening::LB &&
          affectedVar == aux && affectedVarBound == Tightening::UB && targetBound > 0 )
     {
@@ -607,6 +630,7 @@ bool AletheProofWriter::writeReluLemma(
 
         proofRuleRes += "))\n";
     }
+    // if the lb of b  is zero, then so is the ub of aux
     else if ( causingVar == b && causingVarBound == Tightening::LB && affectedVar == aux &&
               affectedVarBound == Tightening::UB && targetBound == 0 )
     {
@@ -629,13 +653,14 @@ bool AletheProofWriter::writeReluLemma(
         matched = true;
         proofRuleRes = pref + " ts" + _queryId + "_" + id + " eq" + identifier + "_i0))\n";
     }
-    // Propagate 0 ub from f to b
+    // Propagate 0 ub from f to b ...
     else if ( causingVar == f && causingVarBound == Tightening::UB && affectedVar == b &&
               affectedVarBound == Tightening::UB && targetBound == 0 )
     {
         matched = true;
         proofRuleRes = pref + " eq" + identifier + "_i1))\n";
     }
+    // ... and vise versa
     else if ( causingVar == b && causingVarBound == Tightening::UB && affectedVar == f &&
               affectedVarBound == Tightening::UB && targetBound == 0 )
     {
@@ -780,6 +805,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
     farkasParticipants = "";
     List<Tightening> splitDeps;
 
+    // Collect participating equations and their arguments
     for ( const auto entry : expl )
         if ( entry._value != 0 )
         {
@@ -790,6 +816,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             farkasParticipants += String( "e" + std::to_string( entry._index ) ) + " ";
         }
 
+    // Collect participating bounds and their arguments
     for ( unsigned i = 0; i < _n; ++i )
     {
         mpq_class temp( explainedRow[i] );
@@ -805,6 +832,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
         const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &gbEntry =
             _groundBoundManager.getGroundBoundEntryUpToId( i, boundType, entryId );
 
+        // For tiny bounds, we ommit the gmp bound for compactness
         bool overrideGmp = ( mpq_cmp_si( explainedRow[i], 1, ALETHE_WRITER_PRECISION ) < 0 &&
                              mpq_cmp_si( explainedRow[i], -1, ALETHE_WRITER_PRECISION ) > 0 );
 
@@ -826,7 +854,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             farkasParticipants += boundString + std::to_string( i ) + " ";
         }
 
-        // Add split deps of prev lemmas
+        // Add split dependencies of previous lemmas
         if ( isLemmaIncluded && !overrideGmp )
         {
             farkasParticipants += String( "rl" ) + _queryId + "_" + std::to_string( lemId ) + " ";
@@ -845,6 +873,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
     if ( _cdclCore )
         return;
 #endif
+    // Add split dependencies of previous lemmas, based on the node's path
     if ( isLemma && _idToSplits.exists( entryId ) )
         _idToSplits[entryId] = splitDeps;
     else if ( isLemma )
@@ -948,6 +977,7 @@ void AletheProofWriter::add_derived_clause( int64_t id,
                                             const std::vector<int> &clause,
                                             const std::vector<int64_t> &antecedents )
 {
+    // When a SAT-based resolution step is added, add as a proof entry
     _proofEntries.append(
         AletheStepEntry( id, clause, antecedents, NULL, SparseUnsortedList(), 0 ) );
 }
@@ -958,6 +988,9 @@ void AletheProofWriter::add_original_clause( int64_t id,
                                              const std::vector<int> &clause,
                                              bool /*restored*/ )
 {
+    // When a theory-based resolution step is added:
+
+    // Begin by writing all theory lemma steps, sorted by their chronological id
     std::sort(
         _lastExplainedEntries.begin(),
         _lastExplainedEntries.end(),
@@ -967,23 +1000,29 @@ void AletheProofWriter::add_original_clause( int64_t id,
     for ( auto entry : _lastExplainedEntries )
         writeLemma( entry );
 
+    // If this is a contradiction step, add it as a proof entry
     if ( _lastContradiction.getSize() )
     {
+        // Contradiction is empty, indicating a proof hole
         if ( _lastContradiction.empty() )
             _proofEntries.append( AletheStepEntry( id, clause, {}, NULL, _lastContradiction, 0 ) );
         else
             writeContradiction( _lastContradiction, id );
 
+        // Clear data structures
         _lastContradiction.initializeToEmpty();
         _lastContradictionClause.clear();
     }
     else if ( clause.size() == 1 && _cdclCore->getSncLits().exists( clause.front() ) )
     {
+        // Case of a worker trivially proved UNSAT
         writeSncLitTrivialClause( id, abs( clause.front() ) );
         return;
     }
     else
     {
+        // If this is a theory-lemma (reason clause), register the lemma as fixing the SAT variable,
+        // and add the proof entry
         ASSERT( !_lastExplainedEntries.empty() )
         ASSERT( _lastExplainedEntries.last()->lemma );
         _satIdToCdclVar.insert( id,
@@ -1041,6 +1080,7 @@ void AletheProofWriter::writeLemmaResolution(
     int propagatedLit,
     int64_t id )
 {
+    // Convert a proof entry of a lemma to an Alethe String, and write it to the proof
     ASSERT( entry->lemma && entry->isPhaseFixing );
     unsigned lemId = entry->lemma->getId();
     String constraintId = std::to_string( abs( propagatedLit ) );
@@ -1049,6 +1089,7 @@ void AletheProofWriter::writeLemmaResolution(
     // Add as minus, as the literal will be negated
     entryClause.insert( entryClause.end(), propagatedLit );
     String preRule = "";
+    // Derive the activity of the explained literal from the clause literals
     String proofRule = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl " +
                        clauseToPhases( entryClause ) + "):rule resolution :premises(";
 
@@ -1197,10 +1238,12 @@ void AletheProofWriter::writeFinalStepsToProof()
 
     AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
 
+    // Retrive concluding resolutions for each worker
     List<Pair<String, Vector<int>>> finalClauses;
     for ( unsigned i = 1; i < AletheProofWriter::unsatJobFinalSteps.size() + 1; ++i )
         finalClauses.append( AletheProofWriter::unsatJobFinalSteps["1-" + std::to_string( i )] );
 
+    // Iteratively apply Boolean resolution for each coule. Repeat until saturation (empty clause)
     unsigned index = 0;
     while ( finalClauses.size() > 1 )
     {
