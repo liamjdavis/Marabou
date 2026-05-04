@@ -4,7 +4,7 @@
  ** Top contributors (to current version):
  **   Omri Isac, Guy Katz
  ** This file is part of the Marabou project.
- ** Copyright (c) 2017-2025 by the authors listed in the file AUTHORS
+ ** Copyright (c) 2017-2026 by the authors listed in the file AUTHORS
  ** in the top-level source directory) and their institutional affiliations.
  ** All rights reserved. See the file COPYING in the top-level source
  ** directory for licensing information.\endverbatim
@@ -16,7 +16,6 @@
 
 #include "CdclCore.h"
 #include "ConstSimpleData.h"
-#include "HeapData.h"
 #include "MString.h"
 #include "Options.h"
 
@@ -46,10 +45,10 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
     , _baseLowerBounds( lowerBounds )
     , _groundBoundManager( groundBoundManager )
     , _plc( problemConstraints.begin(), problemConstraints.end() )
-    , _proof()
-    , _assumptions()
     , _n( upperBounds.size() )
     , _m( explanationSize )
+    , _proof()
+    , _assumptions()
     , _stepCounter( 1 )
     , _varToPlc()
     , _idToSplits()
