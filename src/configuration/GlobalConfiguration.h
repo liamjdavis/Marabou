@@ -265,7 +265,7 @@ public:
 
     /* Denote whetherto use bounded_farkas proof rule (supported by Carara only)
    */
-    static const bool DEDICATED_ALEHTE_RULE;
+    static const bool DEDICATED_ALETHE_RULE;
 
     /* The frequency (in number of leaves) to flush ALethe Proof
      */

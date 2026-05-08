@@ -118,7 +118,7 @@ const double GlobalConfiguration::LEMMA_CERTIFICATION_TOLERANCE = 0.00000001;
 
 const bool GlobalConfiguration::WRITE_JSON_PROOF = false;
 const bool GlobalConfiguration::WRITE_ALETHE_PROOF = true;
-const bool GlobalConfiguration::DEDICATED_ALEHTE_RULE = false;
+const bool GlobalConfiguration::DEDICATED_ALETHE_RULE = false;
 const unsigned GlobalConfiguration::ALETHE_PROOF_FLUSHING_FREQUENCY = 50;
 
 const unsigned GlobalConfiguration::BACKWARD_BOUND_PROPAGATION_DEPTH = 3;

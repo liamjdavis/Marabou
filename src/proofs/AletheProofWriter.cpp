@@ -254,7 +254,7 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
     }
 #endif
     // Write la_generic\bounded_farkas rule, followed by the corresponding resolution
-    String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "la_generic";
+    String ruleName = GlobalConfiguration::DEDICATED_ALETHE_RULE ? "bounded_farkas" : "la_generic";
     String laGeneric = String( "(step t" ) + _queryId + "_" + std::to_string( id ) + " " +
                        farkasClause + ":rule " + ruleName + " :args" + farkasArgs;
 
@@ -570,7 +570,7 @@ bool AletheProofWriter::writeReluLemma(
     farkasArgs = String( "(1 " ) + farkasArgs + "))\n";
 
     // Write la_generic\bounded_farkas for proving the causing bound, followed by a resolution step
-    String ruleName = GlobalConfiguration::DEDICATED_ALEHTE_RULE ? "bounded_farkas" : "la_generic";
+    String ruleName = GlobalConfiguration::DEDICATED_ALETHE_RULE ? "bounded_farkas" : "la_generic";
     String laGeneric = String( "(step fl" ) + _queryId + "_" + id + " " + farkasClause + ":rule " +
                        ruleName + " :args" + farkasArgs;
 
@@ -842,7 +842,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
                                gbEntry->lemma->wasWritten() && ( !isLemma || deps.exists( lemId ) );
         bool useSplitBound = ( lemId < 0 && gbEntry->isPhaseFixing );
 
-        if ( !GlobalConfiguration::DEDICATED_ALEHTE_RULE )
+        if ( !GlobalConfiguration::DEDICATED_ALETHE_RULE )
             farkasArgs += temp.get_str() + " ";
 
         if ( ( isLemmaIncluded || useSplitBound ) && !overrideGmp )
