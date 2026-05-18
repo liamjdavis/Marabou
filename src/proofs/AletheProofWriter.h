@@ -115,7 +115,7 @@ public:
     /*
      Add proof steps to prove a UNSAT of a leaf
     */
-    void writeContradiction( const SparseUnsortedList &contradiction, int64_t id );
+    void writeContradiction( const SparseUnsortedList &contradiction, int64_t id, UnsatCertificateNode *node );
 
     /*
      Create a proof file for the proof
@@ -274,6 +274,7 @@ private:
      Map reason clauses to the variable they explain
     */
     Map<int64_t, unsigned> _satIdToCdclVar;
+
     /*
      Convert a clause from SAT based numerals to defined constraints
     */
@@ -359,7 +360,8 @@ private:
                         String &negatedSplitClause,
                         int explainerVar,
                         bool isUpper,
-                        const Set<int> &deps );
+                        const Set<int> &deps,
+                        UnsatCertificateNode *node );
 };
 
 #endif // __AletheProofWriter_h__

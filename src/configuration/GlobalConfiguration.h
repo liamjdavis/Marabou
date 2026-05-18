@@ -267,6 +267,10 @@ public:
    */
     static const bool DEDICATED_ALETHE_RULE;
 
+    /* Add terms to allow Alethe elaboration
+    */
+    static const bool ALETHE_ELABORATE_TERMS;
+
     /* The frequency (in number of leaves) to flush ALethe Proof
      */
     static const unsigned ALETHE_PROOF_FLUSHING_FREQUENCY;

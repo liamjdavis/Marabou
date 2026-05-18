@@ -111,11 +111,16 @@ void AletheProofWriter::writeBoundAssumptions()
 {
     for ( unsigned i = 0; i < _n; ++i )
     {
+        mpq_class upperBound( _baseUpperBounds[i] );
+        mpq_class lowerBound( _baseLowerBounds[i] );
+        String upperBoundString = upperBound.get_den().get_str() == "1" ? upperBound.get_str() + ".0" : upperBound.get_str();
+        String lowerBoundString = lowerBound.get_den().get_str() == "1" ? lowerBound.get_str() + ".0" : lowerBound.get_str();
+
         String s = std::to_string( i );
         String upper = String( "(assume u" ) + s + "(!(<= x" + s + " " +
-                       SmtLibWriter::signedValue( _baseUpperBounds[i] ) + "):named u" + s + "))\n";
+                    upperBoundString + "):named u" + s + "))\n";
         String lower = String( "(assume l" ) + s + "(!(>= x" + s + " " +
-                       SmtLibWriter::signedValue( _baseLowerBounds[i] ) + "):named l" + s + "))\n";
+               lowerBoundString + "):named l" + s + "))\n";
         _assumptions.append( { upper, lower } );
     }
 }
@@ -150,21 +155,21 @@ void AletheProofWriter::writePLCAssumption()
             // Use common SMT representation
             String bEqualsF = String( "(= x" ) + b + " x" + f + ")";
 
-            plcAssumption += String( "(assume relu" ) + constraintNum + " (ite (!(>= x" + b +
-                             " 0.0):named a" + constraintNum + ")" + bEqualsF + "(<= x" + f +
+            plcAssumption += String( "(assume relu" ) + constraintNum + " (ite (!(<= 0.0 x" + b +
+                             "):named a" + constraintNum + ")" + bEqualsF + "(<= x" + f +
                              " 0.0)))\n";
             plcAssumptions.append( plcAssumption );
 
             // Eagerly write basic ite resolution steps used in lemmas
-            String ite1 = String( "(step ri1_" ) + constraintNum + " (cl (>= x" + b + " 0.0)(<= x" +
+            String ite1 = String( "(step ri1_" ) + constraintNum + " (cl (<= 0.0 x" + b + ")(<= x" +
                           f + " 0.0)):rule ite1 :premises(relu" + constraintNum + "))\n";
-            String ite2 = String( "(step ri2_" ) + constraintNum + " (cl (not (>= x" + b +
-                          " 0.0))" + bEqualsF + "):rule ite2 :premises(relu" + constraintNum +
+            String ite2 = String( "(step ri2_" ) + constraintNum + " (cl (not (<= 0.0 x" + b +
+                          "))" + bEqualsF + "):rule ite2 :premises(relu" + constraintNum +
                           "))\n";
-            String tot = String( "(step _bt" ) + constraintNum + " (cl (or (not (>= x" + b +
-                         " 0.0))(>= x" + b + " 0.0))):rule la_tautology)\n";
-            tot += String( "(step bt" ) + constraintNum + " (cl (not (>= x" + b + " 0.0))(>= x" +
-                   b + " 0.0)):rule or :premises(_bt" + constraintNum + "))\n";
+            String tot = String( "(step _bt" ) + constraintNum + " (cl (or (<= x" + b +
+                         " 0.0)(<= 0.0 x" + b + "))):rule la_totality)\n";
+            tot += String( "(step bt" ) + constraintNum + " (cl (<= x" + b + " 0.0)(<= 0.0 x" +
+                   b + ")):rule or :premises(_bt" + constraintNum + "))\n";
 
             plcSplits.append( { ite1, ite2, tot } );
             unsigned identifierInt = relu->getTableauAuxVars().front();
@@ -176,19 +181,19 @@ void AletheProofWriter::writePLCAssumption()
             String activeBound1 = String( "(step ab1_" ) + constraintNum + " (cl (not " + bEqualsF +
                                   ")" + tableauLit + "(<= x" + aux + " 0.0)(not (>= x" +
                                   counterpartAux + " 0.0))):rule la_generic :args(1 -1 1 1))\n";
-            activeBound1 += String( "(step eq" ) + constraintNum + "_a0" + " (cl (not (>= x" + b +
-                            " 0.0))(<= x" + aux + " 0.0)):rule resolution :premises(ab1_" +
+            activeBound1 += String( "(step eq" ) + constraintNum + "_a0" + " (cl (not (<= 0.0 x" + b +
+                            "))(<= x" + aux + " 0.0)):rule resolution :premises(ab1_" +
                             constraintNum + " ri2_" + constraintNum + " l" + counterpartAux + " " +
                             tableauEq + "))\n";
 
-            String activeBound2 = String( "(step ab2_" ) + constraintNum + " (cl (>= x" + b +
-                                  " 0.0)" + tableauLit + "(not (<= x" + aux + " 0.0))(not (<= x" +
+            String activeBound2 = String( "(step ab2_" ) + constraintNum + " (cl (<= 0.0 x" + b +
+                                  ")" + tableauLit + "(not (<= x" + aux + " 0.0))(not (<= x" +
                                   counterpartAux + " 0.0))(not (>= x" + f +
                                   " 0.0))):rule la_generic :args(1 1 1 1 -1))\n";
-            activeBound2 += String( "(step eq" ) + constraintNum + "_a1" + " (cl (>= x" + b +
-                            " 0.0)(not (<= x" + aux + " 0.0))):rule resolution :premises(ab2_" +
-                            constraintNum + " ri1_" + constraintNum + " u" + counterpartAux + " l" +
-                            f + " " + tableauEq + "))\n";
+            activeBound2 += String( "(step eq" ) + constraintNum + "_a1" + " (cl (<= 0.0 x" + b +
+                            ")(not (<= x" + aux + " 0.0))):rule resolution :premises(ab2_" +
+                            constraintNum + " " + tableauEq +" u" + counterpartAux + " l" +
+                            f + "))\n";
 
             String inactiveBound1 = String( "(step ib1_" ) + constraintNum + " (cl (not " +
                                     bEqualsF + ")(not(<= x" + b + " 0.0))(<= x" + f +
@@ -214,7 +219,8 @@ void AletheProofWriter::writePLCAssumption()
     _assumptions.append( plcSplits );
 }
 
-void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradiction, int64_t id )
+void
+AletheProofWriter::writeContradiction( const SparseUnsortedList &contradiction, int64_t id, UnsatCertificateNode *node )
 {
     String farkasArgs = "";
     String farkasClause = "";
@@ -222,18 +228,16 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
     String negatedSplitsClause = "";
 
     // Collect all Farkas lemma information
-    farkasStrings( contradiction,
-                   _groundBoundManager.getCounter(),
-                   farkasArgs,
-                   farkasClause,
-                   farkasParticipants,
-                   negatedSplitsClause,
-                   -id,
-                   true,
-                   {} );
-
-    farkasClause = String( "(cl " ) + farkasClause + ")";
-    farkasArgs = String( "(" ) + farkasArgs + "))\n";
+    farkasStrings(contradiction,
+                  _groundBoundManager.getCounter(),
+                  farkasArgs,
+                  farkasClause,
+                  farkasParticipants,
+                  negatedSplitsClause,
+                  -id,
+                  true,
+                  {},
+                   node );
 #ifdef BUILD_CADICAL
     if ( _cdclCore )
     {
@@ -241,18 +245,20 @@ void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradict
         std::vector<int> contradictionClause =
             std::vector<int>( _lastContradictionClause.begin(), _lastContradictionClause.end() );
         negatedSplitsClause += clauseToPhases( contradictionClause );
-
-        // Apply lemmas to deduce activation phases
-        for ( const int lit : contradictionClause )
-        {
-            String identifier = std::to_string( abs( lit ) );
-            if ( lit > 0 )
-                farkasParticipants += String( "eq" ) + identifier + "_a0 ";
-            else
-                farkasParticipants += String( "eq" ) + identifier + "_i1 ri1_" + identifier + " ";
-        }
+        if ( !_cdclCore->getSncLits().empty() && GlobalConfiguration::ALETHE_ELABORATE_TERMS )
+            for ( const auto lit : _cdclCore->getSncLits() )
+                if ( std::find(contradictionClause.begin(), contradictionClause.end(), -lit ) != contradictionClause.end() )
+                {
+                    farkasArgs += "0 ";
+                    farkasClause += clauseToPhases( { -lit } );
+                    negatedSplitsClause += clauseToPhases( { -lit } );
+                }
     }
 #endif
+
+    farkasClause = String( "(cl " ) + farkasClause + ")";
+    farkasArgs = String( "(" ) + farkasArgs + "))\n";
+
     // Write la_generic\bounded_farkas rule, followed by the corresponding resolution
     String ruleName = GlobalConfiguration::DEDICATED_ALETHE_RULE ? "bounded_farkas" : "la_generic";
     String laGeneric = String( "(step t" ) + _queryId + "_" + std::to_string( id ) + " " +
@@ -538,14 +544,15 @@ bool AletheProofWriter::writeReluLemma(
 
     // Apply calculations of the Farkas lemma, to prove the causing bound
     farkasStrings( explanations.front(),
-                   lemmaEntry->id,
-                   farkasArgs,
-                   farkasClause,
-                   farkasParticipants,
-                   negatedSplitsClause,
-                   causingVar,
-                   causingVarBound == Tightening::UB,
-                   lemmaEntry->deps );
+                  lemmaEntry->id,
+                  farkasArgs,
+                  farkasClause,
+                  farkasParticipants,
+                  negatedSplitsClause,
+                  causingVar,
+                  causingVarBound == Tightening::UB,
+                  lemmaEntry->deps,
+                  NULL );
 #ifdef BUILD_CADICAL
     if ( _cdclCore )
     {
@@ -554,15 +561,6 @@ bool AletheProofWriter::writeReluLemma(
             std::vector<int>( lemmaEntry->clause.begin(), lemmaEntry->clause.end() );
 
         negatedSplitsClause += clauseToPhases( entryClause );
-
-        for ( const int lit : entryClause )
-        {
-            String identifier = std::to_string( abs( lit ) );
-            if ( lit > 0 )
-                farkasParticipants += String( "eq" ) + identifier + "_a0 ";
-            else
-                farkasParticipants += String( "eq" ) + identifier + "_i1 ri1_" + identifier + " ";
-        }
     }
 #endif
 
@@ -594,7 +592,7 @@ bool AletheProofWriter::writeReluLemma(
     String proofRuleRes = "";
     String tempString = "";
 
-    if ( targetBound > 0 && ( causingVar == f || causingVar == aux ) )
+    if ( targetBound > 0 )
         tempString += String( "(not " ) +
                       getBoundAsClause( Tightening( causingVar, 0, Tightening::UB ) ) + ")(not " +
                       causeBound + ")";
@@ -610,6 +608,17 @@ bool AletheProofWriter::writeReluLemma(
         proofRule += String( "(step ts" ) + _queryId + "_" + id + " (cl " + tempString +
                      "):rule or :premises(taut" + _queryId + "_" + id + "))\n";
     }
+
+    if ( targetBound > 0 && causingVar == b )
+    {
+        tempString = getBoundAsClause( Tightening( causingVar, 0, Tightening::UB ) ) + " (<= 0.0 x" + std::to_string(b) + ")";
+
+        proofRule += String( "(step tot" ) + _queryId + "_" + id + " (cl (or " + tempString +
+                    ")):rule la_totality)\n";
+        proofRule += String( "(step tos" ) + _queryId + "_" + id + " (cl " + tempString +
+                     "):rule or :premises(tot" + _queryId + "_" + id + "))\n";
+    }
+
     String conclusion = getBoundAsClause( Tightening( affectedVar, bound, affectedVarBound ) );
 
     // Prepare the shared prefix, and conclude with the remaning rules based on the exact derivation
@@ -624,7 +633,7 @@ bool AletheProofWriter::writeReluLemma(
         proofRuleRes = pref + " ts" + _queryId + "_" + id;
 
         if ( causingVar == b )
-            proofRuleRes += String( " eq" ) + identifier + "_a0";
+            proofRuleRes += String( " eq" ) + identifier + "_a0 tos" + _queryId + "_" + id;
         else
             proofRuleRes += String( " eq" ) + identifier + "_a0 ri1_" + identifier;
 
@@ -782,7 +791,8 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
                                        String &negatedSplitClause,
                                        int explainedVar,
                                        bool isUpper,
-                                       const Set<int> &deps )
+                                       const Set<int> &deps,
+                                       UnsatCertificateNode *node )
 {
     std::vector<mpq_t> explainedRow = std::vector<mpq_t>( _n );
     for ( const auto num : explainedRow )
@@ -827,7 +837,6 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
                                   ( mpq_sgn( explainedRow[i] ) < 0 && !isUpper );
 
         String boundString = useEntryUpperBound ? "u" : "l";
-        String ineqString = useEntryUpperBound ? "<=" : ">=";
         Tightening::BoundType boundType = useEntryUpperBound ? Tightening::UB : Tightening::LB;
         const std::shared_ptr<GroundBoundManager::GroundBoundEntry> &gbEntry =
             _groundBoundManager.getGroundBoundEntryUpToId( i, boundType, entryId );
@@ -838,6 +847,8 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
 
         int lemId = gbEntry->lemma ? gbEntry->lemma->getId() : -1;
         double bound = gbEntry->val;
+        String ineqString = useEntryUpperBound ? String ( "(not (<= x" + std::to_string( i ) + " " ) + SmtLibWriter::signedValue( bound ) + ")) " :
+                            String ( "(not (<= ") + SmtLibWriter::signedValue( bound ) + " x" + std::to_string( i ) + ")) ";
         bool isLemmaIncluded = lemId >= 0 && gbEntry->lemma->getToCheck() &&
                                gbEntry->lemma->wasWritten() && ( !isLemma || deps.exists( lemId ) );
         bool useSplitBound = ( lemId < 0 && gbEntry->isPhaseFixing );
@@ -846,8 +857,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             farkasArgs += temp.get_str() + " ";
 
         if ( ( isLemmaIncluded || useSplitBound ) && !overrideGmp )
-            farkasClause += String( "(not (" ) + ineqString + " x" + std::to_string( i ) +
-                            String( " " ) + SmtLibWriter::signedValue( bound ) + ")) ";
+            farkasClause += ineqString;
         else
         {
             farkasClause += String( "(not " ) + boundString + std::to_string( i ) + ") ";
@@ -862,8 +872,40 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
                 if ( !splitDeps.exists( dep ) )
                     splitDeps.append( dep );
         }
-        else if ( useSplitBound )
+        else if ( useSplitBound && !overrideGmp )
             splitDeps.append( Tightening( i, bound, boundType ) );
+
+        // Add necessary and sufficient premises for any bound participating in the clauses
+        if ( _cdclCore && useSplitBound && !overrideGmp  )
+        {
+            int lit = _varToPlc[i]->propagatePhaseAsLit();
+            String identifier = std::to_string( abs( lit ) );
+
+            if ( (i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::UB ))
+                farkasParticipants += String( "eq" ) + identifier + "_i1 ";
+
+            if ( !(i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::LB ))
+            {
+                if ( lit > 0 )
+                    farkasParticipants += String( "eq" ) + identifier + "_a0 ";
+                else
+                    farkasParticipants += String("ri1_") + identifier + " ";
+            }
+        }
+        else if ( !_cdclCore && useSplitBound && !overrideGmp )
+        {
+            String identifier = std::to_string( _varToPlc[i]->getTableauAuxVars().front() );
+            if ( (i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::UB ))
+                farkasParticipants += String( "eq" ) + identifier + "_i1 ";
+
+            if ( !(i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::LB ))
+            {
+                if ( i == _varToPlc[i]->getParticipatingVariables().back() )
+                    farkasParticipants += String( "eq" ) + identifier + "_a0 ";
+                else
+                    farkasParticipants += String("ri1_") + identifier + " ";
+            }
+        }
     }
 
     for ( const auto num : explainedRow )
@@ -873,6 +915,27 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
     if ( _cdclCore )
         return;
 #endif
+    if ( node && GlobalConfiguration::ALETHE_ELABORATE_TERMS )
+    {
+        // Add proof terms for all splits in node path, with 0 argument for those that are not actually used
+        // Enables elaboration in Carcara
+        List<PiecewiseLinearCaseSplit> nodePath = getPathSplits( node );
+        for ( const auto& caseSplit : nodePath )
+        {
+            bool isCaseIncluded = false;
+            for ( const auto &bound : caseSplit.getBoundTightenings() )
+                if ( splitDeps.exists( bound ) )
+                    isCaseIncluded = true;
+
+            if ( isCaseIncluded )
+                continue;
+
+            farkasArgs += "0 ";
+            String identifier = std::to_string( _varToPlc[caseSplit.getBoundTightenings().front()._variable]->getTableauAuxVars().front() );
+            farkasClause += isSplitActive( caseSplit ) ?  String(" (not a") + identifier + ")" : String( " a" ) + identifier;
+            splitDeps.append( caseSplit.getBoundTightenings().front() );
+        }
+    }
     // Add split dependencies of previous lemmas, based on the node's path
     if ( isLemma && _idToSplits.exists( entryId ) )
         _idToSplits[entryId] = splitDeps;
@@ -889,26 +952,16 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             continue;
 
         usedPlc.insert( plc->getTableauAuxVars().front() );
-
-        int constraintInt = Options::get()->getBool( Options::SOLVE_WITH_CDCL )
-                              ? plc->getVariableForDecision()
-                              : plc->getTableauAuxVars().front();
-
-        String identifier = std::to_string( constraintInt );
+        String identifier = std::to_string( plc->getTableauAuxVars().front() );
 
         PiecewiseLinearCaseSplit tighteningSplit;
 
-        for ( const auto &casSplit : plc->getAllCases() )
+        for ( const auto &caseSplit : plc->getAllCases() )
         {
-            PiecewiseLinearCaseSplit split = plc->getCaseSplit( casSplit );
+            PiecewiseLinearCaseSplit split = plc->getCaseSplit( caseSplit );
             if ( split.getBoundTightenings().exists( tightening ) )
                 tighteningSplit = split;
         }
-
-        if ( isSplitActive( tighteningSplit ) )
-            farkasParticipants += String( "eq" ) + identifier + "_a0 ";
-        else
-            farkasParticipants += String( "eq" ) + identifier + "_i1 ri1_" + identifier + " ";
 
         String isNegActive = isSplitActive( tighteningSplit ) ? "(not a" : "a";
         String suffix = isSplitActive( tighteningSplit ) ? ")" : " ";
@@ -1007,7 +1060,7 @@ void AletheProofWriter::add_original_clause( int64_t id,
         if ( _lastContradiction.empty() )
             _proofEntries.append( AletheStepEntry( id, clause, {}, NULL, _lastContradiction, 0 ) );
         else
-            writeContradiction( _lastContradiction, id );
+            writeContradiction( _lastContradiction, id, NULL );
 
         // Clear data structures
         _lastContradiction.initializeToEmpty();
@@ -1105,15 +1158,10 @@ void AletheProofWriter::writeLemmaResolution(
         {
             String lemmaBound = getBoundAsClause(
                 Tightening( causing, entry->lemma->getMinTargetBound(), Tightening::UB ) );
-            preRule = String( "(step _rt" ) + _queryId + "_" + std::to_string( id ) +
-                      " (cl (or (not " + lemmaBound + ")(not (>= x" + std::to_string( causing ) +
-                      " 0.0)))):rule la_tautology)\n";
-            preRule += String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl (not " +
-                       lemmaBound + ")(not (>= x" + std::to_string( causing ) +
-                       " 0.0))):rule or :premises(_rt" + _queryId + "_" + std::to_string( id ) +
-                       "))\n";
-            proofRule += String( "cr" ) + _queryId + "_" + std::to_string( lemId ) + " rt" +
-                         _queryId + "_" + std::to_string( id ) + "))\n";
+            preRule += String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl (not " + lemmaBound +
+                       ")(not (<= 0.0 x" + std::to_string( causing ) + "))):rule la_generic :args(1 1))\n";
+            proofRule += String( "cr" ) + _queryId + "_" + std::to_string( lemId ) + " rt" + _queryId + "_" +
+            std::to_string( id ) + "))\n";
         }
         else
         {
@@ -1126,13 +1174,12 @@ void AletheProofWriter::writeLemmaResolution(
             String lemmaBound = getBoundAsClause(
                 Tightening( causing, entry->lemma->getMinTargetBound(), Tightening::LB ) );
 
-            preRule = String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl " +
-                      tableauLit + "(not " + lemmaBound + ")(not a" + constraintId + ")(not (<= x" +
-                      std::to_string( affected ) + " 0.0 ))(not (>= x" + counterpartAux +
-                      " 0.0))):rule la_generic :args(-1 1 1 1 1))\n";
+            preRule = String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl " + tableauLit +
+                      "(not " + lemmaBound + ")(not a" + constraintId + ")(not (<= x" + std::to_string( affected ) +
+                      " 0.0 ))(not (>= x" + counterpartAux + " 0.0))):rule la_generic :args(-1 1 1 1 1))\n";
 
-            proofRule += String( " rt" ) + _queryId + "_" + std::to_string( id ) + " " + tableauEq +
-                         " cr" + _queryId + "_" + std::to_string( lemId ) + " rl" + _queryId + "_" +
+            proofRule += String( " rt" ) + _queryId + "_" + std::to_string( id ) + " " + tableauEq + " cr" +
+                         _queryId + "_" + std::to_string( lemId ) + " rl" + _queryId + "_" +
                          std::to_string( lemId ) + " l" + counterpartAux + "))\n";
         }
     }
@@ -1283,11 +1330,11 @@ void AletheProofWriter::initializeProofFile( const String &filename )
 void AletheProofWriter::writeSncLitTrivialClause( int64_t id, unsigned sncVar )
 {
     String trivial = String( "(step _r" ) + _queryId + "_" + std::to_string( id ) +
-                     " (cl (or (not a" + std::to_string( sncVar ) + ") a" +
-                     std::to_string( sncVar ) + ")):rule la_tautology)\n";
-    trivial += String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl (not a" +
-               std::to_string( sncVar ) + ") a" + std::to_string( sncVar ) +
-               "):rule or :premises(_r" + _queryId + "_" + std::to_string( id ) + "))\n";
+                     " (cl (or a" + std::to_string( sncVar ) + " (not a" +
+                     std::to_string( sncVar ) + "))):rule la_tautology)\n";
+    trivial += String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl a" +
+               std::to_string( sncVar ) + " (not a" + std::to_string( sncVar ) +
+               ")):rule or :premises(_r" + _queryId + "_" + std::to_string( id ) + "))\n";
     _proof.append( trivial );
 }
 

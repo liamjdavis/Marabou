@@ -3684,7 +3684,8 @@ void Engine::explainSimplexFailure()
         if ( !_solveWithCDCL && GlobalConfiguration::WRITE_ALETHE_PROOF )
         {
             _aletheWriter->writeContradiction( sparseContradictionToAnalyse,
-                                               _UNSATCertificateCurrentPointer->get()->getId() );
+                                              _UNSATCertificateCurrentPointer->get()->getId(),
+                                              *_UNSATCertificateCurrentPointer );
             return;
         }
         else if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
