@@ -245,14 +245,6 @@ AletheProofWriter::writeContradiction( const SparseUnsortedList &contradiction, 
         std::vector<int> contradictionClause =
             std::vector<int>( _lastContradictionClause.begin(), _lastContradictionClause.end() );
         negatedSplitsClause += clauseToPhases( contradictionClause );
-        if ( !_cdclCore->getSncLits().empty() && GlobalConfiguration::ALETHE_ELABORATE_TERMS )
-            for ( const auto lit : _cdclCore->getSncLits() )
-                if ( std::find(contradictionClause.begin(), contradictionClause.end(), -lit ) != contradictionClause.end() )
-                {
-                    farkasArgs += "0 ";
-                    farkasClause += clauseToPhases( { -lit } );
-                    negatedSplitsClause += clauseToPhases( { -lit } );
-                }
     }
 #endif
 
