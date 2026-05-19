@@ -205,6 +205,13 @@ public:
      Check if a lemma was already added as a reason clause
     */
     bool lemmaExistsAsReasonClause( int64_t id ) const;
+
+    void writeSncAnchor();
+
+    void writeDummyRules();
+
+    void writeSncLitAssumption( int64_t id, int sncVar );
+
 #endif
 
 private:
@@ -216,6 +223,7 @@ private:
     static File proofFile;
     static String proofFilename;
     static std::mutex proofFileMutex;
+    static bool wroteDummy;
 
     /*
      Information of original query
@@ -286,10 +294,6 @@ private:
     void writeDerivedClauseContent( int64_t id,
                                     const std::vector<int> &clause,
                                     const std::vector<int64_t> &antecedents );
-    /*
-     Add a trivial clause for representig a trivially solved SnC subproblem
-    */
-    void writeSncLitTrivialClause( int64_t id, unsigned sncVar );
 
     /*
      A helper function that mimics a simple boolean resolution

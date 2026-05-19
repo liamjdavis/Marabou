@@ -31,6 +31,7 @@ std::mutex AletheProofWriter::unsatJobFinalStepsMutex{};
 File AletheProofWriter::proofFile( "" );
 String AletheProofWriter::proofFilename;
 std::mutex AletheProofWriter::proofFileMutex{};
+bool AletheProofWriter::wroteDummy = false;
 
 AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const Vector<double> &upperBounds,
@@ -289,19 +290,11 @@ void AletheProofWriter::finalizeProof()
     AletheProofWriter::proofFile.close();
     AletheProofWriter::proofFileMutex.unlock();
 
-    if ( !_cdclCore )
+    if ( !_cdclCore || _cdclCore->getSncLits().empty() )
         return;
 
     // Store the last resolution step for conclusion in SnC mode
-    String resId;
-    if ( !_proofEntries.empty() )
-        resId = String( "r" ) + _queryId + "_" + std::to_string( _proofEntries.back().id );
-    else
-    {
-        List<String> finalStepTokens = _proof.back().tokenize( " " );
-        finalStepTokens.popFront();
-        resId = finalStepTokens.popFront();
-    }
+    String resId = String( "s" ) + _queryId;
 
     AletheProofWriter::unsatJobFinalStepsMutex.lock();
     AletheProofWriter::unsatJobFinalSteps.insert(
@@ -1060,8 +1053,8 @@ void AletheProofWriter::add_original_clause( int64_t id,
     }
     else if ( clause.size() == 1 && _cdclCore->getSncLits().exists( clause.front() ) )
     {
-        // Case of a worker trivially proved UNSAT
-        writeSncLitTrivialClause( id, abs( clause.front() ) );
+        //Trivial derivation of literals assumed by the subquery
+        writeSncLitAssumption( id, clause.front() );
         return;
     }
     else
@@ -1210,15 +1203,9 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
                                                    const std::vector<int> &clause,
                                                    const std::vector<int64_t> &antecedents )
 {
-    std::vector<int> extendedClause( clause );
-
-    // Counting begins at 1
-    for ( int lit : _cdclCore->getSncLits() )
-        extendedClause.insert( extendedClause.end(), -lit );
-
     String splitsClause = "";
 
-    for ( int lit : extendedClause )
+    for ( int lit : clause )
     {
         const PiecewiseLinearConstraint *plc = _cdclCore->getConstraintFromLit( lit );
         String isActive = lit > 0 ? "a" : "(not a";
@@ -1227,8 +1214,8 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
             String( " " ) + isActive + std::to_string( constraintInt ) + ( lit > 0 ? "" : ")" );
     }
 
-    String resLine = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl" +
-                     splitsClause + "):rule resolution :premises(";
+    String resLine = String( "(step r" ) +  _queryId + "_" + std::to_string( id ) + " (cl" + splitsClause +
+                     "):rule resolution :premises(";
 
     for ( int64_t step : antecedents )
         resLine += String( " r" ) + _queryId + "_" + std::to_string( step );
@@ -1236,6 +1223,40 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
     resLine += "))\n";
 
     _proof.append( resLine );
+
+    if ( !clause.empty() || _cdclCore->getSncLits().empty() )
+        return;
+    // TODO encapsulate
+    std::vector<int> negatedSncClause = {};
+    std::vector<int> sncClause = {};
+    String doubleNegs = "";
+    Set<int> negSncLits = {};
+    for ( int lit : _cdclCore->getSncLits() )
+    {
+        negatedSncClause.insert( negatedSncClause.end(), -lit );
+        sncClause.insert( sncClause.end(), lit );
+        doubleNegs += String( "(not " ) + clauseToPhases( { -lit } ) + ")";
+
+        if ( lit < 0 )
+            negSncLits.insert( lit );
+    }
+
+    String subProofEnd = String( "(step f" ) + _queryId + " (cl (not (and " + clauseToPhases( negatedSncClause )
+                    + ")) false ):rule subproof :premises(r" +_queryId + "_" + std::to_string( id ) +
+                    ") :discharge(snc" + _queryId + "))\n";
+
+    String andNeg = String( "(step an" ) + _queryId + " (cl (and " + clauseToPhases( negatedSncClause )
+                      + ") " + doubleNegs + "):rule and_neg)\n";
+
+    String finalize = String( "(step s" ) + _queryId + " (cl " + clauseToPhases( sncClause )
+                      + "):rule resolution :premises(f" + _queryId + " an" + _queryId;
+
+    for ( int lit : negSncLits )
+        finalize += " dn" + std::to_string( abs( lit ) );
+
+    finalize += " dummy))\n";
+
+    _proof.append( { subProofEnd, andNeg, finalize } );
 }
 
 void AletheProofWriter::setInitialTableau( const SparseMatrix *tableau )
@@ -1319,15 +1340,62 @@ void AletheProofWriter::initializeProofFile( const String &filename )
     AletheProofWriter::proofFile = File( filename );
 }
 
-void AletheProofWriter::writeSncLitTrivialClause( int64_t id, unsigned sncVar )
+void AletheProofWriter::writeSncLitAssumption( int64_t id, int sncVar )
 {
-    String trivial = String( "(step _r" ) + _queryId + "_" + std::to_string( id ) +
-                     " (cl (or a" + std::to_string( sncVar ) + " (not a" +
-                     std::to_string( sncVar ) + "))):rule la_tautology)\n";
-    trivial += String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl a" +
-               std::to_string( sncVar ) + " (not a" + std::to_string( sncVar ) +
-               ")):rule or :premises(_r" + _queryId + "_" + std::to_string( id ) + "))\n";
-    _proof.append( trivial );
+    ASSERT( _cdclCore && !_cdclCore->getSncLits().empty() );
+
+    String varAsPhase = clauseToPhases( { -sncVar } );
+    std::vector<int> negatedSncClause = {};
+
+    for ( int lit : _cdclCore->getSncLits() )
+        negatedSncClause.insert( negatedSncClause.end(), -lit );
+
+    String varsCong = clauseToPhases( negatedSncClause );
+
+    String pre = String("(step _r" ) + _queryId + "_"  + std::to_string( id ) + " (cl (not (and " + varsCong + ")) " + varAsPhase +
+            "):rule and_pos :args(" +  std::to_string( id - 1 ) + "))\n";
+    String trivial = String("(step r" ) + _queryId + "_"  + std::to_string( id ) + " (cl " + varAsPhase +
+                 "):rule resolution :premises( _r" + _queryId + "_" + std::to_string( id ) + " snc" + _queryId + "))\n";
+    _proof.append( { pre, trivial } );
+}
+
+void AletheProofWriter::writeSncAnchor()
+{
+    ASSERT( _cdclCore && !_cdclCore->getSncLits().empty() );
+
+    String anchor = String("(anchor :step f" ) + _queryId + ")\n";
+    std::vector<int> negatedSncClause = {};
+
+    for ( int lit : _cdclCore->getSncLits() )
+        negatedSncClause.insert( negatedSncClause.end(), -lit );
+
+    String varsCong = clauseToPhases( negatedSncClause );
+    String assumption = String("(assume snc" ) + _queryId + " (and " + varsCong + "))\n";
+    _proof.append( { anchor, assumption } );
+}
+
+void AletheProofWriter::writeDummyRules()
+{
+    if ( AletheProofWriter::wroteDummy )
+        return;
+    AletheProofWriter::wroteDummy = true;
+
+    ASSERT( _cdclCore && !_cdclCore->getSncLits().empty() );
+    AletheProofWriter::proofFileMutex.lock();
+    AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
+
+    String dummy = "(step dummy (cl (not false)) :rule false)\n";
+    AletheProofWriter::proofFile.write( dummy );
+
+    for ( auto lit : _cdclCore->getSncLits() )
+    {
+        String identifier = std::to_string( abs( lit ) );
+        String doubleNeg = String( "(step dn" ) + identifier + " (cl (not (not (not a" + identifier + "))) a" + identifier +") :rule not_not)\n";
+        AletheProofWriter::proofFile.write( doubleNeg );
+    }
+
+    AletheProofWriter::proofFile.close();
+    AletheProofWriter::proofFileMutex.unlock();
 }
 
 #endif

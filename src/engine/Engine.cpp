@@ -245,13 +245,6 @@ void Engine::initializeSolver()
     if ( _solveWithMILP )
         return;
 
-    // #ifdef BUILD_CADICAL
-    //     if ( _solveWithCDCL )
-    //         for ( const auto plConstraint : _plConstraints )
-    //             if ( plConstraint->phaseFixed() )
-    //                 _cdclCore.assume( plConstraint->propagatePhaseAsLit() );
-    // #endif
-
     updateDirections();
     if ( _lpSolverType == LPSolverType::NATIVE )
         storeInitialEngineState();
@@ -292,6 +285,13 @@ void Engine::initializeSolver()
 
                 _aletheWriter->flushAssumptions();
             }
+
+            if ( _sncMode && _queryId != "1" )
+            {
+                _aletheWriter->writeDummyRules();
+                _aletheWriter->writeSncAnchor();
+            }
+
         }
 
         if ( !_solveWithCDCL )
@@ -4020,10 +4020,30 @@ bool Engine::certifyUNSATCertificate()
         {
             std::vector<int> clause( _aletheWriter->getLastContradictionClause().begin(),
                                      _aletheWriter->getLastContradictionClause().end() );
-            _aletheWriter->add_original_clause(
-                _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES ),
-                false,
-                clause );
+            unsigned finalId =  _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES );
+
+            std::vector<int64_t > ant = {};
+            if ( _sncMode && !clause.empty() )
+            {
+                // Iterate through snc literals to maintain correct order and indices of LitAssumptions
+                for ( int lit : _cdclCore.getSncLits() )
+                {
+                    if ( _aletheWriter->getLastContradictionClause().exists(  lit ) )
+                    {
+                        _aletheWriter->writeSncLitAssumption(finalId, lit );
+                        ant.insert( ant.end(), finalId++ );
+                    }
+                    else
+                        finalId++;
+                }
+            }
+            _aletheWriter->add_original_clause( finalId, false, clause );
+
+            if ( _sncMode && !clause.empty() && !_cdclCore.getSncLits().empty() )
+            {
+                ant.insert( ant.end(), finalId++ );
+                _aletheWriter->add_derived_clause( finalId, false, 0, {}, ant );
+            }
         }
 
         // Trim out the suffix ".alethe"
