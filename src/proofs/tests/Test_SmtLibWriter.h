@@ -133,7 +133,7 @@ public:
         TS_ASSERT_EQUALS( line, expectedLine );
 
         line = file->readLine( '\n' );
-        expectedLine = String( "(assert (>= x1 " ) + SmtLibWriter::signedValue( -1.0 ) + "))";
+        expectedLine = String( "(assert (>= x1 -1.0))");
         TS_ASSERT_EQUALS( line, expectedLine );
 
         // Tableau
@@ -143,7 +143,7 @@ public:
 
         // Relu
         line = file->readLine( '\n' );
-        expectedLine = "(assert (ite (>= x0 0.0) (= x0 x1) (<= x1 0.0)))";
+        expectedLine = "(assert (ite (<= 0.0 x0) (= x0 x1) (<= x1 0.0)))";
         TS_ASSERT_EQUALS( line, expectedLine );
 
         // Sign

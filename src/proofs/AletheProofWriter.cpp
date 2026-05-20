@@ -227,6 +227,10 @@ AletheProofWriter::writeContradiction( const SparseUnsortedList &contradiction, 
     String farkasClause = "";
     String farkasParticipants = "";
     String negatedSplitsClause = "";
+    if ( node )
+    {
+        ASSERT( node->getId() == id );
+    }
 
     // Collect all Farkas lemma information
     farkasStrings(contradiction,
@@ -238,7 +242,7 @@ AletheProofWriter::writeContradiction( const SparseUnsortedList &contradiction, 
                   -id,
                   true,
                   {},
-                   node );
+                  node );
 #ifdef BUILD_CADICAL
     if ( _cdclCore )
     {
@@ -921,6 +925,7 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             splitDeps.append( caseSplit.getBoundTightenings().front() );
         }
     }
+
     // Add split dependencies of previous lemmas, based on the node's path
     if ( isLemma && _idToSplits.exists( entryId ) )
         _idToSplits[entryId] = splitDeps;

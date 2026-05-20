@@ -342,7 +342,11 @@ void SmtLibWriter::addTableauRow( const SparseUnsortedList &row, List<String> &i
     if ( !size )
         return;
 
-    String assertRowLine = "(assert (= 0.0 (+";
+    String assertRowLine = "(assert (= 0.0 ";
+
+    if ( row.getSize() > 1 )
+        assertRowLine+= "(+";
+
     auto entry = row.begin();
 
     for ( ; entry != row.end(); ++entry )
@@ -365,7 +369,10 @@ void SmtLibWriter::addTableauRow( const SparseUnsortedList &row, List<String> &i
                 String( "(* " ) + tempVal.get_str() + " x" + std::to_string( entry->_index ) + ")";
     }
 
-    instance.append( assertRowLine + ")))\n" );
+    if ( row.getSize() > 1 )
+        assertRowLine+= ")";
+
+    instance.append( assertRowLine + "))\n" );
 }
 
 void SmtLibWriter::addGroundUpperBounds( const Vector<double> &bounds, List<String> &instance )
@@ -416,7 +423,11 @@ String SmtLibWriter::signedValue( double val )
 
 void SmtLibWriter::addEquation( const Equation &eq, List<String> &instance, bool assertEquations )
 {
-    unsigned size = eq._addends.size();
+    // Count only nonzero elements
+    unsigned size = 0;
+    for ( const auto &addend : eq._addends )
+        if (  addend._coefficient != 0 )
+            ++size;
 
     if ( !size )
         return;
@@ -436,10 +447,13 @@ void SmtLibWriter::addEquation( const Equation &eq, List<String> &instance, bool
         assertRowLine += "(<= ";
 
     assertRowLine += signedValue( eq._scalar );
-    assertRowLine += String( " (+" );
+
+    if ( size > 1 )
+        assertRowLine += String( " (+" );
+
     for ( const auto &addend : eq._addends )
     {
-        if ( FloatUtils::isZero( addend._coefficient ) )
+        if ( addend._coefficient == 0 )
             continue;
 
         assertRowLine += String( " " );
@@ -454,7 +468,11 @@ void SmtLibWriter::addEquation( const Equation &eq, List<String> &instance, bool
                              std::to_string( addend._variable ) + ")";
     }
 
-    assertRowLine += String( ")))" );
+    assertRowLine += String( ")" );
+
+    if ( size > 1 )
+        assertRowLine += String( ")" );
+
     instance.append( assertRowLine + ( assertEquations ? ")\n" : " " ) );
 }
 
