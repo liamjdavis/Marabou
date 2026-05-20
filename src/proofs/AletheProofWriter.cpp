@@ -1224,39 +1224,9 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
 
     _proof.append( resLine );
 
-    if ( !clause.empty() || _cdclCore->getSncLits().empty() )
-        return;
-    // TODO encapsulate
-    std::vector<int> negatedSncClause = {};
-    std::vector<int> sncClause = {};
-    String doubleNegs = "";
-    Set<int> negSncLits = {};
-    for ( int lit : _cdclCore->getSncLits() )
-    {
-        negatedSncClause.insert( negatedSncClause.end(), -lit );
-        sncClause.insert( sncClause.end(), lit );
-        doubleNegs += String( "(not " ) + clauseToPhases( { -lit } ) + ")";
-
-        if ( lit < 0 )
-            negSncLits.insert( lit );
-    }
-
-    String subProofEnd = String( "(step f" ) + _queryId + " (cl (not (and " + clauseToPhases( negatedSncClause )
-                    + ")) false ):rule subproof :premises(r" +_queryId + "_" + std::to_string( id ) +
-                    ") :discharge(snc" + _queryId + "))\n";
-
-    String andNeg = String( "(step an" ) + _queryId + " (cl (and " + clauseToPhases( negatedSncClause )
-                      + ") " + doubleNegs + "):rule and_neg)\n";
-
-    String finalize = String( "(step s" ) + _queryId + " (cl " + clauseToPhases( sncClause )
-                      + "):rule resolution :premises(f" + _queryId + " an" + _queryId;
-
-    for ( int lit : negSncLits )
-        finalize += " dn" + std::to_string( abs( lit ) );
-
-    finalize += " dummy))\n";
-
-    _proof.append( { subProofEnd, andNeg, finalize } );
+    // If this is the last clause of an SnC worker, wrap it up
+    if ( clause.empty() && !_cdclCore->getSncLits().empty() )
+        wrapupSncSubproof( id );
 }
 
 void AletheProofWriter::setInitialTableau( const SparseMatrix *tableau )
@@ -1396,6 +1366,42 @@ void AletheProofWriter::writeDummyRules()
 
     AletheProofWriter::proofFile.close();
     AletheProofWriter::proofFileMutex.unlock();
+}
+
+void AletheProofWriter::wrapupSncSubproof( int64_t id )
+{
+    std::vector<int> negatedSncClause = {};
+    std::vector<int> sncClause = {};
+    String doubleNegs = "";
+    Set<int> negSncLits = {};
+
+    for ( int lit : _cdclCore->getSncLits() )
+    {
+        negatedSncClause.insert( negatedSncClause.end(), -lit );
+        sncClause.insert( sncClause.end(), lit );
+        doubleNegs += String( "(not " ) + clauseToPhases( { -lit } ) + ")";
+
+        if ( lit < 0 )
+            negSncLits.insert( lit );
+    }
+    // Close subproof and derive negation of conjunction
+    String subProofEnd = String( "(step f" ) + _queryId + " (cl (not (and " + clauseToPhases( negatedSncClause )
+                         + ")) false ):rule subproof :premises(r" +_queryId + "_" + std::to_string( id ) +
+                         ") :discharge(snc" + _queryId + "))\n";
+
+    String andNeg = String( "(step an" ) + _queryId + " (cl (and " + clauseToPhases( negatedSncClause )
+                    + ") " + doubleNegs + "):rule and_neg)\n";
+
+    // Derive the disjunction of negations
+    String finalize = String( "(step s" ) + _queryId + " (cl " + clauseToPhases( sncClause )
+                      + "):rule resolution :premises(f" + _queryId + " an" + _queryId;
+
+    for ( int lit : negSncLits )
+        finalize += " dn" + std::to_string( abs( lit ) );
+
+    finalize += " dummy))\n";
+
+    _proof.append( { subProofEnd, andNeg, finalize } );
 }
 
 #endif

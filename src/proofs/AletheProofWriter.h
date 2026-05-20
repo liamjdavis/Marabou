@@ -206,10 +206,22 @@ public:
     */
     bool lemmaExistsAsReasonClause( int64_t id ) const;
 
+    /*** SnC-related functions ***/
+
+    /*
+     Begin subproof for an SnC worker
+    */
     void writeSncAnchor();
 
+    /*
+     Write helper tautologies of SnC worker literals.
+     Used when wrapping up the subproof
+    */
     void writeDummyRules();
 
+    /*
+     Write an SnC lit as a subproof assumption
+    */
     void writeSncLitAssumption( int64_t id, int sncVar );
 
 #endif
@@ -366,6 +378,10 @@ private:
                         bool isUpper,
                         const Set<int> &deps,
                         UnsatCertificateNode *node );
+    /*
+     Wraps up the subproof of an SnC worker, and derive the disjunction of its negated literals
+    */
+    void wrapupSncSubproof(int64_t id );
 };
 
 #endif // __AletheProofWriter_h__

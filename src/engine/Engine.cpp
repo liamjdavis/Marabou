@@ -4016,12 +4016,14 @@ bool Engine::certifyUNSATCertificate()
 
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
     {
+        // Proof contains info relevant for the proof
         if ( _aletheWriter->hasInfo() )
         {
             std::vector<int> clause( _aletheWriter->getLastContradictionClause().begin(),
                                      _aletheWriter->getLastContradictionClause().end() );
             unsigned finalId =  _statistics.getUnsignedAttribute( Statistics::NUM_CERTIFIED_LEAVES );
 
+            // In SnC mode, wrap up the worker's subproof
             std::vector<int64_t > ant = {};
             if ( _sncMode && !clause.empty() )
             {
@@ -4037,8 +4039,10 @@ bool Engine::certifyUNSATCertificate()
                         finalId++;
                 }
             }
+            // Write the final contradiction
             _aletheWriter->add_original_clause( finalId, false, clause );
 
+            // Wrap up for SnC
             if ( _sncMode && !clause.empty() && !_cdclCore.getSncLits().empty() )
             {
                 ant.insert( ant.end(), finalId++ );
