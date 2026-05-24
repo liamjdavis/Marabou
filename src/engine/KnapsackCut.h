@@ -9,25 +9,25 @@
  **
  ** KnapsackCut implements a topology-aware cutting plane for ReLU networks.
  **
- ** For a ReLU neuron b with pre-activation pre_b = sum_i W_bi * post_i + bias_b,
- ** the cut encodes: if the weighted combination of upstream phase indicators
- ** exceeds a threshold, then b's phase is guaranteed.
+ ** For a "furthest" fixed ReLU target b (no fixed downstream), pre_b is
+ ** expressed as a linear function of upstream f-variables and INPUT vars:
  **
- ** A cut group (from a single UNSAT leaf) prunes a subproblem when ALL cuts
- ** in the group are satisfied, meaning all target neurons are in their
- ** UNSAT-leaf phases.
+ **    pre_b = constant + sum_j w_j * x_j      (x_j upstream RELU f-var or INPUT)
  **
- ** Only "furthest" fixes are included: neurons with no downstream fixed neurons.
+ ** At the UNSAT leaf the leaf forced pre_b into one half-line:
+ **    ACTIVE  : pre_b >= threshold   (threshold = leaf's lb on pre_b)
+ **    INACTIVE: pre_b <= threshold   (threshold = leaf's ub on pre_b)
  **
- ** Cut for active phase (pre_b >= 0):
- **   sum_i a_i * z_i + c >= 0
- **   where a_i = W_bi * lb_i (if W_bi > 0) or W_bi * ub_i (if W_bi < 0)
- **         c = bias_b + folded constant contributions
+ ** The cut stores ONLY static topology data (weights w_j, constant, threshold).
+ ** Bounds are queried fresh from the BoundManager at every check, making the
+ ** cut globally valid (sound at any subspace). The check at a new node is:
  **
- ** Cut for inactive phase (pre_b <= 0), negated to >= form:
- **   sum_i a_i * z_i + c >= 0
- **   where a_i = -W_bi * ub_i (if W_bi > 0) or -W_bi * lb_i (if W_bi < 0)
- **         c = -bias_b + folded constant contributions
+ **    ACTIVE  : (constant + sum_j w_j * (lb_j if w_j>0 else ub_j)) >= threshold
+ **    INACTIVE: (constant + sum_j w_j * (ub_j if w_j>0 else lb_j)) <= threshold
+ **
+ ** A cut group (from one UNSAT leaf) prunes the current subproblem when every
+ ** cut in the group is implied: every furthest target is forced into its leaf
+ ** phase, so the subproblem is subsumed by the UNSAT leaf.
  **/
 
 #ifndef __KnapsackCut_h__
@@ -48,12 +48,19 @@ struct KnapsackCut
     unsigned reluLayerIdx;
     unsigned neuronIdx;
 
-    // Coefficients keyed by upstream ReLU f-variable
-    // coeff[f_var] = contribution when upstream neuron is active (z=1)
+    // Effective network weights of pre_b expressed in terms of upstream
+    // f-vars / INPUT vars. PURE WEIGHTS -- no bounds baked in. Bounds are
+    // queried dynamically from the BoundManager at check time.
     Map<unsigned, double> coefficients;
 
-    // Constant term (folded bias + non-phase-indicator contributions)
+    // Static part of pre_b: bias plus folded contributions from eliminated
+    // (fixed-value) neurons.
     double constant;
+
+    // The leaf's bound on pre_b that the cut must reproduce at a new node:
+    //   ACTIVE  : threshold = leaf's lower bound on pre_b
+    //   INACTIVE: threshold = leaf's upper bound on pre_b
+    double threshold;
 };
 
 struct KnapsackCutGroup

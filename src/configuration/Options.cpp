@@ -56,6 +56,7 @@ void Options::initializeDefaultValues()
     _boolOptions[PRODUCE_PROOFS] = false;
     _boolOptions[DO_NOT_MERGE_CONSECUTIVE_WEIGHTED_SUM_LAYERS] = false;
     _boolOptions[KNAPSACK_CUTS] = false;
+    _boolOptions[KNAPSACK_CUTS_DEBUG] = false;
 
     /*
       Int options

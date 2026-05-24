@@ -202,7 +202,10 @@ bool Engine::solve( double timeoutInSeconds )
     applyAllValidConstraintCaseSplits();
 
     if ( _useKnapsackCuts )
+    {
+        _knapsackCutManager.setDebug( Options::get()->getBool( Options::KNAPSACK_CUTS_DEBUG ) );
         _knapsackCutManager.initialize( _networkLevelReasoner, _plConstraints, &_boundManager );
+    }
 
     if ( _solveWithMILP )
         return solveWithMILPEncoding( timeoutInSeconds );

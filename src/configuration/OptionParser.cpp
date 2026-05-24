@@ -140,7 +140,11 @@ void OptionParser::initialize()
         "knapsack-cuts",
         boost::program_options::bool_switch( &( ( *_boolOptions )[Options::KNAPSACK_CUTS] ) )
             ->default_value( ( *_boolOptions )[Options::KNAPSACK_CUTS] ),
-        "Learn knapsack cuts at UNSAT leaves to prune subsumed subproblems" )
+        "Learn knapsack cuts at UNSAT leaves to prune subsumed subproblems" )(
+        "knapsack-cuts-debug",
+        boost::program_options::bool_switch( &( ( *_boolOptions )[Options::KNAPSACK_CUTS_DEBUG] ) )
+            ->default_value( ( *_boolOptions )[Options::KNAPSACK_CUTS_DEBUG] ),
+        "Verbose tracing for knapsack cuts (per-build, per-prune breakdowns)" )
 #ifdef ENABLE_GUROBI
 #endif // ENABLE_GUROBI
         ;

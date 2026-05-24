@@ -46,6 +46,7 @@ struct KnapsackCutKey
     bool isActive;
     Map<unsigned, double> coefficients;
     double constant;
+    double threshold;
 
     bool operator<( const KnapsackCutKey &other ) const
     {
@@ -57,7 +58,9 @@ struct KnapsackCutKey
             return isActive < other.isActive;
         if ( coefficients != other.coefficients )
             return coefficients < other.coefficients;
-        return constant < other.constant;
+        if ( constant != other.constant )
+            return constant < other.constant;
+        return threshold < other.threshold;
     }
 };
 
@@ -73,6 +76,12 @@ public:
     void initialize( NLR::NetworkLevelReasoner *nlr,
                      const List<PiecewiseLinearConstraint *> &plConstraints,
                      IBoundManager *boundManager );
+
+    /*
+      Toggle verbose tracing (per-build cut details, per-prune LHS
+      breakdowns). Off by default; intended for soundness debugging.
+    */
+    void setDebug( bool debug );
 
     /*
       Collect a cut group from the current UNSAT leaf and append to
@@ -126,6 +135,12 @@ private:
     Map<unsigned, ReluConstraint *> _fVarToRelu;
 
     /*
+      f-variable -> (layer, neuron) of its RELU layer. Reverse of
+      _layerNeuronToRelu, used for debug-prints. Cached at initialize().
+    */
+    Map<unsigned, NLR::NeuronIndex> _fVarToLayerNeuron;
+
+    /*
       Stored cut groups, one per UNSAT leaf encountered so far.
     */
     Vector<KnapsackCutGroup> _cutGroups;
@@ -138,6 +153,11 @@ private:
     unsigned _numPruneChecks;
 
     bool _initialized;
+
+    /*
+      Verbose tracing flag for soundness debugging.
+    */
+    bool _debug;
 
     /*
       BFS forward from a starting neuron through the per-neuron NLR

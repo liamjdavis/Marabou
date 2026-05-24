@@ -88,6 +88,10 @@ public:
         // group over upstream ReLU phase indicators that prunes any
         // subproblem in which the group is implied.
         KNAPSACK_CUTS,
+
+        // Verbose tracing for knapsack cuts: per-build and per-prune
+        // breakdowns of coefficients, bounds, phases, LHS contributions.
+        KNAPSACK_CUTS_DEBUG,
     };
 
     enum IntOptions {

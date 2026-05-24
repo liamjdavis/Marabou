@@ -11,6 +11,7 @@
 #include "KnapsackCutManager.h"
 
 #include "FloatUtils.h"
+#include "IBoundManager.h"
 #include "Layer.h"
 #include "NetworkLevelReasoner.h"
 #include "PiecewiseLinearConstraint.h"
@@ -24,7 +25,13 @@ KnapsackCutManager::KnapsackCutManager()
     , _numPrunes( 0 )
     , _numPruneChecks( 0 )
     , _initialized( false )
+    , _debug( false )
 {
+}
+
+void KnapsackCutManager::setDebug( bool debug )
+{
+    _debug = debug;
 }
 
 void KnapsackCutManager::initialize( NLR::NetworkLevelReasoner *nlr,
@@ -38,6 +45,7 @@ void KnapsackCutManager::initialize( NLR::NetworkLevelReasoner *nlr,
     _downstreamRelus.clear();
     _layerNeuronToRelu.clear();
     _fVarToRelu.clear();
+    _fVarToLayerNeuron.clear();
     _numCutsBuilt = 0;
     _numPrunes = 0;
     _numPruneChecks = 0;
@@ -66,7 +74,10 @@ void KnapsackCutManager::initialize( NLR::NetworkLevelReasoner *nlr,
                 continue;
             unsigned fVar = layer->neuronToVariable( j );
             if ( _fVarToRelu.exists( fVar ) )
+            {
                 _layerNeuronToRelu[L][j] = _fVarToRelu[fVar];
+                _fVarToLayerNeuron[fVar] = NLR::NeuronIndex( L, j );
+            }
         }
     }
 
@@ -219,6 +230,42 @@ void KnapsackCutManager::collectFromCurrentLeaf()
         {
             group.cuts.append( cut );
             ++_numCutsBuilt;
+
+            if ( _debug )
+            {
+                printf( "[knapsack-dbg] BUILD cut: target b_var=%u "
+                        "(L=%u, j=%u) phase=%s constant=%.17g threshold=%.17g "
+                        "weights=%u\n",
+                        cut.targetBVar,
+                        cut.reluLayerIdx,
+                        cut.neuronIdx,
+                        cut.isActive ? "ACTIVE" : "INACTIVE",
+                        cut.constant,
+                        cut.threshold,
+                        cut.coefficients.size() );
+                for ( const auto &entry : cut.coefficients )
+                {
+                    unsigned var = entry.first;
+                    double w = entry.second;
+                    if ( _fVarToLayerNeuron.exists( var ) )
+                    {
+                        NLR::NeuronIndex upIdx = _fVarToLayerNeuron[var];
+                        printf( "[knapsack-dbg]   weight: var=%u (RELU L=%u "
+                                "j=%u) w=%.17g\n",
+                                var,
+                                upIdx._layer,
+                                upIdx._neuron,
+                                w );
+                    }
+                    else
+                    {
+                        printf( "[knapsack-dbg]   weight: var=%u "
+                                "(INPUT/other) w=%.17g\n",
+                                var,
+                                w );
+                    }
+                }
+            }
         }
     }
 
@@ -228,43 +275,34 @@ void KnapsackCutManager::collectFromCurrentLeaf()
 
 bool KnapsackCutManager::checkPruning()
 {
-    if ( !_initialized || _cutGroups.empty() )
+    if ( !_initialized || _cutGroups.empty() || !_boundManager )
         return false;
 
     ++_numPruneChecks;
-    for ( const KnapsackCutGroup &group : _cutGroups )
+    for ( unsigned gi = 0; gi < _cutGroups.size(); ++gi )
     {
+        const KnapsackCutGroup &group = _cutGroups[gi];
         bool groupImplied = true;
         for ( const KnapsackCut &cut : group.cuts )
         {
-            // Worst-case LHS = constant + Sum over upstream phase indicators:
-            //   z_i = 1 (active)   -> a_i
-            //   z_i = 0 (inactive) -> 0
-            //   unfixed/untracked  -> min(0, a_i)
-            // If worst-case LHS >= 0 then the cut is implied at this node.
-            double lhs = cut.constant;
+            // Compute envelope of pre_b at this node using CURRENT BM bounds.
+            //   ACTIVE  : LB(pre_b) = constant + sum_j w_j * (lb_j if w>0 else ub_j)
+            //   INACTIVE: UB(pre_b) = constant + sum_j w_j * (ub_j if w>0 else lb_j)
+            double envelope = cut.constant;
             for ( const auto &entry : cut.coefficients )
             {
-                unsigned fVar = entry.first;
-                double a = entry.second;
-                if ( !_fVarToRelu.exists( fVar ) )
-                {
-                    if ( a < 0 )
-                        lhs += a;
-                    continue;
-                }
-                ReluConstraint *upstream = _fVarToRelu[fVar];
-                if ( !upstream->phaseFixed() )
-                {
-                    if ( a < 0 )
-                        lhs += a;
-                    continue;
-                }
-                if ( upstream->getPhaseStatus() == RELU_PHASE_ACTIVE )
-                    lhs += a;
-                // RELU_PHASE_INACTIVE contributes 0.
+                unsigned var = entry.first;
+                double w = entry.second;
+                double lb = _boundManager->getLowerBound( var );
+                double ub = _boundManager->getUpperBound( var );
+                if ( cut.isActive )
+                    envelope += ( w > 0 ) ? w * lb : w * ub;
+                else
+                    envelope += ( w > 0 ) ? w * ub : w * lb;
             }
-            if ( lhs < 0 )
+            bool implied = cut.isActive ? ( envelope >= cut.threshold )
+                                        : ( envelope <= cut.threshold );
+            if ( !implied )
             {
                 groupImplied = false;
                 break;
@@ -273,6 +311,78 @@ bool KnapsackCutManager::checkPruning()
         if ( groupImplied )
         {
             ++_numPrunes;
+            if ( _debug )
+            {
+                printf( "[knapsack-dbg] PRUNE FIRE: group=%u with %u cuts; "
+                        "per-cut breakdown follows\n",
+                        gi,
+                        group.cuts.size() );
+                for ( unsigned ci = 0; ci < group.cuts.size(); ++ci )
+                {
+                    const KnapsackCut &cut = group.cuts[ci];
+                    double envelope = cut.constant;
+                    printf( "[knapsack-dbg]   cut %u: target b_var=%u "
+                            "(L=%u, j=%u) phase=%s constant=%.17g "
+                            "threshold=%.17g\n",
+                            ci,
+                            cut.targetBVar,
+                            cut.reluLayerIdx,
+                            cut.neuronIdx,
+                            cut.isActive ? "ACTIVE" : "INACTIVE",
+                            cut.constant,
+                            cut.threshold );
+                    printf( "[knapsack-dbg]     target b_var bounds now: "
+                            "lb=%.17g ub=%.17g\n",
+                            _boundManager->getLowerBound( cut.targetBVar ),
+                            _boundManager->getUpperBound( cut.targetBVar ) );
+                    for ( const auto &entry : cut.coefficients )
+                    {
+                        unsigned var = entry.first;
+                        double w = entry.second;
+                        double lb = _boundManager->getLowerBound( var );
+                        double ub = _boundManager->getUpperBound( var );
+                        double contrib;
+                        if ( cut.isActive )
+                            contrib = ( w > 0 ) ? w * lb : w * ub;
+                        else
+                            contrib = ( w > 0 ) ? w * ub : w * lb;
+                        envelope += contrib;
+                        if ( _fVarToLayerNeuron.exists( var ) )
+                        {
+                            NLR::NeuronIndex up = _fVarToLayerNeuron[var];
+                            printf( "[knapsack-dbg]     var=%u (RELU L=%u "
+                                    "j=%u) w=%.17g bm_lb=%.17g bm_ub=%.17g "
+                                    "contrib=%.17g\n",
+                                    var,
+                                    up._layer,
+                                    up._neuron,
+                                    w,
+                                    lb,
+                                    ub,
+                                    contrib );
+                        }
+                        else
+                        {
+                            printf( "[knapsack-dbg]     var=%u (INPUT/other) "
+                                    "w=%.17g bm_lb=%.17g bm_ub=%.17g "
+                                    "contrib=%.17g\n",
+                                    var,
+                                    w,
+                                    lb,
+                                    ub,
+                                    contrib );
+                        }
+                    }
+                    printf( "[knapsack-dbg]     envelope=%.17g, "
+                            "threshold=%.17g, implied=%s\n",
+                            envelope,
+                            cut.threshold,
+                            ( cut.isActive ? envelope >= cut.threshold
+                                           : envelope <= cut.threshold )
+                                ? "YES"
+                                : "NO" );
+                }
+            }
             return true;
         }
     }
@@ -296,6 +406,7 @@ void KnapsackCutManager::printSummary() const
             key.isActive = cut.isActive;
             key.coefficients = cut.coefficients;
             key.constant = cut.constant;
+            key.threshold = cut.threshold;
             unique.insert( key );
         }
     }
@@ -321,6 +432,7 @@ void KnapsackCutManager::reset()
     _downstreamRelus.clear();
     _layerNeuronToRelu.clear();
     _fVarToRelu.clear();
+    _fVarToLayerNeuron.clear();
     _numCutsBuilt = 0;
     _numPrunes = 0;
     _numPruneChecks = 0;
@@ -338,7 +450,7 @@ double KnapsackCutManager::worstCaseBoxContribution( double w, double lb, double
 void KnapsackCutManager::foldBackward( unsigned layerIdx,
                                        unsigned neuron,
                                        double w,
-                                       bool lower,
+                                       bool /* lower -- unused; eval uses BM */,
                                        KnapsackCut &cut ) const
 {
     const NLR::Layer *layer = _nlr->getLayer( layerIdx );
@@ -364,33 +476,27 @@ void KnapsackCutManager::foldBackward( unsigned layerIdx,
                 double wPrime = layer->getWeight( srcLayerIdx, srcNeuron, neuron );
                 if ( FloatUtils::isZero( wPrime ) )
                     continue;
-                foldBackward( srcLayerIdx, srcNeuron, w * wPrime, lower, cut );
+                foldBackward( srcLayerIdx, srcNeuron, w * wPrime, false, cut );
             }
         }
         return;
     }
 
-    if ( type == NLR::Layer::RELU && _layerNeuronToRelu.exists( layerIdx ) &&
-         _layerNeuronToRelu[layerIdx].exists( neuron ) )
+    // Anything else (RELU, INPUT, SIGN, ABS, SIGMOID, MAX, ...) becomes a
+    // bound-dependent term in pre_b. Store the pure effective weight; the
+    // check phase queries the BoundManager for current bounds and computes
+    // the worst-case contribution dynamically.
+    if ( !layer->neuronHasVariable( neuron ) )
     {
-        // Phase-indicator coefficient: contribution is (worst-case bound on
-        // w*post) when z=1, and 0 when z=0. Coef = worst-case bound on w*post
-        // restricted to post in [lb, ub] (both >= 0 by ReLU semantics).
-        double lb = layer->getLb( neuron );
-        double ub = layer->getUb( neuron );
-        double coef = worstCaseBoxContribution( w, lb, ub, lower );
-        unsigned fVar = layer->neuronToVariable( neuron );
-        if ( cut.coefficients.exists( fVar ) )
-            cut.coefficients[fVar] += coef;
-        else
-            cut.coefficients[fVar] = coef;
+        // Fall back to whatever the layer reports (eliminated already handled).
+        cut.constant += w * layer->getLb( neuron );
         return;
     }
-
-    // INPUT, untracked RELU, or other activation: box-fold via current bounds.
-    double lb = layer->getLb( neuron );
-    double ub = layer->getUb( neuron );
-    cut.constant += worstCaseBoxContribution( w, lb, ub, lower );
+    unsigned var = layer->neuronToVariable( neuron );
+    if ( cut.coefficients.exists( var ) )
+        cut.coefficients[var] += w;
+    else
+        cut.coefficients[var] = w;
 }
 
 bool KnapsackCutManager::buildCut( ReluConstraint *r,
@@ -413,17 +519,23 @@ bool KnapsackCutManager::buildCut( ReluConstraint *r,
     outCut.coefficients.clear();
     outCut.constant = 0.0;
 
-    // Active: want LB of pre_b such that LB >= 0 implies pre_b >= 0.
-    // Inactive: want UB of pre_b such that UB <= 0 implies pre_b <= 0;
-    //           store negated to keep canonical form Sum a_i z_i + c >= 0.
-    bool lower = active;
-    foldBackward( preActLayerIdx, reluNeuronIdx, 1.0, lower, outCut );
+    // Fold pre_b into pure weights + static constants. The "lower" flag is
+    // unused at build time -- the eval phase recomputes bounds from BM.
+    foldBackward( preActLayerIdx, reluNeuronIdx, 1.0, false, outCut );
 
-    if ( !active )
+    // Threshold: leaf's bound on pre_b that the cut must reproduce at any
+    // future node to imply the leaf's phase fix.
+    //   ACTIVE  : leaf's lb on pre_b (typically 0; tighter if extra
+    //             constraints raised it)
+    //   INACTIVE: leaf's ub on pre_b (typically 0; tighter if lowered)
+    if ( _boundManager )
     {
-        for ( auto &entry : outCut.coefficients )
-            entry.second = -entry.second;
-        outCut.constant = -outCut.constant;
+        outCut.threshold = active ? _boundManager->getLowerBound( outCut.targetBVar )
+                                  : _boundManager->getUpperBound( outCut.targetBVar );
+    }
+    else
+    {
+        outCut.threshold = 0.0;
     }
 
     return true;
