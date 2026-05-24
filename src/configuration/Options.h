@@ -83,6 +83,11 @@ public:
         // logically-consecutive weighted sum layers into a single
         // weighted sum layer, to reduce the number of variables
         DO_NOT_MERGE_CONSECUTIVE_WEIGHTED_SUM_LAYERS,
+
+        // Enable knapsack cuts: at each UNSAT leaf, learn a linear cut
+        // group over upstream ReLU phase indicators that prunes any
+        // subproblem in which the group is implied.
+        KNAPSACK_CUTS,
     };
 
     enum IntOptions {

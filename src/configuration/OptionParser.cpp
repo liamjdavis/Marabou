@@ -136,7 +136,11 @@ void OptionParser::initialize()
         "prove-unsat",
         boost::program_options::bool_switch( &( ( *_boolOptions )[Options::PRODUCE_PROOFS] ) )
             ->default_value( ( *_boolOptions )[Options::PRODUCE_PROOFS] ),
-        "Produce proofs of UNSAT and check them" )
+        "Produce proofs of UNSAT and check them" )(
+        "knapsack-cuts",
+        boost::program_options::bool_switch( &( ( *_boolOptions )[Options::KNAPSACK_CUTS] ) )
+            ->default_value( ( *_boolOptions )[Options::KNAPSACK_CUTS] ),
+        "Learn knapsack cuts at UNSAT leaves to prune subsumed subproblems" )
 #ifdef ENABLE_GUROBI
 #endif // ENABLE_GUROBI
         ;

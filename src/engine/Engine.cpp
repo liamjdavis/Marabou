@@ -58,6 +58,7 @@ Engine::Engine()
     , _lastIterationWithProgress( 0 )
     , _symbolicBoundTighteningType( Options::get()->getSymbolicBoundTighteningType() )
     , _solveWithMILP( Options::get()->getBool( Options::SOLVE_WITH_MILP ) )
+    , _useKnapsackCuts( Options::get()->getBool( Options::KNAPSACK_CUTS ) )
     , _lpSolverType( Options::get()->getLPSolverType() )
     , _gurobi( nullptr )
     , _milpEncoder( nullptr )
@@ -200,6 +201,9 @@ bool Engine::solve( double timeoutInSeconds )
     // Before encoding, make sure all valid constraints are applied.
     applyAllValidConstraintCaseSplits();
 
+    if ( _useKnapsackCuts )
+        _knapsackCutManager.initialize( _networkLevelReasoner, _plConstraints, &_boundManager );
+
     if ( _solveWithMILP )
         return solveWithMILPEncoding( timeoutInSeconds );
 
@@ -243,6 +247,8 @@ bool Engine::solve( double timeoutInSeconds )
                 _statistics.print();
             }
 
+            if ( _useKnapsackCuts )
+                _knapsackCutManager.printSummary();
             _exitCode = Engine::TIMEOUT;
             _statistics.timeout();
             return false;
@@ -257,6 +263,8 @@ bool Engine::solve( double timeoutInSeconds )
                 _statistics.print();
             }
 
+            if ( _useKnapsackCuts )
+                _knapsackCutManager.printSummary();
             _exitCode = Engine::QUIT_REQUESTED;
             return false;
         }
@@ -294,6 +302,9 @@ bool Engine::solve( double timeoutInSeconds )
                 performBoundTighteningAfterCaseSplit();
                 informLPSolverOfBounds();
                 splitJustPerformed = false;
+
+                if ( _useKnapsackCuts && _knapsackCutManager.checkPruning() )
+                    throw InfeasibleQueryException();
             }
 
             if ( _searchTreeHandler.needToSplit() )
@@ -342,6 +353,8 @@ bool Engine::solve( double timeoutInSeconds )
                             ASSERT( _UNSATCertificateCurrentPointer );
                             ( **_UNSATCertificateCurrentPointer ).setSATSolutionFlag();
                         }
+                        if ( _useKnapsackCuts )
+                            _knapsackCutManager.printSummary();
                         _exitCode = Engine::SAT;
                         return true;
                     }
@@ -356,6 +369,8 @@ bool Engine::solve( double timeoutInSeconds )
                             printf( "\nEngine::solve: at leaf node but solving inconclusive\n" );
                             _statistics.print();
                         }
+                        if ( _useKnapsackCuts )
+                            _knapsackCutManager.printSummary();
                         _exitCode = Engine::UNKNOWN;
                         return false;
                     }
@@ -407,6 +422,9 @@ bool Engine::solve( double timeoutInSeconds )
             if ( _produceUNSATProofs )
                 explainSimplexFailure();
 
+            if ( _useKnapsackCuts )
+                _knapsackCutManager.collectFromCurrentLeaf();
+
             if ( !_searchTreeHandler.popSplit() )
             {
                 mainLoopEnd = TimeUtils::sampleMicro();
@@ -417,6 +435,8 @@ bool Engine::solve( double timeoutInSeconds )
                     printf( "\nEngine::solve: unsat query\n" );
                     _statistics.print();
                 }
+                if ( _useKnapsackCuts )
+                    _knapsackCutManager.printSummary();
                 _exitCode = Engine::UNSAT;
                 return false;
             }

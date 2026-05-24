@@ -32,6 +32,7 @@
 #include "IEngine.h"
 #include "IQuery.h"
 #include "JsonWriter.h"
+#include "KnapsackCutManager.h"
 #include "LPSolverType.h"
 #include "LinearExpression.h"
 #include "MILPEncoder.h"
@@ -501,6 +502,13 @@ private:
       Solve the query with MILP encoding
     */
     bool _solveWithMILP;
+
+    /*
+      Knapsack cuts: learned at UNSAT leaves, evaluated at every new
+      search node to prune subsumed subproblems.
+    */
+    bool _useKnapsackCuts;
+    KnapsackCutManager _knapsackCutManager;
 
     /*
       The solver to solve the LP during the complete search.
