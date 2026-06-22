@@ -831,8 +831,8 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             _groundBoundManager.getGroundBoundEntryUpToId( i, boundType, entryId );
 
         // For tiny bounds, we ommit the gmp bound for compactness
-        bool overrideGmp = ( mpq_cmp_si( explainedRow[i], 1, ALETHE_WRITER_PRECISION ) < 0 &&
-                             mpq_cmp_si( explainedRow[i], -1, ALETHE_WRITER_PRECISION ) > 0 );
+        bool overrideGmp = mpq_cmp_si( explainedRow[i], 1, ALETHE_WRITER_PRECISION ) < 0 &&
+                           mpq_cmp_si( explainedRow[i], -1, ALETHE_WRITER_PRECISION ) > 0;
 
         int lemId = gbEntry->lemma ? gbEntry->lemma->getId() : -1;
         double bound = gbEntry->val;
@@ -870,10 +870,10 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             int lit = _varToPlc[i]->propagatePhaseAsLit();
             String identifier = std::to_string( abs( lit ) );
 
-            if ( (i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::UB ))
+            if ( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::UB )
                 farkasParticipants += String( "eq" ) + identifier + "_i1 ";
 
-            if ( !(i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::LB ))
+            if ( !( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::LB ) )
             {
                 if ( lit > 0 )
                     farkasParticipants += String( "eq" ) + identifier + "_a0 ";
@@ -884,10 +884,10 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
         else if ( !_cdclCore && useSplitBound && !overrideGmp )
         {
             String identifier = std::to_string( _varToPlc[i]->getTableauAuxVars().front() );
-            if ( (i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::UB ))
+            if ( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::UB )
                 farkasParticipants += String( "eq" ) + identifier + "_i1 ";
 
-            if ( !(i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::LB ))
+            if ( !( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::LB ) )
             {
                 if ( i == _varToPlc[i]->getParticipatingVariables().back() )
                     farkasParticipants += String( "eq" ) + identifier + "_a0 ";
@@ -1064,20 +1064,16 @@ void AletheProofWriter::add_original_clause( int64_t id,
     }
     else
     {
-        // If this is a theory-lemma (reason clause), register the lemma as fixing the SAT variable,
-        // and add the proof entry
-        ASSERT( !_lastExplainedEntries.empty() )
-        ASSERT( _lastExplainedEntries.last()->lemma );
-        _satIdToCdclVar.insert( id,
-                                _varToPlc[_lastExplainedEntries.last()->lemma->getAffectedVar()]
-                                    ->getVariableForDecision() );
-        PiecewiseLinearConstraint *plc =
-            _varToPlc[_lastExplainedEntries.last()->lemma->getAffectedVar()];
+        // ASSUMPTION: The front of the clause is the propagated lit
+        const PiecewiseLinearConstraint *plc = _cdclCore->getConstraintFromLit( clause.front() );
+        ASSERT( plc->getPhaseFixingEntry() && plc->getPhaseFixingEntry()->lemma );
+        ASSERT( plc->getVariableForDecision() == ( unsigned ) ( abs( clause.front() ) ) );
+
         // Add as minus, as the literal will be negated
         _proofEntries.append( AletheStepEntry( id,
                                                {},
                                                {},
-                                               _lastExplainedEntries.last(),
+                                               plc->getPhaseFixingEntry(),
                                                SparseUnsortedList(),
                                                -plc->propagatePhaseAsLit() ) );
     }
@@ -1197,11 +1193,6 @@ bool AletheProofWriter::hasInfo() const
 const Set<int> &AletheProofWriter::getLastContradictionClause() const
 {
     return _lastContradictionClause;
-}
-
-bool AletheProofWriter::lemmaExistsAsReasonClause( int64_t id ) const
-{
-    return _satIdToCdclVar.exists( id );
 }
 
 void AletheProofWriter::writeDerivedClauseContent( int64_t id,

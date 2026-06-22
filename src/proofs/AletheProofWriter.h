@@ -201,11 +201,6 @@ public:
     */
     bool hasInfo() const;
 
-    /*
-     Check if a lemma was already added as a reason clause
-    */
-    bool lemmaExistsAsReasonClause( int64_t id ) const;
-
     /*** SnC-related functions ***/
 
     /*
@@ -289,11 +284,6 @@ private:
     Vector<std::shared_ptr<GroundBoundManager::GroundBoundEntry>> _lastExplainedEntries;
     SparseUnsortedList _lastContradiction;
     Set<int> _lastContradictionClause;
-
-    /*
-     Map reason clauses to the variable they explain
-    */
-    Map<int64_t, unsigned> _satIdToCdclVar;
 
     /*
      Convert a clause from SAT based numerals to defined constraints
