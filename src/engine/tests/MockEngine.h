@@ -398,6 +398,10 @@ public:
     {
     }
 
+    void combineProofFiles() const override
+    {
+    }
+
     AletheProofWriter *getAletheWriter() const override
     {
         return NULL;

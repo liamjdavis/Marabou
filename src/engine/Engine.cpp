@@ -263,6 +263,10 @@ void Engine::initializeSolver()
     {
         if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
         {
+            String filename =
+                    Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
+                    Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
+
             _aletheWriter =
                 new AletheProofWriter( _tableau->getM(),
                                        _groundBoundManager.getAllGroundBounds( Tightening::UB ),
@@ -271,16 +275,14 @@ void Engine::initializeSolver()
                                        _tableau->getSparseA(),
                                        _plConstraints,
                                        _queryId,
-                                       _solveWithCDCL ? &_cdclCore : NULL );
+                                       _solveWithCDCL ? &_cdclCore : NULL,
+                                       filename );
 
             if ( _solveWithCDCL )
                 _cdclCore.connectProofWriter( _aletheWriter );
 
             if ( !_sncMode || _queryId == "1" )
             {
-                String filename =
-                    Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
-                    Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
                 AletheProofWriter::initializeProofFile( filename + ".smt2.alethe" );
 
                 _aletheWriter->flushAssumptions();
@@ -4753,4 +4755,9 @@ void Engine::writeProofToSmtLibFile() const
 void Engine::writeAletheProofFinalSteps() const
 {
     AletheProofWriter::writeFinalStepsToProof();
+}
+
+void Engine::combineProofFiles() const
+{
+    AletheProofWriter::combineWorkerProofFiles();
 }

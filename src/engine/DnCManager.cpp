@@ -246,6 +246,7 @@ void DnCManager::solve()
     {
         if ( _exitCode == ExitCode::UNSAT )
         {
+            _baseEngine->combineProofFiles();
             _baseEngine->writeAletheProofFinalSteps();
             _baseEngine->writeProofToSmtLibFile();
         }

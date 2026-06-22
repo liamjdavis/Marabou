@@ -15,6 +15,7 @@
 #define __AletheProofWriter_h__
 
 #include "GroundBoundManager.h"
+#include "IterativePropagator.h"
 #include "PiecewiseLinearCaseSplit.h"
 #include "SmtLibWriter.h"
 #include "SparseMatrix.h"
@@ -76,7 +77,8 @@ public:
                        const SparseMatrix *tableau,
                        const List<PiecewiseLinearConstraint *> &problemConstraints,
                        const String &queryId,
-                       const CdclCore *cdclCore );
+                       const CdclCore *cdclCore,
+                       const String &proofDir );
 
     // -------  NON-CDCL SOLVING  -------
 
@@ -125,7 +127,7 @@ public:
     /*
      Delete the proof file and its content
      */
-    static void deleteProof();
+    void deleteProof();
 
     /*
      Get the name of the proof file
@@ -154,6 +156,11 @@ public:
      On SnC mode, conclude overall UNSAT from all workers UNSAT proofs.
      */
     static void writeFinalStepsToProof();
+
+    /*
+     On SnC mode, combine all worker proof files into a single proof file.
+    */
+    static void combineWorkerProofFiles();
 
 #if BUILD_CADICAL
     /*
@@ -221,6 +228,11 @@ public:
 
 #endif
 
+    /*
+      (SnC) Initialize worker proof file
+    */
+    void initializeWorkerProofFile( const String &proofDir );
+
 private:
     /*
      Static fields for handling multiple workers
@@ -229,7 +241,7 @@ private:
     static std::mutex unsatJobFinalStepsMutex;
     static File proofFile;
     static String proofFilename;
-    static std::mutex proofFileMutex;
+    static String proofDirname;
     static bool wroteDummy;
 
     /*
@@ -271,6 +283,12 @@ private:
      Information for lazily writing resolution steps
     */
     List<AletheStepEntry> _proofEntries;
+
+    /*
+     (SnC) Worker proof file related fields
+    */
+    File _workerProofFile;
+    String _workerProofFilename;
 
 #if BUILD_CADICAL
     /*

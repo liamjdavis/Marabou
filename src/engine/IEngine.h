@@ -276,6 +276,11 @@ public:
     virtual void deleteProofIfExists() const = 0;
 
     /*
+     (SnC) Combine all worker proof files into a single proof file.
+    */
+    virtual void combineProofFiles() const = 0;
+
+    /*
      Returns the Alethe proof writer.
     */
     virtual AletheProofWriter *getAletheWriter() const = 0;

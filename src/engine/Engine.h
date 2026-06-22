@@ -383,6 +383,8 @@ public:
 
     void writeAletheProofFinalSteps() const override;
 
+    void combineProofFiles() const override;
+
 #ifdef BUILD_CADICAL
     /*
       Solve the input query with CDCL

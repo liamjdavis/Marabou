@@ -30,7 +30,7 @@ Map<String, Pair<String, Vector<int>>> AletheProofWriter::unsatJobFinalSteps{};
 std::mutex AletheProofWriter::unsatJobFinalStepsMutex{};
 File AletheProofWriter::proofFile( "" );
 String AletheProofWriter::proofFilename;
-std::mutex AletheProofWriter::proofFileMutex{};
+String AletheProofWriter::proofDirname;
 bool AletheProofWriter::wroteDummy = false;
 
 AletheProofWriter::AletheProofWriter( unsigned explanationSize,
@@ -40,7 +40,8 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const SparseMatrix *tableau,
                                       const List<PiecewiseLinearConstraint *> &problemConstraints,
                                       const String &queryId,
-                                      const CdclCore *cdclCore )
+                                      const CdclCore *cdclCore,
+                                      const String &proofDir )
     : _initialTableau( tableau )
     , _baseUpperBounds( upperBounds )
     , _baseLowerBounds( lowerBounds )
@@ -51,11 +52,16 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
     , _stepCounter( 1 )
     , _queryId( queryId )
     , _proofEntries( {} )
+    , _workerProofFile( "" )
+    , _workerProofFilename()
 #if BUILD_CADICAL
     , _cdclCore( cdclCore )
     , _lastExplainedEntries( {} )
 #endif
 {
+    if ( _queryId != "" )
+        initializeWorkerProofFile( proofDir );
+
     for ( const auto &plc : problemConstraints )
     {
         for ( const auto var : plc->getParticipatingVariables() )
@@ -114,14 +120,18 @@ void AletheProofWriter::writeBoundAssumptions()
     {
         mpq_class upperBound( _baseUpperBounds[i] );
         mpq_class lowerBound( _baseLowerBounds[i] );
-        String upperBoundString = upperBound.get_den().get_str() == "1" ? upperBound.get_str() + ".0" : upperBound.get_str();
-        String lowerBoundString = lowerBound.get_den().get_str() == "1" ? lowerBound.get_str() + ".0" : lowerBound.get_str();
+        String upperBoundString = upperBound.get_den().get_str() == "1"
+                                    ? upperBound.get_str() + ".0"
+                                    : upperBound.get_str();
+        String lowerBoundString = lowerBound.get_den().get_str() == "1"
+                                    ? lowerBound.get_str() + ".0"
+                                    : lowerBound.get_str();
 
         String s = std::to_string( i );
-        String upper = String( "(assume u" ) + s + "(!(<= x" + s + " " +
-                    upperBoundString + "):named u" + s + "))\n";
-        String lower = String( "(assume l" ) + s + "(!(>= x" + s + " " +
-               lowerBoundString + "):named l" + s + "))\n";
+        String upper = String( "(assume u" ) + s + "(!(<= x" + s + " " + upperBoundString +
+                       "):named u" + s + "))\n";
+        String lower = String( "(assume l" ) + s + "(!(>= x" + s + " " + lowerBoundString +
+                       "):named l" + s + "))\n";
         _assumptions.append( { upper, lower } );
     }
 }
@@ -165,12 +175,11 @@ void AletheProofWriter::writePLCAssumption()
             String ite1 = String( "(step ri1_" ) + constraintNum + " (cl (<= 0.0 x" + b + ")(<= x" +
                           f + " 0.0)):rule ite1 :premises(relu" + constraintNum + "))\n";
             String ite2 = String( "(step ri2_" ) + constraintNum + " (cl (not (<= 0.0 x" + b +
-                          "))" + bEqualsF + "):rule ite2 :premises(relu" + constraintNum +
-                          "))\n";
+                          "))" + bEqualsF + "):rule ite2 :premises(relu" + constraintNum + "))\n";
             String tot = String( "(step _bt" ) + constraintNum + " (cl (or (<= x" + b +
                          " 0.0)(<= 0.0 x" + b + "))):rule la_totality)\n";
-            tot += String( "(step bt" ) + constraintNum + " (cl (<= x" + b + " 0.0)(<= 0.0 x" +
-                   b + ")):rule or :premises(_bt" + constraintNum + "))\n";
+            tot += String( "(step bt" ) + constraintNum + " (cl (<= x" + b + " 0.0)(<= 0.0 x" + b +
+                   ")):rule or :premises(_bt" + constraintNum + "))\n";
 
             plcSplits.append( { ite1, ite2, tot } );
             unsigned identifierInt = relu->getTableauAuxVars().front();
@@ -182,8 +191,8 @@ void AletheProofWriter::writePLCAssumption()
             String activeBound1 = String( "(step ab1_" ) + constraintNum + " (cl (not " + bEqualsF +
                                   ")" + tableauLit + "(<= x" + aux + " 0.0)(not (>= x" +
                                   counterpartAux + " 0.0))):rule la_generic :args(1 -1 1 1))\n";
-            activeBound1 += String( "(step eq" ) + constraintNum + "_a0" + " (cl (not (<= 0.0 x" + b +
-                            "))(<= x" + aux + " 0.0)):rule resolution :premises(ab1_" +
+            activeBound1 += String( "(step eq" ) + constraintNum + "_a0" + " (cl (not (<= 0.0 x" +
+                            b + "))(<= x" + aux + " 0.0)):rule resolution :premises(ab1_" +
                             constraintNum + " ri2_" + constraintNum + " l" + counterpartAux + " " +
                             tableauEq + "))\n";
 
@@ -193,8 +202,8 @@ void AletheProofWriter::writePLCAssumption()
                                   " 0.0))):rule la_generic :args(1 1 1 1 -1))\n";
             activeBound2 += String( "(step eq" ) + constraintNum + "_a1" + " (cl (<= 0.0 x" + b +
                             ")(not (<= x" + aux + " 0.0))):rule resolution :premises(ab2_" +
-                            constraintNum + " " + tableauEq +" u" + counterpartAux + " l" +
-                            f + "))\n";
+                            constraintNum + " " + tableauEq + " u" + counterpartAux + " l" + f +
+                            "))\n";
 
             String inactiveBound1 = String( "(step ib1_" ) + constraintNum + " (cl (not " +
                                     bEqualsF + ")(not(<= x" + b + " 0.0))(<= x" + f +
@@ -220,8 +229,9 @@ void AletheProofWriter::writePLCAssumption()
     _assumptions.append( plcSplits );
 }
 
-void
-AletheProofWriter::writeContradiction( const SparseUnsortedList &contradiction, int64_t id, UnsatCertificateNode *node )
+void AletheProofWriter::writeContradiction( const SparseUnsortedList &contradiction,
+                                            int64_t id,
+                                            UnsatCertificateNode *node )
 {
     String farkasArgs = "";
     String farkasClause = "";
@@ -233,16 +243,16 @@ AletheProofWriter::writeContradiction( const SparseUnsortedList &contradiction, 
     }
 
     // Collect all Farkas lemma information
-    farkasStrings(contradiction,
-                  _groundBoundManager.getCounter(),
-                  farkasArgs,
-                  farkasClause,
-                  farkasParticipants,
-                  negatedSplitsClause,
-                  -id,
-                  true,
-                  {},
-                  node );
+    farkasStrings( contradiction,
+                   _groundBoundManager.getCounter(),
+                   farkasArgs,
+                   farkasClause,
+                   farkasParticipants,
+                   negatedSplitsClause,
+                   -id,
+                   true,
+                   {},
+                   node );
 #ifdef BUILD_CADICAL
     if ( _cdclCore )
     {
@@ -284,15 +294,16 @@ void AletheProofWriter::finalizeProof()
             writeDerivedClauseContent( stepEntry.id, stepEntry.clause, stepEntry.antecedents );
     }
 
-    AletheProofWriter::proofFileMutex.lock();
-    AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
+    File &pFile = _queryId == "" ? AletheProofWriter::proofFile : _workerProofFile;
+    pFile.open( File::MODE_WRITE_APPEND );
 
     // Write remaining proof steps + steps from entries
     for ( const String &s : _proof )
-        AletheProofWriter::proofFile.write( s );
+        pFile.write( s );
 
-    AletheProofWriter::proofFile.close();
-    AletheProofWriter::proofFileMutex.unlock();
+    if ( _queryId != "" )
+        pFile.write( "\n" );
+    pFile.close();
 
     if ( !_cdclCore || _cdclCore->getSncLits().empty() )
         return;
@@ -310,12 +321,16 @@ void AletheProofWriter::finalizeProof()
 
 void AletheProofWriter::deleteProof()
 {
-    AletheProofWriter::proofFileMutex.lock();
     AletheProofWriter::proofFile.open( File::MODE_WRITE_TRUNCATE );
     AletheProofWriter::proofFile.write( "" );
     AletheProofWriter::proofFile.close();
     std::remove( AletheProofWriter::proofFilename.ascii() );
-    AletheProofWriter::proofFileMutex.unlock();
+
+    if ( _queryId != "" )
+    {
+        fs::path proofDir = AletheProofWriter::proofDirname.ascii();
+        fs::remove_all( proofDir );
+    }
 }
 
 void AletheProofWriter::writeInstanceToFile( IFile &file )
@@ -533,15 +548,15 @@ bool AletheProofWriter::writeReluLemma(
 
     // Apply calculations of the Farkas lemma, to prove the causing bound
     farkasStrings( explanations.front(),
-                  lemmaEntry->id,
-                  farkasArgs,
-                  farkasClause,
-                  farkasParticipants,
-                  negatedSplitsClause,
-                  causingVar,
-                  causingVarBound == Tightening::UB,
-                  lemmaEntry->deps,
-                  NULL );
+                   lemmaEntry->id,
+                   farkasArgs,
+                   farkasClause,
+                   farkasParticipants,
+                   negatedSplitsClause,
+                   causingVar,
+                   causingVarBound == Tightening::UB,
+                   lemmaEntry->deps,
+                   NULL );
 #ifdef BUILD_CADICAL
     if ( _cdclCore )
     {
@@ -600,10 +615,11 @@ bool AletheProofWriter::writeReluLemma(
 
     if ( targetBound > 0 && causingVar == b )
     {
-        tempString = getBoundAsClause( Tightening( causingVar, 0, Tightening::UB ) ) + " (<= 0.0 x" + std::to_string(b) + ")";
+        tempString = getBoundAsClause( Tightening( causingVar, 0, Tightening::UB ) ) +
+                     " (<= 0.0 x" + std::to_string( b ) + ")";
 
         proofRule += String( "(step tot" ) + _queryId + "_" + id + " (cl (or " + tempString +
-                    ")):rule la_totality)\n";
+                     ")):rule la_totality)\n";
         proofRule += String( "(step tos" ) + _queryId + "_" + id + " (cl " + tempString +
                      "):rule or :premises(tot" + _queryId + "_" + id + "))\n";
     }
@@ -836,8 +852,11 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
 
         int lemId = gbEntry->lemma ? gbEntry->lemma->getId() : -1;
         double bound = gbEntry->val;
-        String ineqString = useEntryUpperBound ? String ( "(not (<= x" + std::to_string( i ) + " " ) + SmtLibWriter::signedValue( bound ) + ")) " :
-                            String ( "(not (<= ") + SmtLibWriter::signedValue( bound ) + " x" + std::to_string( i ) + ")) ";
+        String ineqString = useEntryUpperBound
+                              ? String( "(not (<= x" + std::to_string( i ) + " " ) +
+                                    SmtLibWriter::signedValue( bound ) + ")) "
+                              : String( "(not (<= " ) + SmtLibWriter::signedValue( bound ) + " x" +
+                                    std::to_string( i ) + ")) ";
         bool isLemmaIncluded = lemId >= 0 && gbEntry->lemma->getToCheck() &&
                                gbEntry->lemma->wasWritten() && ( !isLemma || deps.exists( lemId ) );
         bool useSplitBound = ( lemId < 0 && gbEntry->isPhaseFixing );
@@ -865,34 +884,38 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
             splitDeps.append( Tightening( i, bound, boundType ) );
 
         // Add necessary and sufficient premises for any bound participating in the clauses
-        if ( _cdclCore && useSplitBound && !overrideGmp  )
+        if ( _cdclCore && useSplitBound && !overrideGmp )
         {
             int lit = _varToPlc[i]->propagatePhaseAsLit();
             String identifier = std::to_string( abs( lit ) );
 
-            if ( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::UB )
+            if ( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 &&
+                 boundType == Tightening::UB )
                 farkasParticipants += String( "eq" ) + identifier + "_i1 ";
 
-            if ( !( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::LB ) )
+            if ( !( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 &&
+                    boundType == Tightening::LB ) )
             {
                 if ( lit > 0 )
                     farkasParticipants += String( "eq" ) + identifier + "_a0 ";
                 else
-                    farkasParticipants += String("ri1_") + identifier + " ";
+                    farkasParticipants += String( "ri1_" ) + identifier + " ";
             }
         }
         else if ( !_cdclCore && useSplitBound && !overrideGmp )
         {
             String identifier = std::to_string( _varToPlc[i]->getTableauAuxVars().front() );
-            if ( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::UB )
+            if ( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 &&
+                 boundType == Tightening::UB )
                 farkasParticipants += String( "eq" ) + identifier + "_i1 ";
 
-            if ( !( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 && boundType == Tightening::LB ) )
+            if ( !( i == _varToPlc[i]->getParticipatingVariables().front() && bound == 0.0 &&
+                    boundType == Tightening::LB ) )
             {
                 if ( i == _varToPlc[i]->getParticipatingVariables().back() )
                     farkasParticipants += String( "eq" ) + identifier + "_a0 ";
                 else
-                    farkasParticipants += String("ri1_") + identifier + " ";
+                    farkasParticipants += String( "ri1_" ) + identifier + " ";
             }
         }
     }
@@ -906,10 +929,10 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
 #endif
     if ( node && GlobalConfiguration::ALETHE_ELABORATE_TERMS )
     {
-        // Add proof terms for all splits in node path, with 0 argument for those that are not actually used
-        // Enables elaboration in Carcara
+        // Add proof terms for all splits in node path, with 0 argument for those that are not
+        // actually used Enables elaboration in Carcara
         List<PiecewiseLinearCaseSplit> nodePath = getPathSplits( node );
-        for ( const auto& caseSplit : nodePath )
+        for ( const auto &caseSplit : nodePath )
         {
             bool isCaseIncluded = false;
             for ( const auto &bound : caseSplit.getBoundTightenings() )
@@ -920,8 +943,12 @@ void AletheProofWriter::farkasStrings( const SparseUnsortedList &expl,
                 continue;
 
             farkasArgs += "0 ";
-            String identifier = std::to_string( _varToPlc[caseSplit.getBoundTightenings().front()._variable]->getTableauAuxVars().front() );
-            farkasClause += isSplitActive( caseSplit ) ?  String(" (not a") + identifier + ")" : String( " a" ) + identifier;
+            String identifier =
+                std::to_string( _varToPlc[caseSplit.getBoundTightenings().front()._variable]
+                                    ->getTableauAuxVars()
+                                    .front() );
+            farkasClause += isSplitActive( caseSplit ) ? String( " (not a" ) + identifier + ")"
+                                                       : String( " a" ) + identifier;
             splitDeps.append( caseSplit.getBoundTightenings().front() );
         }
     }
@@ -997,13 +1024,12 @@ void AletheProofWriter::flushAssumptions()
 
 void AletheProofWriter::flushProof()
 {
-    AletheProofWriter::proofFileMutex.lock();
-    AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
+    File &pFile = _queryId == "" ? AletheProofWriter::proofFile : _workerProofFile;
+    pFile.open( File::MODE_WRITE_APPEND );
     for ( const String &s : _proof )
-        AletheProofWriter::proofFile.write( s );
+        pFile.write( s );
 
-    AletheProofWriter::proofFile.close();
-    AletheProofWriter::proofFileMutex.unlock();
+    pFile.close();
 
     _proof.clear();
 }
@@ -1058,7 +1084,7 @@ void AletheProofWriter::add_original_clause( int64_t id,
     }
     else if ( clause.size() == 1 && _cdclCore->getSncLits().exists( clause.front() ) )
     {
-        //Trivial derivation of literals assumed by the subquery
+        // Trivial derivation of literals assumed by the subquery
         writeSncLitAssumption( id, clause.front() );
         return;
     }
@@ -1067,7 +1093,7 @@ void AletheProofWriter::add_original_clause( int64_t id,
         // ASSUMPTION: The front of the clause is the propagated lit
         const PiecewiseLinearConstraint *plc = _cdclCore->getConstraintFromLit( clause.front() );
         ASSERT( plc->getPhaseFixingEntry() && plc->getPhaseFixingEntry()->lemma );
-        ASSERT( plc->getVariableForDecision() == ( unsigned ) ( abs( clause.front() ) ) );
+        ASSERT( plc->getVariableForDecision() == (unsigned)( abs( clause.front() ) ) );
 
         // Add as minus, as the literal will be negated
         _proofEntries.append( AletheStepEntry( id,
@@ -1144,10 +1170,11 @@ void AletheProofWriter::writeLemmaResolution(
         {
             String lemmaBound = getBoundAsClause(
                 Tightening( causing, entry->lemma->getMinTargetBound(), Tightening::UB ) );
-            preRule += String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl (not " + lemmaBound +
-                       ")(not (<= 0.0 x" + std::to_string( causing ) + "))):rule la_generic :args(1 1))\n";
-            proofRule += String( "cr" ) + _queryId + "_" + std::to_string( lemId ) + " rt" + _queryId + "_" +
-            std::to_string( id ) + "))\n";
+            preRule += String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl (not " +
+                       lemmaBound + ")(not (<= 0.0 x" + std::to_string( causing ) +
+                       "))):rule la_generic :args(1 1))\n";
+            proofRule += String( "cr" ) + _queryId + "_" + std::to_string( lemId ) + " rt" +
+                         _queryId + "_" + std::to_string( id ) + "))\n";
         }
         else
         {
@@ -1160,12 +1187,13 @@ void AletheProofWriter::writeLemmaResolution(
             String lemmaBound = getBoundAsClause(
                 Tightening( causing, entry->lemma->getMinTargetBound(), Tightening::LB ) );
 
-            preRule = String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl " + tableauLit +
-                      "(not " + lemmaBound + ")(not a" + constraintId + ")(not (<= x" + std::to_string( affected ) +
-                      " 0.0 ))(not (>= x" + counterpartAux + " 0.0))):rule la_generic :args(-1 1 1 1 1))\n";
+            preRule = String( "(step rt" ) + _queryId + "_" + std::to_string( id ) + " (cl " +
+                      tableauLit + "(not " + lemmaBound + ")(not a" + constraintId + ")(not (<= x" +
+                      std::to_string( affected ) + " 0.0 ))(not (>= x" + counterpartAux +
+                      " 0.0))):rule la_generic :args(-1 1 1 1 1))\n";
 
-            proofRule += String( " rt" ) + _queryId + "_" + std::to_string( id ) + " " + tableauEq + " cr" +
-                         _queryId + "_" + std::to_string( lemId ) + " rl" + _queryId + "_" +
+            proofRule += String( " rt" ) + _queryId + "_" + std::to_string( id ) + " " + tableauEq +
+                         " cr" + _queryId + "_" + std::to_string( lemId ) + " rl" + _queryId + "_" +
                          std::to_string( lemId ) + " l" + counterpartAux + "))\n";
         }
     }
@@ -1210,8 +1238,8 @@ void AletheProofWriter::writeDerivedClauseContent( int64_t id,
             String( " " ) + isActive + std::to_string( constraintInt ) + ( lit > 0 ? "" : ")" );
     }
 
-    String resLine = String( "(step r" ) +  _queryId + "_" + std::to_string( id ) + " (cl" + splitsClause +
-                     "):rule resolution :premises(";
+    String resLine = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl" +
+                     splitsClause + "):rule resolution :premises(";
 
     for ( int64_t step : antecedents )
         resLine += String( " r" ) + _queryId + "_" + std::to_string( step );
@@ -1300,6 +1328,31 @@ void AletheProofWriter::writeFinalStepsToProof()
     AletheProofWriter::proofFile.close();
 }
 
+void AletheProofWriter::combineWorkerProofFiles()
+{
+    fs::path proofDir = AletheProofWriter::proofDirname.ascii();
+    AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
+
+    for ( const auto &pFilename : fs::directory_iterator( proofDir ) )
+    {
+        File pFile( AletheProofWriter::proofDirname + "/" + pFilename.path().filename().string() );
+        pFile.open( File::MODE_READ );
+        while ( true )
+        {
+            String line = pFile.readLine();
+            if ( line == "" )
+                break;
+
+            AletheProofWriter::proofFile.write( line + "\n" );
+        }
+        pFile.close();
+    }
+
+    fs::remove_all( proofDir );
+
+    AletheProofWriter::proofFile.close();
+}
+
 void AletheProofWriter::initializeProofFile( const String &filename )
 {
     AletheProofWriter::proofFilename = filename;
@@ -1318,25 +1371,36 @@ void AletheProofWriter::writeSncLitAssumption( int64_t id, int sncVar )
 
     String varsCong = clauseToPhases( negatedSncClause );
 
-    String pre = String("(step _r" ) + _queryId + "_"  + std::to_string( id ) + " (cl (not (and " + varsCong + ")) " + varAsPhase +
-            "):rule and_pos :args(" +  std::to_string( id - 1 ) + "))\n";
-    String trivial = String("(step r" ) + _queryId + "_"  + std::to_string( id ) + " (cl " + varAsPhase +
-                 "):rule resolution :premises( _r" + _queryId + "_" + std::to_string( id ) + " snc" + _queryId + "))\n";
+    String pre = String( "(step _r" ) + _queryId + "_" + std::to_string( id ) + " (cl (not (and " +
+                 varsCong + ")) " + varAsPhase + "):rule and_pos :args(" +
+                 std::to_string( id - 1 ) + "))\n";
+    String trivial = String( "(step r" ) + _queryId + "_" + std::to_string( id ) + " (cl " +
+                     varAsPhase + "):rule resolution :premises( _r" + _queryId + "_" +
+                     std::to_string( id ) + " snc" + _queryId + "))\n";
     _proof.append( { pre, trivial } );
+}
+
+void AletheProofWriter::initializeWorkerProofFile( const String &proofDir )
+{
+    fs::path proofDirPath = proofDir.ascii();
+    fs::create_directory( proofDirPath );
+    _workerProofFilename = proofDir + "/" + _queryId;
+    _workerProofFile = File( _workerProofFilename );
+    AletheProofWriter::proofDirname = proofDir;
 }
 
 void AletheProofWriter::writeSncAnchor()
 {
     ASSERT( _cdclCore && !_cdclCore->getSncLits().empty() );
 
-    String anchor = String("(anchor :step f" ) + _queryId + ")\n";
+    String anchor = String( "(anchor :step f" ) + _queryId + ")\n";
     std::vector<int> negatedSncClause = {};
 
     for ( int lit : _cdclCore->getSncLits() )
         negatedSncClause.insert( negatedSncClause.end(), -lit );
 
     String varsCong = clauseToPhases( negatedSncClause );
-    String assumption = String("(assume snc" ) + _queryId + " (and " + varsCong + "))\n";
+    String assumption = String( "(assume snc" ) + _queryId + " (and " + varsCong + "))\n";
     _proof.append( { anchor, assumption } );
 }
 
@@ -1347,7 +1411,6 @@ void AletheProofWriter::writeDummyRules()
     AletheProofWriter::wroteDummy = true;
 
     ASSERT( _cdclCore && !_cdclCore->getSncLits().empty() );
-    AletheProofWriter::proofFileMutex.lock();
     AletheProofWriter::proofFile.open( File::MODE_WRITE_APPEND );
 
     String dummy = "(step dummy (cl (not false)) :rule false)\n";
@@ -1356,12 +1419,12 @@ void AletheProofWriter::writeDummyRules()
     for ( auto lit : _cdclCore->getSncLits() )
     {
         String identifier = std::to_string( abs( lit ) );
-        String doubleNeg = String( "(step dn" ) + identifier + " (cl (not (not (not a" + identifier + "))) a" + identifier +") :rule not_not)\n";
+        String doubleNeg = String( "(step dn" ) + identifier + " (cl (not (not (not a" +
+                           identifier + "))) a" + identifier + ") :rule not_not)\n";
         AletheProofWriter::proofFile.write( doubleNeg );
     }
 
     AletheProofWriter::proofFile.close();
-    AletheProofWriter::proofFileMutex.unlock();
 }
 
 void AletheProofWriter::wrapupSncSubproof( int64_t id )
@@ -1381,16 +1444,17 @@ void AletheProofWriter::wrapupSncSubproof( int64_t id )
             negSncLits.insert( lit );
     }
     // Close subproof and derive negation of conjunction
-    String subProofEnd = String( "(step f" ) + _queryId + " (cl (not (and " + clauseToPhases( negatedSncClause )
-                         + ")) false ):rule subproof :premises(r" +_queryId + "_" + std::to_string( id ) +
-                         ") :discharge(snc" + _queryId + "))\n";
+    String subProofEnd = String( "(step f" ) + _queryId + " (cl (not (and " +
+                         clauseToPhases( negatedSncClause ) +
+                         ")) false ):rule subproof :premises(r" + _queryId + "_" +
+                         std::to_string( id ) + ") :discharge(snc" + _queryId + "))\n";
 
-    String andNeg = String( "(step an" ) + _queryId + " (cl (and " + clauseToPhases( negatedSncClause )
-                    + ") " + doubleNegs + "):rule and_neg)\n";
+    String andNeg = String( "(step an" ) + _queryId + " (cl (and " +
+                    clauseToPhases( negatedSncClause ) + ") " + doubleNegs + "):rule and_neg)\n";
 
     // Derive the disjunction of negations
-    String finalize = String( "(step s" ) + _queryId + " (cl " + clauseToPhases( sncClause )
-                      + "):rule resolution :premises(f" + _queryId + " an" + _queryId;
+    String finalize = String( "(step s" ) + _queryId + " (cl " + clauseToPhases( sncClause ) +
+                      "):rule resolution :premises(f" + _queryId + " an" + _queryId;
 
     for ( int lit : negSncLits )
         finalize += " dn" + std::to_string( abs( lit ) );
