@@ -263,9 +263,17 @@ void Engine::initializeSolver()
     {
         if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
         {
-            String filename =
+            if ( !_sncMode || _queryId == "1" )
+            {
+                String filename =
                     Options::get()->getString( Options::INPUT_FILE_PATH ).tokenize( "/" ).back() +
                     Options::get()->getString( Options::PROPERTY_FILE_PATH ).tokenize( "/" ).back();
+
+                AletheProofWriter::initializeProofFile( filename + ".smt2.alethe" );
+
+                if ( _sncMode )
+                    AletheProofWriter::proofDirname = filename;
+            }
 
             _aletheWriter =
                 new AletheProofWriter( _tableau->getM(),
@@ -275,18 +283,15 @@ void Engine::initializeSolver()
                                        _tableau->getSparseA(),
                                        _plConstraints,
                                        _queryId,
-                                       _solveWithCDCL ? &_cdclCore : NULL,
-                                       filename );
+                                       _solveWithCDCL ? &_cdclCore : NULL );
+
+            if ( !_sncMode || _queryId == "1" )
+                _aletheWriter->flushAssumptions();
 
             if ( _solveWithCDCL )
                 _cdclCore.connectProofWriter( _aletheWriter );
 
-            if ( !_sncMode || _queryId == "1" )
-            {
-                AletheProofWriter::initializeProofFile( filename + ".smt2.alethe" );
 
-                _aletheWriter->flushAssumptions();
-            }
 
             if ( _sncMode && _queryId != "1" )
             {

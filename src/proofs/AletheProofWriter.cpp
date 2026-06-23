@@ -40,8 +40,7 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
                                       const SparseMatrix *tableau,
                                       const List<PiecewiseLinearConstraint *> &problemConstraints,
                                       const String &queryId,
-                                      const CdclCore *cdclCore,
-                                      const String &proofDir )
+                                      const CdclCore *cdclCore )
     : _initialTableau( tableau )
     , _baseUpperBounds( upperBounds )
     , _baseLowerBounds( lowerBounds )
@@ -60,7 +59,7 @@ AletheProofWriter::AletheProofWriter( unsigned explanationSize,
 #endif
 {
     if ( _queryId != "" )
-        initializeWorkerProofFile( proofDir );
+        initializeWorkerProofFile();
 
     for ( const auto &plc : problemConstraints )
     {
@@ -1388,13 +1387,12 @@ void AletheProofWriter::writeSncLitAssumption( int64_t id, int sncVar )
     _proof.append( { pre, trivial } );
 }
 
-void AletheProofWriter::initializeWorkerProofFile( const String &proofDir )
+void AletheProofWriter::initializeWorkerProofFile()
 {
-    fs::path proofDirPath = proofDir.ascii();
+    fs::path proofDirPath = AletheProofWriter::proofDirname.ascii();
     fs::create_directory( proofDirPath );
-    _workerProofFilename = proofDir + "/" + _queryId;
+    _workerProofFilename = AletheProofWriter::proofDirname + "/" + _queryId;
     _workerProofFile = File( _workerProofFilename );
-    AletheProofWriter::proofDirname = proofDir;
 }
 
 void AletheProofWriter::writeSncAnchor()

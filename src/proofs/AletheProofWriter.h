@@ -38,6 +38,8 @@ class AletheProofWriter
 #endif
 {
 public:
+    static String proofDirname;
+
     /*
      Helper struct to store resolution steps separately, and write them at the end to if necessary.
      */
@@ -77,8 +79,7 @@ public:
                        const SparseMatrix *tableau,
                        const List<PiecewiseLinearConstraint *> &problemConstraints,
                        const String &queryId,
-                       const CdclCore *cdclCore,
-                       const String &proofDir );
+                       const CdclCore *cdclCore );
 
     // -------  NON-CDCL SOLVING  -------
 
@@ -117,7 +118,9 @@ public:
     /*
      Add proof steps to prove a UNSAT of a leaf
     */
-    void writeContradiction( const SparseUnsortedList &contradiction, int64_t id, UnsatCertificateNode *node );
+    void writeContradiction( const SparseUnsortedList &contradiction,
+                             int64_t id,
+                             UnsatCertificateNode *node );
 
     /*
      Create a proof file for the proof
@@ -236,7 +239,7 @@ public:
     /*
       (SnC) Initialize worker proof file
     */
-    void initializeWorkerProofFile( const String &proofDir );
+    void initializeWorkerProofFile();
 
 private:
     /*
@@ -246,7 +249,6 @@ private:
     static std::mutex unsatJobFinalStepsMutex;
     static File proofFile;
     static String proofFilename;
-    static String proofDirname;
     static bool wroteDummy;
 
     /*
@@ -394,7 +396,7 @@ private:
     /*
      Wraps up the subproof of an SnC worker, and derive the disjunction of its negated literals
     */
-    void wrapupSncSubproof(int64_t id );
+    void wrapupSncSubproof( int64_t id );
 };
 
 #endif // __AletheProofWriter_h__
