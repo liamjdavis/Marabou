@@ -162,6 +162,11 @@ public:
     */
     static void combineWorkerProofFiles();
 
+    /*
+     On SnC mode, delete the worker's proof file if the worker ended with timeout.
+    */
+    void deleteWorkerProofFile();
+
 #if BUILD_CADICAL
     /*
      Write proof hole for a delegated leaf clause

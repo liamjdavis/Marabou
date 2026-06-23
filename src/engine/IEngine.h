@@ -281,6 +281,11 @@ public:
     virtual void combineProofFiles() const = 0;
 
     /*
+     (Snc) Delete worker proof file
+    */
+    virtual void deleteWorkerProofFile() const = 0;
+
+    /*
      Returns the Alethe proof writer.
     */
     virtual AletheProofWriter *getAletheWriter() const = 0;

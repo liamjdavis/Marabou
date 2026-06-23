@@ -385,6 +385,8 @@ public:
 
     void combineProofFiles() const override;
 
+    void deleteWorkerProofFile() const override;
+
 #ifdef BUILD_CADICAL
     /*
       Solve the input query with CDCL

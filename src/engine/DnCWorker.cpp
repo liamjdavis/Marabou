@@ -150,6 +150,9 @@ void DnCWorker::popOneSubQueryAndSolve( bool restoreTreeStates )
         }
         else if ( result == ExitCode::TIMEOUT )
         {
+            if ( _engine->shouldProduceProofs() && GlobalConfiguration::WRITE_ALETHE_PROOF )
+                _engine->deleteWorkerProofFile();
+
             // If TIMEOUT, split the current input region and add the
             // new subQueries to the current queue
             SubQueries subQueries;

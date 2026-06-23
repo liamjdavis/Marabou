@@ -4761,3 +4761,8 @@ void Engine::combineProofFiles() const
 {
     AletheProofWriter::combineWorkerProofFiles();
 }
+
+void Engine::deleteWorkerProofFile() const
+{
+    _aletheWriter->deleteWorkerProofFile();
+}

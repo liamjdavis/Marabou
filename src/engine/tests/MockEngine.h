@@ -402,6 +402,10 @@ public:
     {
     }
 
+    void deleteWorkerProofFile() const override
+    {
+    }
+
     AletheProofWriter *getAletheWriter() const override
     {
         return NULL;

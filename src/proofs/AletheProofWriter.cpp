@@ -1353,6 +1353,14 @@ void AletheProofWriter::combineWorkerProofFiles()
     AletheProofWriter::proofFile.close();
 }
 
+void AletheProofWriter::deleteWorkerProofFile()
+{
+    _workerProofFile.open( File::MODE_WRITE_TRUNCATE );
+    _workerProofFile.write( "" );
+    _workerProofFile.close();
+    std::remove( _workerProofFilename.ascii() );
+}
+
 void AletheProofWriter::initializeProofFile( const String &filename )
 {
     AletheProofWriter::proofFilename = filename;

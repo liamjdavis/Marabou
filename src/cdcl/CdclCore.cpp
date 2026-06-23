@@ -898,6 +898,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
             }
 
             _engine->setExitCode( ExitCode::TIMEOUT );
+            _engine->deleteProofIfExists();
             return false;
         }
     }
