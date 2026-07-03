@@ -24,6 +24,7 @@
 #include "PLConstraintScoreTracker.h"
 #include "Pair.h"
 #include "PiecewiseLinearConstraint.h"
+#include "PrClauseLearner.h"
 #include "Statistics.h"
 #include "context/cdhashmap.h"
 #include "context/cdhashset.h"
@@ -75,6 +76,13 @@ public:
         Calls the solving method combining the SAT solver with Marabou back engine
     */
     bool solveWithCDCL( double timeoutInSeconds );
+
+    /*
+        Two-pass CDCL solving: a depth-bounded run harvesting PR clauses from
+        conditional autarkies of the learned clause pool, then a restarted full
+        run with the harvested clauses injected
+    */
+    bool solveWithPrPreprocessedCDCL( double timeoutInSeconds );
 
     /**********************************************************************/
     /*  IPASIR-UP functions, for integrating Marabou with the SAT solver  */
@@ -298,6 +306,13 @@ private:
     Set<unsigned> _sharedClauseAdded;
 
     Vector<int> _sncSplitLiterals;
+
+    /*
+      PR clause preprocessing state
+    */
+    PrClauseLearner _prLearner;
+    bool _prStopRequested;
+    unsigned _prDepthLimit;
 
     /*
       Access info in the internal data structures

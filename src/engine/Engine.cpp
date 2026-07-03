@@ -4566,6 +4566,9 @@ std::shared_ptr<Query> Engine::getInputQuery() const
 
 bool Engine::solveWithCDCL( double timeoutInSeconds )
 {
+    if ( Options::get()->getBool( Options::PR_CLAUSE_PREPROCESS ) )
+        return _cdclCore.solveWithPrPreprocessedCDCL( timeoutInSeconds );
+
     return _cdclCore.solveWithCDCL( timeoutInSeconds );
 }
 

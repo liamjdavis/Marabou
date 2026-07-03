@@ -141,7 +141,18 @@ void OptionParser::initialize()
         ( "cdcl",
           boost::program_options::bool_switch( &( ( *_boolOptions )[Options::SOLVE_WITH_CDCL] ) )
               ->default_value( ( *_boolOptions )[Options::SOLVE_WITH_CDCL] ),
-          "Solve the input query with CDCL as the solving procedure" )
+          "Solve the input query with CDCL as the solving procedure" )(
+            "pr-clause-preprocess",
+            boost::program_options::bool_switch(
+                &( ( *_boolOptions )[Options::PR_CLAUSE_PREPROCESS] ) )
+                ->default_value( ( *_boolOptions )[Options::PR_CLAUSE_PREPROCESS] ),
+            "(CDCL) Harvest PR clauses from conditional autarkies of the learned clause pool up "
+            "to a bounded decision depth, then restart with the harvested clauses injected" )(
+            "pr-clause-preprocess-depth",
+            boost::program_options::value<int>(
+                &( ( *_intOptions )[Options::PR_CLAUSE_PREPROCESS_DEPTH] ) )
+                ->default_value( ( *_intOptions )[Options::PR_CLAUSE_PREPROCESS_DEPTH] ),
+            "(CDCL) Decision level at which the PR clause harvesting pass stops" )
 #endif
 
 #ifdef ENABLE_GUROBI

@@ -14,6 +14,8 @@ macro(cdcl_add_unit_test name)
     marabou_add_test(${CDCL_TESTS_DIR}/Test_${name} cdcl USE_MOCK_COMMON USE_MOCK_ENGINE "unit")
 endmacro()
 
+cdcl_add_unit_test(PrClauseLearner)
+
 if (${BUILD_PYTHON})
     target_include_directories(${MARABOU_PY} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 endif()

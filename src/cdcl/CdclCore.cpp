@@ -57,6 +57,9 @@ CdclCore::CdclCore( IEngine *engine )
     , _lastSharedClauseIndexAdded( 0 )
     , _sharedClauseAdded()
     , _sncSplitLiterals()
+    , _prLearner()
+    , _prStopRequested( false )
+    , _prDepthLimit( 0 )
     , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
     _satSolverVarToPlc.insert( 0, NULL );
@@ -148,6 +151,21 @@ void CdclCore::notify_new_decision_level()
 
     _engine->preContextPushHook();
     pushContext();
+
+    if ( _prLearner.isHarvesting() )
+    {
+        Vector<int> trail;
+        for ( const auto &p : _assignedLiterals )
+        {
+            int lit = p.first;
+            if ( !isLiteralFixed( lit ) && !isLiteralFixed( -lit ) )
+                trail.append( lit );
+        }
+        _prLearner.observeTrail( trail );
+
+        if ( _satSolver->getLevel() > _prDepthLimit )
+            _prStopRequested = true;
+    }
 
     if ( _statistics )
     {
@@ -251,6 +269,9 @@ bool CdclCore::cb_check_found_model( const std::vector<int> &model )
     if ( checkIfShouldExitDueToTimeout() )
         return false;
 
+    if ( _prStopRequested )
+        return false;
+
     if ( _statistics )
         _statistics->incUnsignedAttribute( Statistics::NUM_VISITED_TREE_STATES );
     CDCL_LOG( Stringf( "%u l%d Checking model found by SAT solver", _index, _satSolver->getLevel() )
@@ -293,6 +314,9 @@ int CdclCore::cb_decide()
         return 0;
 
     if ( checkIfShouldExitDueToTimeout() )
+        return 0;
+
+    if ( _prStopRequested )
         return 0;
 
     struct timespec start = TimeUtils::sampleMicro();
@@ -761,6 +785,9 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     ASSERT( !clause.exists( 0 ) )
 
+    if ( _prLearner.isHarvesting() )
+        _prLearner.addPoolClauseFromCube( clause );
+
     if ( shareClause &&
          clause.size() <=
              static_cast<unsigned>( GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE *
@@ -856,12 +883,18 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     externalClause = _satSolver->addExternalNAPClause(
         Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) );
     if ( !externalClause.empty() )
+    {
         _initialClauses.append( externalClause );
+        _prLearner.addPoolClause( externalClause );
+    }
 
     externalClause = _satSolver->addExternalNAPClause(
         Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) );
     if ( !externalClause.empty() )
+    {
         _initialClauses.append( externalClause );
+        _prLearner.addPoolClause( externalClause );
+    }
 
     CDCL_LOG( Stringf( "%u l%d Start solving", _index, _satSolver->getLevel() ).ascii() )
     int result = _satSolver->solve();
@@ -919,6 +952,62 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     }
 
     return false;
+}
+
+bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
+{
+    _prDepthLimit = (unsigned)Options::get()->getInt( Options::PR_CLAUSE_PREPROCESS_DEPTH );
+
+    if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
+        printf( "Warning: PR clause preprocessing injects clauses that are not justified in the "
+                "produced proof; the proof may not check\n" );
+
+    // Snapshot root-level theory propagations so the restarted run can replay them
+    List<Pair<int, unsigned>> rootPropagations = _literalsToPropagate;
+
+    if ( _engine->getVerbosity() > 0 )
+        printf( "PR: phase A - harvesting up to decision level %u\n", _prDepthLimit );
+
+    _prLearner.startHarvest();
+    bool result = solveWithCDCL( timeoutInSeconds );
+
+    if ( _engine->getExitCode() != ExitCode::NOT_DONE )
+    {
+        // Concluded (or timed out) within the depth limit
+        _prLearner.stopHarvest();
+        return result;
+    }
+
+    ASSERT( _prStopRequested )
+
+    List<Set<int>> prClauses = _prLearner.finalizeHarvest();
+    const Vector<Set<int>> &carry = _prLearner.getPoolClauses();
+    _prStopRequested = false;
+
+    if ( _engine->getVerbosity() > 0 )
+        printf( "PR: phase A done - observed %u trails, harvested %u candidates; carrying %u "
+                "learned clauses, injecting %u PR clauses\n",
+                _prLearner.getNumObservedTrails(),
+                _prLearner.getNumHarvestedCandidates(),
+                carry.size(),
+                prClauses.size() );
+
+    // Restart: restore the engine to its initial state and rebuild the SAT solver
+    _shouldRestart = true;
+    notify_backtrack( 0 );
+    reset();
+
+    for ( const Pair<int, unsigned> &propagation : rootPropagations )
+        if ( propagation.first() != 0 )
+            _literalsToPropagate.append( propagation );
+
+    for ( const Set<int> &clause : carry )
+        _satSolver->addClause( clause );
+
+    for ( const Set<int> &clause : prClauses )
+        _satSolver->addClause( clause );
+
+    return solveWithCDCL( timeoutInSeconds );
 }
 
 void CdclCore::addLiteralToPropagate( int literal )
@@ -1039,7 +1128,7 @@ bool CdclCore::terminate()
                        _satSolver->getLevel(),
                        _engine->getExitCode() != ExitCode::NOT_DONE )
                   .ascii() )
-    return _engine->getExitCode() != ExitCode::NOT_DONE;
+    return _prStopRequested || _engine->getExitCode() != ExitCode::NOT_DONE;
 }
 
 unsigned CdclCore::getLiteralAssignmentIndex( int literal )

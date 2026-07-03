@@ -88,6 +88,10 @@ public:
 #ifdef BUILD_CADICAL
         // Switch the solving procedure to be CDCL-based
         SOLVE_WITH_CDCL,
+
+        // While solving with CDCL, run a depth-bounded harvesting pass first
+        // and restart with the harvested PR clauses injected
+        PR_CLAUSE_PREPROCESS,
 #endif
     };
 
@@ -123,6 +127,11 @@ public:
 
         // Maximal number of constraints to refine in incremental linearization
         NUM_CONSTRAINTS_TO_REFINE_INC_LIN,
+
+#ifdef BUILD_CADICAL
+        // Decision level at which the PR clause harvesting pass stops
+        PR_CLAUSE_PREPROCESS_DEPTH,
+#endif
     };
 
     enum FloatOptions {

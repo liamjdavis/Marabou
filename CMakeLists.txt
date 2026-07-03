@@ -237,6 +237,10 @@ endif ()
 message(WARNING "GMP not found by CMake; trying manual paths")
 # Try common system locations (adjust if needed)
 set(GMP_LIB "/usr/lib/x86_64-linux-gnu/libgmp.so")
+if (NOT EXISTS ${GMP_LIB})
+    find_library(GMP_LIB_FOUND gmp REQUIRED)
+    set(GMP_LIB ${GMP_LIB_FOUND})
+endif ()
 set(GMP_INCLUDE "/usr/include")
 
 # Add include directories and link to GMP where needed later
