@@ -234,14 +234,25 @@ if (BUILD_CADICAL)
     list(APPEND LIBS ${CADICAL_LIB})
 endif ()
 
-message(WARNING "GMP not found by CMake; trying manual paths")
-# Try common system locations (adjust if needed)
-set(GMP_LIB "/usr/lib/x86_64-linux-gnu/libgmp.so")
-if (NOT EXISTS ${GMP_LIB})
-    find_library(GMP_LIB_FOUND gmp REQUIRED)
-    set(GMP_LIB ${GMP_LIB_FOUND})
+# Locate GMP portably. find_library/find_path honor CMAKE_PREFIX_PATH and
+# CMAKE_LIBRARY_PATH, so this works with a system install (libgmp-dev on
+# Debian, gmp-devel on RHEL) or with a prefix such as a conda environment
+# (configure with -DCMAKE_PREFIX_PATH=$CONDA_PREFIX). An explicit -DGMP_LIB=...
+# / -DGMP_INCLUDE=... still overrides the search.
+find_library(GMP_LIB NAMES gmp libgmp)
+find_path(GMP_INCLUDE NAMES gmp.h)
+if (NOT GMP_LIB)
+    message(FATAL_ERROR
+        "GMP library not found. Install gmp-devel (RHEL) / libgmp-dev (Debian), "
+        "or point CMAKE_PREFIX_PATH at a prefix that provides it, e.g. "
+        "-DCMAKE_PREFIX_PATH=$ENV{CONDA_PREFIX}")
 endif ()
-set(GMP_INCLUDE "/usr/include")
+if (NOT GMP_INCLUDE)
+    message(FATAL_ERROR
+        "GMP header gmp.h not found. Install the GMP development package, or set "
+        "CMAKE_PREFIX_PATH to a prefix that provides it.")
+endif ()
+message(STATUS "Found GMP: ${GMP_LIB} (include dir: ${GMP_INCLUDE})")
 
 # Add include directories and link to GMP where needed later
 set(HAVE_GMP TRUE)

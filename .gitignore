@@ -38,6 +38,7 @@ _deps
 
 
 build
+build-picid/
 /.idea/
 cmake-build-debug/
 
