@@ -84,6 +84,20 @@ public:
     */
     bool solveWithPrPreprocessedCDCL( double timeoutInSeconds );
 
+    /*
+        Phase C of the sound-accounting pipeline (PR-CLAUSES.md section 7):
+        after a Phase-B UNSAT obtained with injected PR clauses, certify each
+        clause by refuting its debt cube (the clause's falsifying assignment)
+        in a fresh solver seeded with entailed clauses only. Clauses are
+        certified in injection order; each certified clause is added
+        permanently, so later cubes solve against a strictly stronger,
+        legitimately-earned database. A SAT debt cube is a genuine
+        counterexample and flips the overall answer to SAT.
+    */
+    bool dischargePrDebt( const List<Set<int>> &prClauses,
+                          const Vector<Set<int>> &carry,
+                          const List<Pair<int, unsigned>> &rootPropagations );
+
     /**********************************************************************/
     /*  IPASIR-UP functions, for integrating Marabou with the SAT solver  */
     /**********************************************************************/

@@ -970,8 +970,12 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     // Snapshot root-level theory propagations so the restarted run can replay them
     List<Pair<int, unsigned>> rootPropagations = _literalsToPropagate;
 
+    struct timespec prStart = TimeUtils::sampleMicro();
     if ( _engine->getVerbosity() > 0 )
+    {
         printf( "PR: phase A - harvesting until %u conflicts are learned\n", _prConflictLimit );
+        fflush( stdout );
+    }
 
     _prLearner.startHarvest();
     bool result = solveWithCDCL( timeoutInSeconds );
@@ -980,6 +984,12 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     {
         // Concluded (or timed out) within the conflict budget
         _prLearner.stopHarvest();
+        if ( _engine->getVerbosity() > 0 )
+        {
+            printf( "PR: phase A concluded on its own (t=%.1fs)\n",
+                    TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6 );
+            fflush( stdout );
+        }
         return result;
     }
 
@@ -990,12 +1000,63 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     _prStopRequested = false;
 
     if ( _engine->getVerbosity() > 0 )
-        printf( "PR: phase A done - observed %u trails, harvested %u candidates; carrying %u "
-                "learned clauses, injecting %u PR clauses\n",
+    {
+        printf( "PR: phase A done (t=%.1fs) - observed %u trails, harvested %u candidates; "
+                "carrying %u learned clauses, injecting %u PR clauses\n",
+                TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6,
                 _prLearner.getNumObservedTrails(),
                 _prLearner.getNumHarvestedCandidates(),
                 carry.size(),
                 prClauses.size() );
+        fflush( stdout );
+    }
+
+    // Phase-0 instrumentation (sound accounting port, PR-CLAUSES.md section 7.0):
+    // dump the injection package for offline debt/discharge analysis.
+    if ( const char *dumpPath = getenv( "PR_DUMP" ) )
+    {
+        FILE *f = fopen( dumpPath, "w" );
+        if ( f )
+        {
+            auto writeClauseArray = [f]( const char *key, const auto &clauses ) {
+                fprintf( f, "\"%s\": [", key );
+                bool firstClause = true;
+                for ( const Set<int> &clause : clauses )
+                {
+                    fprintf( f, "%s[", firstClause ? "" : "," );
+                    bool firstLit = true;
+                    for ( int lit : clause )
+                    {
+                        fprintf( f, "%s%d", firstLit ? "" : ",", lit );
+                        firstLit = false;
+                    }
+                    fprintf( f, "]" );
+                    firstClause = false;
+                }
+                fprintf( f, "]" );
+            };
+            fprintf( f, "{" );
+            writeClauseArray( "carry", carry );
+            fprintf( f, "," );
+            writeClauseArray( "pr_clauses", prClauses );
+            fprintf( f, ",\"root_units\": [" );
+            bool first = true;
+            for ( const Pair<int, unsigned> &propagation : rootPropagations )
+            {
+                if ( propagation.first() != 0 )
+                {
+                    fprintf( f, "%s%d", first ? "" : ",", propagation.first() );
+                    first = false;
+                }
+            }
+            fprintf( f, "]}\n" );
+            fclose( f );
+            printf( "PR: dumped %u carry + %u PR clauses to %s\n",
+                    carry.size(),
+                    prClauses.size(),
+                    dumpPath );
+        }
+    }
 
     // Restart: restore the engine to its initial state and rebuild the SAT solver
     _shouldRestart = true;
@@ -1012,7 +1073,125 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     for ( const Set<int> &clause : prClauses )
         _satSolver->addClause( clause );
 
-    return solveWithCDCL( timeoutInSeconds );
+    if ( _engine->getVerbosity() > 0 )
+    {
+        printf( "PR: phase B starting (t=%.1fs)\n",
+                TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6 );
+        fflush( stdout );
+    }
+
+    bool phaseBResult = solveWithCDCL( timeoutInSeconds );
+
+    if ( _engine->getVerbosity() > 0 )
+    {
+        printf( "PR: phase B done (t=%.1fs, exit code %d)\n",
+                TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6,
+                (int)_engine->getExitCode() );
+        fflush( stdout );
+    }
+
+    // Phase C (sound accounting): a Phase-B UNSAT proves only "no model whose
+    // boolean shadow satisfies pool AND PR clauses"; certify the PR clauses by
+    // discharging their debt cubes before reporting UNSAT.
+    if ( getenv( "PR_SOUND_DISCHARGE" ) && _engine->getExitCode() == ExitCode::UNSAT &&
+         !prClauses.empty() )
+        return dischargePrDebt( prClauses, carry, rootPropagations );
+
+    return phaseBResult;
+}
+
+bool CdclCore::dischargePrDebt( const List<Set<int>> &prClauses,
+                                const Vector<Set<int>> &carry,
+                                const List<Pair<int, unsigned>> &rootPropagations )
+{
+    if ( _engine->getVerbosity() > 0 )
+    {
+        printf( "PR-sound: phase C - discharging %u debt cubes\n", prClauses.size() );
+        fflush( stdout );
+    }
+
+    // Fresh solver holding ONLY entailed clauses: discharging a cube in the
+    // Phase-B solver would let uncertified PR clauses justify each other.
+    _engine->setExitCode( ExitCode::NOT_DONE );
+    _shouldRestart = true;
+    notify_backtrack( 0 );
+    reset();
+
+    for ( const Pair<int, unsigned> &propagation : rootPropagations )
+        if ( propagation.first() != 0 )
+            _literalsToPropagate.append( propagation );
+
+    for ( const Set<int> &clause : carry )
+        _satSolver->addClause( clause );
+
+    // Bookkeeping normally done by solveWithCDCL before the solve call.
+    for ( const auto &pair : _literalsToPropagate )
+    {
+        _sncSplitLiterals.append( pair.first() );
+        _fixedCadicalVars.insert( pair.first() );
+    }
+    if ( !_literalsToPropagate.empty() )
+        _literalsToPropagate.append( Pair<int, unsigned>( 0, _satSolver->getLevel() ) );
+
+    unsigned certified = 0;
+    unsigned index = 0;
+    for ( const Set<int> &clause : prClauses )
+    {
+        ++index;
+        _engine->setExitCode( ExitCode::NOT_DONE );
+
+        // The debt cube is the clause's falsifying assignment.
+        for ( int literal : clause )
+            _satSolver->assume( -literal );
+
+        int result = _satSolver->solve();
+
+        if ( result == 20 )
+        {
+            // Cube refuted: the clause is entailed given the clauses certified
+            // so far — promote it to a permanent (now legitimate) clause.
+            _satSolver->addClause( clause );
+            ++certified;
+            if ( _engine->getVerbosity() > 0 && ( index % 10 == 0 || index == prClauses.size() ) )
+            {
+                printf( "PR-sound: certified %u/%u debt cubes\n", index, prClauses.size() );
+                fflush( stdout );
+            }
+        }
+        else if ( result == 10 || _engine->getExitCode() == ExitCode::SAT )
+        {
+            // Theory-checked model inside a pruned region: the region Phase B
+            // deleted contained a genuine counterexample.
+            if ( _engine->getVerbosity() > 0 )
+                printf( "PR-sound: debt cube %u/%u is SAT - genuine counterexample, "
+                        "overall answer is SAT\n",
+                        index,
+                        prClauses.size() );
+            _engine->setExitCode( ExitCode::SAT );
+            return true;
+        }
+        else
+        {
+            if ( _engine->getVerbosity() > 0 )
+                printf( "PR-sound: debt cube %u/%u inconclusive (solver result %d) - "
+                        "UNSAT cannot be certified\n",
+                        index,
+                        prClauses.size(),
+                        result );
+            _engine->setExitCode( ExitCode::TIMEOUT );
+            return false;
+        }
+
+        // Return the theory engine to root level before the next cube.
+        notify_backtrack( 0 );
+    }
+
+    if ( _engine->getVerbosity() > 0 )
+        printf( "PR-sound: phase C done - certified %u/%u PR clauses; UNSAT is sound\n",
+                certified,
+                prClauses.size() );
+    _engine->setExitCode( ExitCode::UNSAT );
+    return false;
 }
 
 void CdclCore::addLiteralToPropagate( int literal )

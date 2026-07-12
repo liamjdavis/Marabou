@@ -233,3 +233,134 @@ cd build-picid && ctest -R PrClauseLearner --output-on-failure
 - SNC mode: per-worker harvesting and injection.
 - Benchmarking: ACASXu/MNIST sweep, verdict cross-checking against baseline
   CDCL, wall-clock and visited-states comparison.
+
+---
+
+## 7. Sound Accounting Port Plan (DRAFT — not implemented)
+
+Port of the sound-accounting architecture validated on α,β-CROWN
+(`Verifier_Development/PR-CLAUSES.md` §2.4/§3.3, commits `2ee5535`,
+`510f061`, `4884c28`). Core idea, in the CDCL(T) vocabulary: a Phase-B
+UNSAT obtained with injected PR clauses P over entailed pool Γ proves only
+"no theory model whose boolean shadow satisfies Γ ∧ P." The **debt** is one
+phase cube per clause — its falsifying assignment `c₁ ∧ … ∧ cₖ ∧ a` — and
+once every debt cube is discharged (propositionally against Γ, or by a
+theory subquery), the UNSAT verdict is retroactively sound. No PR theory is
+needed anywhere in the argument; it is exact case accounting.
+
+The stakes are *higher* here than in α,β-CROWN: PICID derives UNSAT from
+the search itself (no verdict-asymmetry escape hatch), so Phase C is not an
+optimization — it is what makes the pipeline's UNSAT answers meaningful at
+all. SAT verdicts need no debt (`cb_check_found_model` theory-checks every
+model). The DNN-decisiveness bonus stands: a debt subquery that comes back
+SAT is a genuine counterexample and flips the overall answer to SAT.
+
+### 7.0 Phase 0 — measure before building (lesson learned the hard way)
+
+Instrumentation only, no driver changes:
+
+1. Dump to JSON at Phase-B injection time: the carried pool (Phase-A
+   conflict clauses), all injected PR clauses, and per-clause debt cubes.
+2. Offline (python, mirror of `Verifier_Development` scratch analyzers):
+   pool support vs cube support overlap; |condition| histogram; unit-clause
+   fraction; propositional discharge rate (cube refuted ⟺ some pool clause
+   has every literal falsified by the cube — pure set containment here, no
+   coefficient arithmetic).
+3. Expectation to test: PICID's pool is made of genuine multi-literal
+   conflict clauses, so BOTH degeneracies seen in α,β-CROWN (pool collapses
+   to a unit-cut cube; carve support disjoint from pool support) may simply
+   not occur. If the discharge rate is high, most debt is free and the
+   theory pass shrinks to a handful of subqueries. This number decides how
+   much of §7.3 is worth building.
+
+Also resolve, before any driver work, the **autarky sign question**: §2.3
+emits `¬a` while CAUTICAL Theorem 1 adds the positive autarky literal
+(αc → αa). The accounting is sign-agnostic (the debt cube is always the
+clause's falsifying assignment) but the sign flips what Phase B prunes and
+therefore how large the debt is. Decide once, document, and align both
+codebases.
+
+### 7.1 Sound credit and early stop (already mostly present)
+
+- Phase A runs with entailed clauses only; §3.3 step 2 already returns its
+  verdict directly when it concludes within budget. Keep — this is the
+  α,β-CROWN early-stop, and over there it alone beat the honest baseline.
+- Provenance rule 1: only Phase-A conflict clauses enter the accounting
+  pool Γ. Clauses learned during Phase B are resolvents over Γ ∪ P — they
+  are entailed by Γ ∧ P, not by the theory alone, and must never be used to
+  discharge debt or seed subqueries.
+- Provenance rule 2: audit **NAP file clauses**. If NAP clauses are
+  assumptions/heuristics rather than facts entailed by this query, they
+  contaminate both the carve's Γ and the discharge pool. Either prove they
+  are entailed, or track them separately: carve over Γ ∪ NAP is fine
+  (unsoundness is already being accounted), but *discharge* must check
+  cubes against entailed clauses only.
+- Provenance rule 3 (the cutter-leak analog): audit every piece of state
+  that survives `notify_backtrack(0)` + `reset()` between phases and
+  between debt subqueries — engine bound tightenings, `_literalsToPropagate`
+  replay contents, learned-clause carryover inside CaDiCaL. The α,β-CROWN
+  port lost two days to a stale-pool leak that silently fed Phase-B PR cuts
+  into what claimed to be entailed-only runs; assume Marabou has an
+  equivalent until proven otherwise.
+
+### 7.2 Debt extraction and propositional discharge
+
+New module (suggested `src/cdcl/PrDebtLedger.h/.cpp`):
+
+- On Phase-B UNSAT, collect debt cubes from the injected clauses. Two
+  scope-reduction filters, in order:
+  1. **Proof-dependency filter** (Marabou-only superpower — α,β-CROWN had
+     no proof object): use `ANALYZE_PROOF_DEPENDENCIES` / CaDiCaL clause
+     usage to find which PR clauses the final UNSAT proof actually leans
+     on. Unused clauses incur **zero debt** — they could be deleted from
+     the run post-hoc without changing the proof. Expected to be the
+     biggest cost reducer.
+  2. **Propositional discharge**: cube refuted by the entailed pool ⇒
+     clause was entailed ⇒ zero debt. Set-containment check per
+     clause/cube pair; optionally a single CaDiCaL solve of Γ ∧ cube under
+     assumptions for completeness beyond unit propagation.
+- Ordering refinement (disjoint cover): debt cube i may assume clauses
+  C₁ … Cᵢ₋₁ in addition to Γ. Free constraint tightening; keeps the union
+  of discharged regions a partition.
+
+### 7.3 Theory discharge of surviving cubes
+
+The α,β-CROWN "one batched GPU pass" has no direct analog; candidate
+mechanisms in preference order:
+
+1. **Incremental assumptions** (if the IPASIR-UP integration supports
+   `assume`): one persistent solver holding Γ (Phase-A clauses only);
+   per cube, assume its literals and solve. Clauses learned under
+   assumptions are assumption-free resolvents — sound to keep across
+   cubes, so later cubes get faster. Closest analog to the batched pass.
+2. **SNC fan-out**: each cube is a natural split-and-conquer subquery
+   (phases pre-fixed); parallel workers; reuses existing SNC plumbing.
+3. **Sequential restarts** (simplest first cut): the existing restart
+   machinery of §3.3 steps 4–5, once per cube, cube literals injected as
+   unit clauses alongside the Γ carry.
+
+Per-cube outcomes: UNSAT ⇒ discharged; SAT ⇒ **genuine counterexample,
+overall answer is SAT** (decisive flip — report immediately); timeout ⇒
+verdict stays `unknown` (never report UNSAT with unpaid debt).
+
+### 7.4 Driver changes (`CdclCore::solveWithPrPreprocessedCDCL`)
+
+- Phase B returns UNSAT → run ledger (7.2) → theory discharge (7.3) →
+  only then report UNSAT; emit marker lines mirroring the α,β-CROWN ones
+  (`PR-sound: N debt cubes, P proof-pruned, Q discharged propositionally,
+  R theory-solved, verdict SOUND/…`).
+- Flags: `--pr-sound-discharge` (on/off), `--pr-debt-mode
+  {assume,snc,restart}`, `--pr-debt-timeout-per-cube`.
+
+### 7.5 Validation plan
+
+- Unit tests: ledger extraction (cube = falsifying assignment, both signs),
+  set-containment discharge, proof-dependency filter on a synthetic pool.
+- End-to-end: ACASXu instance where baseline CDCL is UNSAT — verify
+  pipeline verdict matches with debt fully discharged; deliberately inject
+  a bogus clause pruning a SAT region on a SAT instance and confirm the
+  debt subquery flips the answer to SAT (the soundness canary the
+  α,β-CROWN setting could not express).
+- Scoreboard discipline from the α,β-CROWN port: leak-fixed baseline first,
+  serialized runs, and never compare against numbers produced before the
+  provenance audit (7.1 rule 3).
