@@ -59,7 +59,8 @@ CdclCore::CdclCore( IEngine *engine )
     , _sncSplitLiterals()
     , _prLearner()
     , _prStopRequested( false )
-    , _prDepthLimit( 0 )
+    , _prConflictLimit( 0 )
+    , _prConflictCount( 0 )
     , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
     _satSolverVarToPlc.insert( 0, NULL );
@@ -162,9 +163,6 @@ void CdclCore::notify_new_decision_level()
                 trail.append( lit );
         }
         _prLearner.observeTrail( trail );
-
-        if ( _satSolver->getLevel() > _prDepthLimit )
-            _prStopRequested = true;
     }
 
     if ( _statistics )
@@ -786,7 +784,12 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
     ASSERT( !clause.exists( 0 ) )
 
     if ( _prLearner.isHarvesting() )
+    {
         _prLearner.addPoolClauseFromCube( clause );
+
+        if ( ++_prConflictCount >= _prConflictLimit )
+            _prStopRequested = true;
+    }
 
     if ( shareClause &&
          clause.size() <=
@@ -956,7 +959,9 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
 bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
 {
-    _prDepthLimit = (unsigned)Options::get()->getInt( Options::PR_CLAUSE_PREPROCESS_DEPTH );
+    _prConflictLimit =
+        (unsigned)Options::get()->getInt( Options::PR_CLAUSE_PREPROCESS_CONFLICTS );
+    _prConflictCount = 0;
 
     if ( GlobalConfiguration::WRITE_ALETHE_PROOF )
         printf( "Warning: PR clause preprocessing injects clauses that are not justified in the "
@@ -966,14 +971,14 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     List<Pair<int, unsigned>> rootPropagations = _literalsToPropagate;
 
     if ( _engine->getVerbosity() > 0 )
-        printf( "PR: phase A - harvesting up to decision level %u\n", _prDepthLimit );
+        printf( "PR: phase A - harvesting until %u conflicts are learned\n", _prConflictLimit );
 
     _prLearner.startHarvest();
     bool result = solveWithCDCL( timeoutInSeconds );
 
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
     {
-        // Concluded (or timed out) within the depth limit
+        // Concluded (or timed out) within the conflict budget
         _prLearner.stopHarvest();
         return result;
     }

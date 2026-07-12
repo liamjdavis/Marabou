@@ -1,7 +1,9 @@
 # PR Clause Learning over PICID Conflict Clauses
 
 A two-pass driver on top of PICID's CDCL(T) pipeline (Marabou + CaDiCaL via
-IPASIR-UP). **Phase A** runs the CDCL search up to a bounded decision depth,
+IPASIR-UP). **Phase A** runs the CDCL search until a bounded number of
+conflict clauses has been learned (Marabou is a DFS solver, so a decision-depth
+bound would trip almost immediately without any conflicts in the pool),
 harvesting propagation-redundancy (PR) clauses from conditional-autarky
 carves of the learned clause pool; **Phase B** restarts the solver on the
 original query with the harvested clauses injected into CaDiCaL. This is the
@@ -138,11 +140,12 @@ src/engine/Engine.cpp          # solveWithCDCL dispatch
 ### 3.2 Hooks in CdclCore
 
 - `addExternalClause()` — mirrors each learned cube into the learner pool
-  (harvest mode only). The mirror is separate from `_literalToClauses`, which
-  is periodically cleared for VSIDS decay and stores no clause bodies.
-- `notify_new_decision_level()` — builds the trail, calls
-  `PrClauseLearner::observeTrail`, and requests Phase A termination once
-  `getLevel() > depth limit`.
+  (harvest mode only), and requests Phase A termination once the number of
+  mirrored conflict clauses reaches the conflict budget. The mirror is
+  separate from `_literalToClauses`, which is periodically cleared for VSIDS
+  decay and stores no clause bodies.
+- `notify_new_decision_level()` — builds the trail and calls
+  `PrClauseLearner::observeTrail`.
 - `terminate()` / `cb_decide()` / `cb_check_found_model()` — honor the stop
   request so CaDiCaL aborts promptly without further theory solves.
 
@@ -151,8 +154,9 @@ src/engine/Engine.cpp          # solveWithCDCL dispatch
 1. Snapshot root-level `_literalsToPropagate` (theory-fixed phases from
    preprocessing) for replay.
 2. **Phase A**: `solveWithCDCL` with harvesting on. If it concludes
-   (SAT/UNSAT/timeout) within the depth limit, return that verdict directly.
-3. On depth-triggered abort: `finalizeHarvest()` (dedup + subsumption), grab
+   (SAT/UNSAT/timeout) within the conflict budget, return that verdict
+   directly.
+3. On budget-triggered abort: `finalizeHarvest()` (dedup + subsumption), grab
    the pool as carry (Phase A conflict clauses — entailed, sound to reuse).
 4. Restart: `_shouldRestart = true; notify_backtrack(0)` (restores initial
    engine state, pops context to root) then `reset()` (fresh CaDiCaL with
@@ -168,10 +172,10 @@ src/engine/Engine.cpp          # solveWithCDCL dispatch
 
 ## 4. Configuration
 
-| Flag                           | Default | Purpose                                            |
-|--------------------------------|---------|----------------------------------------------------|
-| `--pr-clause-preprocess`       | off     | Enable the two-pass harvest → inject driver.       |
-| `--pr-clause-preprocess-depth` | `5`     | Decision level at which Phase A stops.             |
+| Flag                               | Default | Purpose                                          |
+|------------------------------------|---------|--------------------------------------------------|
+| `--pr-clause-preprocess`           | off     | Enable the two-pass harvest → inject driver.     |
+| `--pr-clause-preprocess-conflicts` | `10`    | Learned-conflict count at which Phase A stops.   |
 
 Both require `--cdcl`. Use `--lp-solver native`: the Gurobi LP path of this
 branch segfaults in `Tableau::setNonBasicAssignment` during CDCL solving
@@ -203,12 +207,12 @@ cmake --build . -j 8
 ./build-picid/Marabou resources/nnet/acasxu/ACASXU_experimental_v2a_1_1.nnet \
   resources/properties/acas_property_4.txt \
   --cdcl --lp-solver native --pr-clause-preprocess \
-  --pr-clause-preprocess-depth 5 --verbosity 1
+  --pr-clause-preprocess-conflicts 10 --verbosity 1
 ```
 
 Marker lines:
 
-- `PR: phase A - harvesting up to decision level D`
+- `PR: phase A - harvesting until N conflicts are learned`
 - `PR: phase A done - observed N trails, harvested H candidates; carrying C
   learned clauses, injecting K PR clauses`
 
@@ -222,9 +226,6 @@ cd build-picid && ctest -R PrClauseLearner --output-on-failure
 
 ## 6. Future Work
 
-- Conflict-budgeted (or pool-nonempty-gated) Phase A instead of pure depth:
-  a conflict-free Phase A leaves the pool empty, the carve vacuous, and every
-  PR clause a unit — pure phase fixing rather than conditional reasoning.
 - The discharge pass of §2.4 — decisive soundness restoration, parallelizable
   over SNC workers, reusing `ANALYZE_PROOF_DEPENDENCIES`.
 - Sequential re-carving against Γ ∪ {already-injected PR clauses}

@@ -146,13 +146,15 @@ void OptionParser::initialize()
             boost::program_options::bool_switch(
                 &( ( *_boolOptions )[Options::PR_CLAUSE_PREPROCESS] ) )
                 ->default_value( ( *_boolOptions )[Options::PR_CLAUSE_PREPROCESS] ),
-            "(CDCL) Harvest PR clauses from conditional autarkies of the learned clause pool up "
-            "to a bounded decision depth, then restart with the harvested clauses injected" )(
-            "pr-clause-preprocess-depth",
+            "(CDCL) Harvest PR clauses from conditional autarkies of the learned clause pool "
+            "until a bounded number of conflicts is learned, then restart with the harvested "
+            "clauses injected" )(
+            "pr-clause-preprocess-conflicts",
             boost::program_options::value<int>(
-                &( ( *_intOptions )[Options::PR_CLAUSE_PREPROCESS_DEPTH] ) )
-                ->default_value( ( *_intOptions )[Options::PR_CLAUSE_PREPROCESS_DEPTH] ),
-            "(CDCL) Decision level at which the PR clause harvesting pass stops" )
+                &( ( *_intOptions )[Options::PR_CLAUSE_PREPROCESS_CONFLICTS] ) )
+                ->default_value( ( *_intOptions )[Options::PR_CLAUSE_PREPROCESS_CONFLICTS] ),
+            "(CDCL) Number of learned conflict clauses after which the PR clause harvesting "
+            "pass stops" )
 #endif
 
 #ifdef ENABLE_GUROBI

@@ -78,7 +78,7 @@ public:
     bool solveWithCDCL( double timeoutInSeconds );
 
     /*
-        Two-pass CDCL solving: a depth-bounded run harvesting PR clauses from
+        Two-pass CDCL solving: a conflict-budgeted run harvesting PR clauses from
         conditional autarkies of the learned clause pool, then a restarted full
         run with the harvested clauses injected
     */
@@ -312,7 +312,8 @@ private:
     */
     PrClauseLearner _prLearner;
     bool _prStopRequested;
-    unsigned _prDepthLimit;
+    unsigned _prConflictLimit;
+    unsigned _prConflictCount;
 
     /*
       Access info in the internal data structures

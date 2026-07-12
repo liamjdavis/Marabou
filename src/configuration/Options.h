@@ -129,8 +129,8 @@ public:
         NUM_CONSTRAINTS_TO_REFINE_INC_LIN,
 
 #ifdef BUILD_CADICAL
-        // Decision level at which the PR clause harvesting pass stops
-        PR_CLAUSE_PREPROCESS_DEPTH,
+        // Number of learned conflict clauses after which the PR clause harvesting pass stops
+        PR_CLAUSE_PREPROCESS_CONFLICTS,
 #endif
     };
 

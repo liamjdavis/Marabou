@@ -77,7 +77,7 @@ void Options::initializeDefaultValues()
     _intOptions[NUM_BLAS_THREADS] = 1;
     _intOptions[NUM_CONSTRAINTS_TO_REFINE_INC_LIN] = 30;
 #ifdef BUILD_CADICAL
-    _intOptions[PR_CLAUSE_PREPROCESS_DEPTH] = 5;
+    _intOptions[PR_CLAUSE_PREPROCESS_CONFLICTS] = 10;
 #endif
 
     /*
