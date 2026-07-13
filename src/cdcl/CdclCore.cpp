@@ -38,6 +38,7 @@ Vector<Set<int>> CdclCore::prSeedClauses{};
 List<Set<int>> CdclCore::prHandoffSelected{};
 Vector<Set<int>> CdclCore::prHandoffCarry{};
 bool CdclCore::prHandoffValid = false;
+unsigned CdclCore::prHandoffMaxVar = 0;
 std::mutex CdclCore::sharedClausesMutex{};
 std::atomic<unsigned> CdclCore::clauseIndex{ 0 };
 
@@ -1055,6 +1056,10 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     }
 
     _prLearner.startHarvest();
+    // The node's seed clauses (debt chain + inherited lemmas) are part of
+    // the formula this engine solves: the carve must respect them too.
+    for ( const Set<int> &clause : prSeedClauses )
+        _prLearner.addPoolClause( clause );
     bool result = solveWithCDCL( timeoutInSeconds );
 
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
@@ -1122,6 +1127,10 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
 
     prHandoffSelected = prClauses;
     prHandoffCarry = carry;
+    prHandoffMaxVar = 0;
+    for ( unsigned var : _satSolverVarToPlc.keys() )
+        if ( var > prHandoffMaxVar )
+            prHandoffMaxVar = var;
     prHandoffValid = true;
 
     if ( _engine->getVerbosity() > 0 )

@@ -351,6 +351,9 @@ public:
     static List<Set<int>> prHandoffSelected;
     static Vector<Set<int>> prHandoffCarry;
     static bool prHandoffValid;
+    // Largest observed SAT variable: the driver allocates Tseitin selector
+    // variables for non-unit debt cubes strictly above this.
+    static unsigned prHandoffMaxVar;
 
 private:
     bool _prSeedsAdded;

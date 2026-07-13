@@ -377,101 +377,192 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
         _engine->setExitCode( code );
     };
 
-    // ---- Phase A: harvest on a virgin engine ----
-    CdclCore::prRebuildRole = CdclCore::PR_REBUILD_HARVEST;
-    CdclCore::prSeedClauses.clear();
-    CdclCore::prHandoffValid = false;
+    /*
+      Self-similar recursion: each round runs the full pipeline — phase A
+      (harvest), phase B (inject all), phase C (cheap discharge) — on the
+      node query Q ∧ debtChain, exactly as if it were the original query.
+      The accounting telescopes: phase B's clauses live IN the SAT solver,
+      so its UNSAT is an ordinary sound CDCL verdict for the constrained
+      query Q ∧ chain ∧ P; the unverified complement Q ∧ chain ∧ ¬P is one
+      clause more (unit cubes contribute their literal, non-unit cubes a
+      Tseitin selector with guards) — exactly the next node. Any round that
+      ends with a phase A verdict, a theory-checked model, or a fully
+      discharged phase C closes the ORIGINAL query soundly.
+    */
+    Vector<Set<int>> debtChain;     // hard constraints defining the current node
+    Vector<Set<int>> inheritedPool; // entailed lemmas from ancestor rounds' harvests
+    unsigned round = 0;
+    unsigned nextAuxVar = 0; // Tseitin selectors for non-unit debt cubes
 
-    Engine *engineA = freshEngineOnFreshQuery();
-    if ( engineA )
-        engineA->solveWithCDCL( remaining() );
-
-    ExitCode exitA = keepAliveEngines.back()->getExitCode();
-    if ( exitA == ExitCode::SAT )
-        return finish( ExitCode::SAT,
-                       "phase A found a theory-checked counterexample - sat" );
-    if ( exitA == ExitCode::UNSAT )
-        return finish( ExitCode::UNSAT, "phase A concluded on its own - unsat" );
-    if ( !CdclCore::prHandoffValid )
-        return finish( ExitCode::TIMEOUT,
-                       "phase A neither concluded nor harvested within budget" );
-
-    // ---- Phase B: full solve on a virgin engine, ALL harvested clauses
-    // injected (raw variant: the UNSAT verdict is not certified) ----
-    CdclCore::prRebuildRole = CdclCore::PR_REBUILD_SOLVE;
-    CdclCore::prSeedClauses = CdclCore::prHandoffCarry;
-    for ( const Set<int> &clause : CdclCore::prHandoffSelected )
-        CdclCore::prSeedClauses.append( clause );
-
-    Engine *engineB = freshEngineOnFreshQuery();
-    if ( engineB )
-        engineB->solveWithCDCL( remaining() );
-
-    ExitCode exitB = keepAliveEngines.back()->getExitCode();
-    if ( exitB == ExitCode::SAT )
-        return finish( ExitCode::SAT,
-                       "phase B found a theory-checked counterexample - sat" );
-    if ( exitB != ExitCode::UNSAT )
-        return finish( ExitCode::TIMEOUT, "phase B inconclusive" );
-
-    // ---- Phase C: sound accounting. A phase-B UNSAT with injected PR
-    // clauses proves only "no model satisfying pool AND clauses"; the debt
-    // is one cube per clause (its falsifying assignment). Discharge each
-    // propositionally against the entailed pool, then by one bound
-    // propagation pass per survivor on a fresh engine - the analog of
-    // alpha-beta-CROWN's batched debt bounding, no search anywhere.
-    struct timespec phaseCStart = TimeUtils::sampleMicro();
-    List<Set<int>> cubes;
-    for ( const Set<int> &clause : CdclCore::prHandoffSelected )
+    while ( true )
     {
-        Set<int> cube;
-        for ( int literal : clause )
-            cube.insert( -literal );
-        if ( !cubes.exists( cube ) )
-            cubes.append( cube );
-    }
+        if ( remaining() <= 0 )
+            return finish( ExitCode::TIMEOUT, "out of time" );
 
-    unsigned propositionallyDischarged = 0;
-    List<Set<int>> surviving;
-    for ( const Set<int> &cube : cubes )
-    {
-        if ( cubeRefutedByPool( cube, CdclCore::prHandoffCarry ) )
-            ++propositionallyDischarged;
-        else
-            surviving.append( cube );
-    }
+        // ---- Phase A: harvest on a virgin engine ----
+        CdclCore::prRebuildRole = CdclCore::PR_REBUILD_HARVEST;
+        CdclCore::prSeedClauses = debtChain;
+        for ( const Set<int> &clause : inheritedPool )
+            CdclCore::prSeedClauses.append( clause );
+        CdclCore::prHandoffValid = false;
 
-    unsigned theoryDischarged = 0;
-    List<Set<int>> unpaid;
-    if ( !surviving.empty() )
-    {
-        CdclCore::prRebuildRole = CdclCore::PR_REBUILD_OFF;
-        CdclCore::prSeedClauses.clear();
-        Engine *engineC = freshEngineOnFreshQuery();
-        if ( engineC )
-            theoryDischarged = engineC->dischargePrDebtCubes( surviving, unpaid );
-        else
-            unpaid = surviving; // preprocessing decided; be conservative
-    }
+        Engine *engineA = freshEngineOnFreshQuery();
+        if ( engineA )
+            engineA->solveWithCDCL( remaining() );
 
-    double phaseCSeconds = TimeUtils::timePassed( phaseCStart, TimeUtils::sampleMicro() ) / 1e6;
-    if ( unpaid.empty() )
-    {
-        printf( "PR: phase C - all %u debt cubes discharged (%u propositional, %u theory, "
-                "t=%.1fs); unsat is SOUND\n",
+        ExitCode exitA = keepAliveEngines.back()->getExitCode();
+        if ( exitA == ExitCode::SAT )
+            return finish( ExitCode::SAT,
+                           "phase A found a theory-checked counterexample - sat" );
+        if ( exitA == ExitCode::UNSAT )
+            return finish( ExitCode::UNSAT,
+                           round == 0 ? "phase A concluded on its own - unsat"
+                                      : "debt node refuted by phase A - unsat is SOUND" );
+        if ( !CdclCore::prHandoffValid )
+            return finish( ExitCode::TIMEOUT,
+                           "phase A neither concluded nor harvested within budget" );
+
+        List<Set<int>> injected = CdclCore::prHandoffSelected;
+        Vector<Set<int>> carry = CdclCore::prHandoffCarry;
+        if ( nextAuxVar == 0 )
+            nextAuxVar = CdclCore::prHandoffMaxVar + 1;
+
+        // ---- Phase B: full solve on a virgin engine, ALL harvested
+        // clauses injected ----
+        CdclCore::prRebuildRole = CdclCore::PR_REBUILD_SOLVE;
+        CdclCore::prSeedClauses = debtChain;
+        for ( const Set<int> &clause : inheritedPool )
+            CdclCore::prSeedClauses.append( clause );
+        for ( const Set<int> &clause : carry )
+            CdclCore::prSeedClauses.append( clause );
+        for ( const Set<int> &clause : injected )
+            CdclCore::prSeedClauses.append( clause );
+
+        Engine *engineB = freshEngineOnFreshQuery();
+        if ( engineB )
+            engineB->solveWithCDCL( remaining() );
+
+        ExitCode exitB = keepAliveEngines.back()->getExitCode();
+        if ( exitB == ExitCode::SAT )
+            return finish( ExitCode::SAT,
+                           "phase B found a theory-checked counterexample - sat" );
+        if ( exitB != ExitCode::UNSAT )
+            return finish( ExitCode::TIMEOUT, "phase B inconclusive" );
+
+        // ---- Phase C: cheap discharge. One cube per injected clause;
+        // propositional discharge by unit propagation against everything
+        // entailed for this node, then one bound-propagation pass per
+        // survivor on a fresh engine (no search).
+        struct timespec phaseCStart = TimeUtils::sampleMicro();
+        List<Set<int>> cubes;
+        for ( const Set<int> &clause : injected )
+        {
+            Set<int> cube;
+            for ( int literal : clause )
+                cube.insert( -literal );
+            if ( !cubes.exists( cube ) )
+                cubes.append( cube );
+        }
+
+        Vector<Set<int>> propositionalPool = debtChain;
+        for ( const Set<int> &clause : inheritedPool )
+            propositionalPool.append( clause );
+        for ( const Set<int> &clause : carry )
+            propositionalPool.append( clause );
+
+        unsigned propositionallyDischarged = 0;
+        List<Set<int>> surviving;
+        for ( const Set<int> &cube : cubes )
+        {
+            if ( cubeRefutedByPool( cube, propositionalPool ) )
+                ++propositionallyDischarged;
+            else
+                surviving.append( cube );
+        }
+
+        unsigned theoryDischarged = 0;
+        List<Set<int>> unpaid;
+        if ( !surviving.empty() )
+        {
+            CdclCore::prRebuildRole = CdclCore::PR_REBUILD_OFF;
+            CdclCore::prSeedClauses.clear();
+            Engine *engineC = freshEngineOnFreshQuery();
+            if ( engineC )
+                theoryDischarged = engineC->dischargePrDebtCubes( surviving, unpaid );
+            else
+                unpaid = surviving; // preprocessing decided; be conservative
+        }
+
+        double phaseCSeconds =
+            TimeUtils::timePassed( phaseCStart, TimeUtils::sampleMicro() ) / 1e6;
+        if ( unpaid.empty() )
+        {
+            printf( "PR: phase C - all %u debt cubes discharged (%u propositional, %u "
+                    "theory, t=%.1fs)\n",
+                    cubes.size(),
+                    propositionallyDischarged,
+                    theoryDischarged,
+                    phaseCSeconds );
+            return finish( ExitCode::UNSAT,
+                           "phase B unsat, debt fully discharged - unsat is SOUND" );
+        }
+
+        // ---- Unpaid debt becomes ONE clause; the next node is
+        // Q ∧ chain ∧ that clause. Unit cubes contribute their literal;
+        // a non-unit cube C gets a fresh Tseitin selector s with guard
+        // clauses (¬s ∨ l) for each l ∈ C — equisatisfiable, and selectors
+        // live above the observed range so the theory never sees them.
+        Set<int> debtClause;
+        unsigned selectors = 0;
+        for ( const Set<int> &cube : unpaid )
+        {
+            if ( cube.size() == 1 )
+            {
+                for ( int literal : cube )
+                    debtClause.insert( literal );
+            }
+            else
+            {
+                int selector = (int)nextAuxVar++;
+                ++selectors;
+                for ( int literal : cube )
+                {
+                    Set<int> guard;
+                    guard.insert( -selector );
+                    guard.insert( literal );
+                    debtChain.append( guard );
+                }
+                debtClause.insert( selector );
+            }
+        }
+        if ( debtChain.exists( debtClause ) )
+            return finish( ExitCode::UNSAT,
+                           "phase B unsat (debt clause repeated, no progress - NOT "
+                           "certified)" );
+
+        debtChain.append( debtClause );
+        // carry echoes the seeded pool back (the learner pool is seeded with
+        // chain + inherited); only genuinely new lemmas accumulate.
+        for ( const Set<int> &clause : carry )
+            if ( !inheritedPool.exists( clause ) && !debtChain.exists( clause ) )
+                inheritedPool.append( clause );
+        ++round;
+
+        printf( "PR: round %u done (t=%.1fs total) - %u/%u cubes unpaid (%u propositional, "
+                "%u theory); debt clause of %u literals (%u selectors) queued (chain %u, "
+                "inherited %u)\n",
+                round,
+                TimeUtils::timePassed( start, TimeUtils::sampleMicro() ) / 1e6,
+                unpaid.size(),
                 cubes.size(),
                 propositionallyDischarged,
                 theoryDischarged,
-                phaseCSeconds );
-        return finish( ExitCode::UNSAT, "phase B unsat, debt fully discharged" );
+                debtClause.size(),
+                selectors,
+                debtChain.size(),
+                inheritedPool.size() );
+        fflush( stdout );
     }
-    printf( "PR: phase C - %u/%u debt cubes unpaid (%u propositional, %u theory, t=%.1fs)\n",
-            unpaid.size(),
-            cubes.size(),
-            propositionallyDischarged,
-            theoryDischarged,
-            phaseCSeconds );
-    finish( ExitCode::UNSAT, "phase B unsat (PR clauses injected - NOT certified)" );
 }
 #endif
 
