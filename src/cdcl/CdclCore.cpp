@@ -1471,6 +1471,12 @@ bool CdclCore::hasConflictClause() const
 void CdclCore::notifySingleAssignment( int lit, bool isFixed )
 {
     ASSERT( lit != 0 );
+
+    // Tseitin selectors (PR debt encoding) live above the observed range and
+    // have no theory meaning; CaDiCaL may still notify them (e.g. as
+    // root-fixed). Ignore them.
+    if ( !_satSolverVarToPlc.exists( (unsigned)FloatUtils::abs( lit ) ) )
+        return;
     if ( isLiteralToBePropagated( -lit ) || isLiteralAssigned( -lit ) )
         return;
 
