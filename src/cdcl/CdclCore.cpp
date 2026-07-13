@@ -728,6 +728,14 @@ bool CdclCore::cb_has_external_clause( bool & /*is_forgettable*/ )
     if ( checkIfShouldExitDueToTimeout() )
         return false;
 
+    // Once the PR harvest budget has tripped, starve the clause feed:
+    // CaDiCaL's external_propagate ingests clauses in an inner loop that
+    // consults neither terminate() nor cb_decide, so a decision-free
+    // root-conflict regeneration cycle otherwise livelocks unboundedly
+    // (observed: 3.1M clauses ingested over 850s at a chain-seeded node).
+    if ( _prStopRequested )
+        return false;
+
     CDCL_LOG( Stringf( "%u l%d Checking if there is a Conflict Clause to add: %d",
                        _index,
                        _satSolver->getLevel(),
@@ -806,12 +814,13 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     ASSERT( !clause.exists( 0 ) )
 
-    if ( _prLearner.isHarvesting() )
+    if ( _prLearner.isHarvesting() && !_prStopRequested )
     {
         _prLearner.addPoolClauseFromCube( clause );
 
         if ( ++_prConflictCount >= _prConflictLimit )
             _prStopRequested = true;
+        maybePrintPrProgress();
     }
 
     if ( shareClause &&
