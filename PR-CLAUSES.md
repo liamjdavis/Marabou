@@ -1,12 +1,15 @@
 # PR Clause Learning over PICID Conflict Clauses
 
-A two-pass driver on top of PICID's CDCL(T) pipeline (Marabou + CaDiCaL via
-IPASIR-UP). **Phase A** runs the CDCL search until a bounded number of
-conflict clauses has been learned (Marabou is a DFS solver, so a decision-depth
-bound would trip almost immediately without any conflicts in the pool),
-harvesting propagation-redundancy (PR) clauses from conditional-autarky
-carves of the learned clause pool; **Phase B** restarts the solver on the
-original query with the harvested clauses injected into CaDiCaL. This is the
+A self-similar recursive driver on top of PICID's CDCL(T) pipeline (Marabou
++ CaDiCaL via IPASIR-UP). Each round: **Phase A** runs the CDCL search until
+a bounded number of conflict clauses has been learned (Marabou is a DFS
+solver, so a decision-depth bound would trip almost immediately without any
+conflicts in the pool), harvesting propagation-redundancy (PR) clauses from
+conditional-autarky carves of the learned clause pool; **Phase B** solves
+the node on a fresh engine with the harvested clauses injected into CaDiCaL;
+**Phase C** discharges the debt those clauses incur, cheaply where possible,
+and the residue becomes the next round's node — so every reported verdict
+is sound (§3.3, §7). This is the
 Marabou/PICID port of the same strategy implemented for α,β-CROWN + BICCOS
 (see `Verifier_Development/PR-CLAUSES.md`), which is in turn the
 neural-verification analog of CAUTICAL's SAT-solver preprocessing
@@ -149,37 +152,78 @@ src/engine/Engine.cpp          # solveWithCDCL dispatch
 - `terminate()` / `cb_decide()` / `cb_check_found_model()` — honor the stop
   request so CaDiCaL aborts promptly without further theory solves.
 
-### 3.3 Two-pass driver (`Marabou::solveWithPrRebuild`)
+### 3.3 Self-similar recursive driver (`Marabou::solveWithPrRebuild`)
 
 Each phase runs on a **virgin engine**: the in-process engine restore
 (`notify_backtrack(0)` + `reset()`) is corrupt — it deposits root-conflict
 lemmas and validates models against a broken tableau (confirmed false SAT).
-The driver serializes the query once (`pr_rebuild_query.ipq`) and reloads it
-into a freshly constructed and processed `Engine` per phase; clauses flow
-between engines via `CdclCore` statics (`prRebuildRole`, `prSeedClauses`,
-`prHandoff*`).
+The driver serializes the query once (`/tmp/pr_rebuild_query.ipq`) and
+reloads it into a freshly constructed and processed `Engine` per phase;
+clauses flow between engines via `CdclCore` statics (`prRebuildRole`,
+`prSeedClauses`, `prHandoff*`). The (query, engine) pairs are leaked by
+construction: destroying an engine after `processInputQuery` makes its
+CaDiCaL disconnect callback re-enter the half-destroyed engine.
 
-1. **Phase A** (role HARVEST): `solveWithCDCL` with harvesting on. SAT/UNSAT
-   within the conflict budget is returned directly (theory-checked / earned
-   by search — sound). On budget-triggered abort: `finalizeHarvest()` (dedup
-   + subsumption), hand off the PR clauses plus the conflict pool as carry
-   (entailed, sound to reuse).
-2. **Phase B** (role SOLVE): fresh engine; every carry clause and every PR
-   clause seeded into its CaDiCaL at solve start; `solveWithCDCL` to
-   completion. UNSAT here is **uncertified** (§2.4).
+The pipeline is a **round loop**; each round runs the full pipeline on the
+node query Q ∧ debtChain exactly as if it were the original query:
+
+1. **Phase A** (role HARVEST): `solveWithCDCL` with harvesting on, seeded
+   with the chain and the inherited pool (both also mirrored into the
+   learner pool, so the carve sees them — this is what first produced
+   CONDITIONAL PR clauses; the "always units" observation was an artifact of
+   carving against an empty pool). A SAT/UNSAT verdict within the conflict
+   budget is sound: round 0 = plain verdict; round N = the debt node is
+   refuted and the accounting telescopes. On budget abort: dedup +
+   subsumption + `top_k_strongest` cap, hand off clauses + conflict pool.
+2. **Phase B** (role SOLVE): fresh engine; chain + inherited + carry + every
+   selected PR clause seeded into CaDiCaL; solve to completion. Its UNSAT is
+   an ordinary sound CDCL verdict for the CONSTRAINED query Q ∧ chain ∧ P.
+3. **Phase C** (cheap discharge): one debt cube per injected clause;
+   propositional discharge by unit propagation against everything entailed
+   for the node, then one bound-propagation pass per survivor
+   (`CdclCore::dischargeDebtCubes`: pins as case splits +
+   `propagateBoundManagerTightenings`, no search) — the analog of
+   α,β-CROWN's batched debt bounding. All discharged ⇒ telescoped SOUND
+   unsat.
+4. **Unpaid debt becomes ONE clause** — unit cubes contribute their literal;
+   a non-unit cube C gets a fresh **Tseitin selector** s (allocated above
+   the observed variable range, guards (¬s ∨ l) for l ∈ C) — and the loop
+   re-enters on Q ∧ chain ∧ clause. This is the CDCL-native encoding of the
+   cube disjunction; α,β-CROWN's seeded initial-domain frontier is the same
+   construct in BaB vocabulary.
+
+Sound exits: phase A verdict, theory-checked SAT model anywhere, phase C
+fully discharged. Round cap = the global timeout. Phase A conflicts
+accumulate in the inherited pool (deduped) across rounds; **phase B
+conflicts are never carried** — with decision-based conflict cubes they
+silently bake in propagations from the unsound injected clauses (the
+historical false-UNSAT leak).
 
 `Marabou::solveQuery` dispatches to the driver when
 `Options::PR_CLAUSE_PREPROCESS` is set; `Engine::solveWithCDCL` routes each
 engine into `CdclCore::solveWithPrPreprocessedCDCL`, which acts per role.
 
+**Hard-won implementation notes** (each was a live crash or hang):
+
+- CaDiCaL notifies assignments of selector variables (e.g. root-fixed);
+  `notifySingleAssignment` must skip literals with no theory constraint.
+- CaDiCaL's `external_propagate` ingests external clauses in an inner loop
+  that consults neither `terminate()` nor `cb_decide`: a decision-free
+  root-conflict regeneration cycle livelocks unboundedly (observed: 3.1M
+  clauses over 850s). `cb_has_external_clause` must starve the feed once
+  the harvest budget trips.
+- Exceptions escaping a phase are caught at the driver (the unwind through
+  the engine destructors segfaults otherwise, losing the verdict).
+
 ---
 
 ## 4. Configuration
 
-| Flag                               | Default | Purpose                                          |
-|------------------------------------|---------|--------------------------------------------------|
-| `--pr-clause-preprocess`           | off     | Enable the two-pass harvest → inject driver.     |
-| `--pr-clause-preprocess-conflicts` | `10`    | Learned-conflict count at which Phase A stops.   |
+| Flag                               | Default | Purpose                                            |
+|------------------------------------|---------|-----------------------------------------------------|
+| `--pr-clause-preprocess`           | off     | Enable the recursive harvest → inject → discharge driver. |
+| `--pr-clause-preprocess-conflicts` | `10`    | Learned-conflict count at which each phase A stops. |
+| `--pr-clause-top-k`                | `32`    | Keep only the K strongest PR clauses (shortest condition first, α,β-CROWN's `top_k_strongest`); 0 injects all. |
 
 Both require `--cdcl`. Use `--lp-solver native`: the Gurobi LP path of this
 branch segfaults in `Tableau::setNonBasicAssignment` during CDCL solving
@@ -217,10 +261,19 @@ cmake --build . -j 8
 Marker lines:
 
 - `PR: phase A - harvesting until N conflicts are learned`
+- `PR: phase A progress - decision levels D, trails T, theory checks started
+  C, conflicts K/N` (every 30s while a harvest is running)
 - `PR: phase A done (t=Ts) - observed N trails, harvested H candidates;
   handing off C carry clauses and K PR clauses`
 - `PR: seeded fresh core with M clauses`
-- `PR: phase B unsat (PR clauses injected - uncertified)`
+- `PR: phase C - all N debt cubes discharged (P propositional, T theory,
+  t=Ts)` — telescoped sound unsat
+- `PR: round R done (t=Ts total) - U/N cubes unpaid (...); debt clause of L
+  literals (S selectors) queued (chain C, inherited I)`
+- `PR: debt node refuted by phase A - unsat is SOUND` — the usual sound
+  ending: the accumulated chain + inherited pool eventually collapse a node
+  within the budget (measured: 1–3s final rounds on 1000+ inherited
+  clauses)
 
 ### 5.4 Tests
 
@@ -232,36 +285,66 @@ cd build-picid && ctest -R PrClauseLearner --output-on-failure
 
 ## 6. Future Work
 
-- The discharge pass of §2.4 — decisive soundness restoration, parallelizable
-  over SNC workers, reusing `ANALYZE_PROOF_DEPENDENCIES`.
+- Harder-instance benchmarking (deeper ACAS properties, MNIST): the
+  recursion's per-round pruning is multiplicative while its re-check leak
+  (§7) looks additive — the crossover, if any, lives on instances well
+  beyond the ~2k-state ACAS ones measured so far. Visited states, not
+  wall-clock, is the metric (concurrent runs pollute walls).
+- Plug the conflict-transfer leak: carried conflicts are decision cubes
+  (decision-order-dependent). Proof-based cubes over used phase fixings
+  transfer order-independently — but currently cost the proofs-on tax
+  (forced `--prove-unsat` + DeepSoI disabled). Decouple
+  `ANALYZE_PROOF_DEPENDENCIES` from proof production, or export CaDiCaL's
+  internal learned clauses per round (entailed for the node in phase A).
+- Theory-discharged phase C cubes certify their PR clause as entailed —
+  fold them into the inherited pool (currently dropped; zero yield so far).
 - Sequential re-carving against Γ ∪ {already-injected PR clauses}
   (CAUTICAL Algorithm 1 semantics) instead of batch injection.
 - SNC mode: per-worker harvesting and injection.
-- Benchmarking: ACASXu/MNIST sweep, verdict cross-checking against baseline
-  CDCL, wall-clock and visited-states comparison.
 
 ---
 
-## 7. Sound Accounting Port Plan
+## 7. Sound Accounting: status and measurements
 
-> **Status (2026-07-12):** implemented in the **batched** form matching the
-> α,β-CROWN pipeline, replacing an earlier search-based variant that was
-> measured and removed (one full CDCL solve per debt cube cost more than
-> the entire baseline). Phase C now runs after every phase-B UNSAT: one
-> debt cube per injected clause, deduped; propositional discharge by unit
-> propagation against the entailed carry pool; each survivor gets ONE bound
-> propagation pass (cube phases pinned as case splits on a fresh engine,
-> `CdclCore::dischargeDebtCubes`) — no search anywhere, the analog of
-> α,β-CROWN's chunked debt bounding. All discharged ⇒ `unsat is SOUND`;
-> otherwise the verdict stands but is reported NOT certified.
+> **Status (2026-07-13):** fully implemented — batched cheap discharge
+> (§3.3 phase C) plus the self-similar recursion on the residual debt. An
+> earlier search-based per-cube variant was measured and removed (one full
+> CDCL solve per debt cube cost more than the entire baseline); a
+> **single-shot** variant (phase C = ONE complete CDCL solve of the debt
+> query Q ∧ ⋁cubes, seeded with the carry) was also measured before the
+> recursion replaced it — see the table.
 >
-> Measured (ACASXU 1_2 × prop 1, budget 10): 0.1s for 144 cubes — and
+> Cheap-pass yield (ACASXU 1_2 × prop 1, budget 10): 0.1s for 144 cubes,
 > 0/144 discharged (0 propositional, matching α,β-CROWN's 0/512 support
-> mismatch; 0 theory, because the harvested clauses are unit phase
-> preferences whose cubes are half-spaces no bound pass can refute — the
-> thin-cube/entailment-ceiling finding, again). Cheap, but on this clause
-> population it certifies nothing; α,β-CROWN's batched pass pays its debt
-> because BICCOS cubes carry 13–154 forced phases.
+> mismatch; 0 theory, because unit-clause cubes are half-spaces no bound
+> pass can refute). α,β-CROWN's batched pass pays its debt because it
+> bounds with full β-CROWN plus the whole entailed cut pool; the recursion
+> is what pays it here.
+>
+> **Visited-states scoreboard** (ACAS onnx 1_2 × prop_1, unsat, proofs off,
+> `ANALYZE_PROOF_DEPENDENCIES = false` — proofs on force `--prove-unsat`
+> AND disable DeepSoI; the proofs-on baseline TIMED OUT at 900s):
+>
+> | pipeline                         | visited states | rounds | verdict |
+> |----------------------------------|---------------|--------|---------|
+> | baseline (plain CDCL)            | 1982          | —      | unsat   |
+> | raw two-pass (unsound UNSAT)     | ~40–1000 by budget | — | unsat (uncertified) |
+> | single-shot sound (b10, no cap)  | 2007 (1.01×)  | —      | **sound** unsat |
+> | recursion b200/k32               | 3743 (1.89×)  | 6      | sound unsat |
+> | recursion b50/k32                | 3869 (1.95×)  | 22     | sound unsat |
+> | recursion b100/k32               | 4488 (2.26×)  | 17     | sound unsat |
+> | recursion b10/k32                | 6746 (3.40×)  | 13     | sound unsat |
+> | recursion b10/inject-all         | DNF (900s)    | 25+    | —       |
+>
+> Readings: (i) conservation of refutation is *exact* for the single-shot —
+> soundness costs +1% states over baseline; (ii) the recursion pays ~2×
+> because carried conflicts are DECISION cubes (decision-order-dependent:
+> they block re-proposals, not re-derivations — proof-based cubes over
+> phase fixings would plug this, at the proofs-on tax); (iii) top-k is
+> required for convergence at small budgets; (iv) the final round always
+> collapses in seconds — the accumulated pool eventually refutes the node
+> outright. Open: harder instances, where per-round PR pruning is
+> multiplicative and may beat the 2× re-check leak.
 
 Port of the sound-accounting architecture validated on α,β-CROWN
 (`Verifier_Development/PR-CLAUSES.md` §2.4/§3.3, commits `2ee5535`,
