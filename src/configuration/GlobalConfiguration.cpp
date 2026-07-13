@@ -125,7 +125,10 @@ const unsigned GlobalConfiguration::ALETHE_PROOF_FLUSHING_FREQUENCY = 50;
 const unsigned GlobalConfiguration::BACKWARD_BOUND_PROPAGATION_DEPTH = 3;
 const unsigned GlobalConfiguration::MAX_ROUNDS_OF_BACKWARD_ANALYSIS = 10;
 
-const bool GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES = true;
+// Proofs off for PR-clause benchmarking: with --cdcl this would force
+// --prove-unsat on AND disable DeepSoI local search; conflict clauses fall
+// back to decision-based cubes.
+const bool GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES = false;
 const bool GlobalConfiguration::MINIMIZE_PROOF_DEPENDENCIES = true;
 
 const bool GlobalConfiguration::CONVERT_VERIFICATION_QUERY_INTO_REACHABILITY_QUERY = false;
