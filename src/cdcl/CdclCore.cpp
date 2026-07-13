@@ -16,6 +16,8 @@
 #ifdef BUILD_CADICAL
 #include "CdclCore.h"
 
+#include "InfeasibleQueryException.h"
+
 #include "NetworkLevelReasoner.h"
 #include "Options.h"
 #include "Query.h"
@@ -1134,6 +1136,58 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
         fflush( stdout );
     }
     return result;
+}
+
+unsigned CdclCore::dischargeDebtCubes( const List<Set<int>> &cubes, List<Set<int>> &unpaid )
+{
+    // Root-entailed phases from preprocessing: a cube pinning the opposite
+    // phase prunes an already-empty region. Snapshot before reset() clears
+    // the list.
+    Set<int> rootLiterals;
+    for ( const auto &pair : _literalsToPropagate )
+        if ( pair.first() != 0 )
+            rootLiterals.insert( pair.first() );
+
+    if ( !_satSolver )
+        reset();
+
+    unsigned discharged = 0;
+    for ( const Set<int> &cube : cubes )
+    {
+        bool refuted = false;
+        for ( int literal : cube )
+            if ( rootLiterals.exists( -literal ) )
+            {
+                refuted = true;
+                break;
+            }
+
+        if ( !refuted )
+        {
+            _engine->preContextPushHook();
+            pushContext();
+            try
+            {
+                for ( int literal : cube )
+                    notifySingleAssignment( literal, false );
+                refuted = !_engine->propagateBoundManagerTightenings() ||
+                          !_externalClauseToAdd.empty();
+            }
+            catch ( const InfeasibleQueryException & )
+            {
+                refuted = true;
+            }
+            _externalClauseToAdd.clear();
+            popContextTo( 0 );
+            _engine->postContextPopHook();
+        }
+
+        if ( refuted )
+            ++discharged;
+        else
+            unpaid.append( cube );
+    }
+    return discharged;
 }
 
 void CdclCore::addLiteralToPropagate( int literal )

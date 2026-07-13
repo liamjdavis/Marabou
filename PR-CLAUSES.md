@@ -242,17 +242,26 @@ cd build-picid && ctest -R PrClauseLearner --output-on-failure
 
 ---
 
-## 7. Sound Accounting Port Plan (implemented, measured, REMOVED)
+## 7. Sound Accounting Port Plan
 
-> **Status (2026-07-12):** the plan below was implemented (flat Phase C
-> sweep, budgeted recursive discharge, debt-as-one-query, worklist rebuild
-> pipeline) and stripped back out: a single debt cube routinely cost more
-> than the full baseline solve — conservation of refutation; sound methods
-> redo the pruned work somewhere. The tree keeps only the raw two-pass
-> driver of §3.3. Kept from that arc as bug fixes: the virgin-engine
-> architecture (in-process restore is corrupt) and the root-conflict guard
-> in `solveWithCDCL` (a pending multi-literal lemma is not an UNSAT). The
-> text remains as the reference for any future sound-accounting attempt.
+> **Status (2026-07-12):** implemented in the **batched** form matching the
+> α,β-CROWN pipeline, replacing an earlier search-based variant that was
+> measured and removed (one full CDCL solve per debt cube cost more than
+> the entire baseline). Phase C now runs after every phase-B UNSAT: one
+> debt cube per injected clause, deduped; propositional discharge by unit
+> propagation against the entailed carry pool; each survivor gets ONE bound
+> propagation pass (cube phases pinned as case splits on a fresh engine,
+> `CdclCore::dischargeDebtCubes`) — no search anywhere, the analog of
+> α,β-CROWN's chunked debt bounding. All discharged ⇒ `unsat is SOUND`;
+> otherwise the verdict stands but is reported NOT certified.
+>
+> Measured (ACASXU 1_2 × prop 1, budget 10): 0.1s for 144 cubes — and
+> 0/144 discharged (0 propositional, matching α,β-CROWN's 0/512 support
+> mismatch; 0 theory, because the harvested clauses are unit phase
+> preferences whose cubes are half-spaces no bound pass can refute — the
+> thin-cube/entailment-ceiling finding, again). Cheap, but on this clause
+> population it certifies nothing; α,β-CROWN's batched pass pays its debt
+> because BICCOS cubes carry 13–154 forced phases.
 
 Port of the sound-accounting architecture validated on α,β-CROWN
 (`Verifier_Development/PR-CLAUSES.md` §2.4/§3.3, commits `2ee5535`,

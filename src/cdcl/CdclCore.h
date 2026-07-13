@@ -86,6 +86,16 @@ public:
     */
     bool solveWithPrPreprocessedCDCL( double timeoutInSeconds );
 
+    /*
+        Phase C theory discharge, the analog of alpha-beta-CROWN's batched
+        debt pass (one bounding call per cube, no search): for each debt
+        cube, push a context, pin the cube's phases as case splits, and run
+        bound propagation once. Inconsistent bounds refute the cube (the
+        pruned region is empty - the PR clause was entailed). Cubes that
+        survive are appended to `unpaid`. Returns the number discharged.
+    */
+    unsigned dischargeDebtCubes( const List<Set<int>> &cubes, List<Set<int>> &unpaid );
+
     /**********************************************************************/
     /*  IPASIR-UP functions, for integrating Marabou with the SAT solver  */
     /**********************************************************************/

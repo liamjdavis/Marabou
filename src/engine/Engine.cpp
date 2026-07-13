@@ -4572,6 +4572,11 @@ bool Engine::solveWithCDCL( double timeoutInSeconds )
     return _cdclCore.solveWithCDCL( timeoutInSeconds );
 }
 
+unsigned Engine::dischargePrDebtCubes( const List<Set<int>> &cubes, List<Set<int>> &unpaid )
+{
+    return _cdclCore.dischargeDebtCubes( cubes, unpaid );
+}
+
 Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litConstraint )
 {
     ASSERT( _solveWithCDCL && _produceUNSATProofs );

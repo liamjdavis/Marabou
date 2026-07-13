@@ -284,6 +284,50 @@ void Marabou::solveQuery()
 }
 
 #ifdef BUILD_CADICAL
+/*
+  Propositional debt discharge (port of alpha-beta-CROWN's
+  residue.cube_refuted): unit-propagate the entailed pool under the cube's
+  assignment; a falsified pool clause refutes the cube.
+*/
+static bool cubeRefutedByPool( const Set<int> &cube, const Vector<Set<int>> &pool )
+{
+    Set<int> assigned = cube;
+    bool changed = true;
+    while ( changed )
+    {
+        changed = false;
+        for ( const Set<int> &clause : pool )
+        {
+            unsigned free = 0;
+            int lastFree = 0;
+            bool satisfied = false;
+            for ( int literal : clause )
+            {
+                if ( assigned.exists( literal ) )
+                {
+                    satisfied = true;
+                    break;
+                }
+                if ( !assigned.exists( -literal ) )
+                {
+                    ++free;
+                    lastFree = literal;
+                }
+            }
+            if ( satisfied )
+                continue;
+            if ( free == 0 )
+                return true;
+            if ( free == 1 )
+            {
+                assigned.insert( lastFree );
+                changed = true;
+            }
+        }
+    }
+    return false;
+}
+
 void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
 {
     struct timespec start = TimeUtils::sampleMicro();
@@ -367,9 +411,67 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
     if ( exitB == ExitCode::SAT )
         return finish( ExitCode::SAT,
                        "phase B found a theory-checked counterexample - sat" );
-    if ( exitB == ExitCode::UNSAT )
-        return finish( ExitCode::UNSAT, "phase B unsat (PR clauses injected - uncertified)" );
-    finish( ExitCode::TIMEOUT, "phase B inconclusive" );
+    if ( exitB != ExitCode::UNSAT )
+        return finish( ExitCode::TIMEOUT, "phase B inconclusive" );
+
+    // ---- Phase C: sound accounting. A phase-B UNSAT with injected PR
+    // clauses proves only "no model satisfying pool AND clauses"; the debt
+    // is one cube per clause (its falsifying assignment). Discharge each
+    // propositionally against the entailed pool, then by one bound
+    // propagation pass per survivor on a fresh engine - the analog of
+    // alpha-beta-CROWN's batched debt bounding, no search anywhere.
+    struct timespec phaseCStart = TimeUtils::sampleMicro();
+    List<Set<int>> cubes;
+    for ( const Set<int> &clause : CdclCore::prHandoffSelected )
+    {
+        Set<int> cube;
+        for ( int literal : clause )
+            cube.insert( -literal );
+        if ( !cubes.exists( cube ) )
+            cubes.append( cube );
+    }
+
+    unsigned propositionallyDischarged = 0;
+    List<Set<int>> surviving;
+    for ( const Set<int> &cube : cubes )
+    {
+        if ( cubeRefutedByPool( cube, CdclCore::prHandoffCarry ) )
+            ++propositionallyDischarged;
+        else
+            surviving.append( cube );
+    }
+
+    unsigned theoryDischarged = 0;
+    List<Set<int>> unpaid;
+    if ( !surviving.empty() )
+    {
+        CdclCore::prRebuildRole = CdclCore::PR_REBUILD_OFF;
+        CdclCore::prSeedClauses.clear();
+        Engine *engineC = freshEngineOnFreshQuery();
+        if ( engineC )
+            theoryDischarged = engineC->dischargePrDebtCubes( surviving, unpaid );
+        else
+            unpaid = surviving; // preprocessing decided; be conservative
+    }
+
+    double phaseCSeconds = TimeUtils::timePassed( phaseCStart, TimeUtils::sampleMicro() ) / 1e6;
+    if ( unpaid.empty() )
+    {
+        printf( "PR: phase C - all %u debt cubes discharged (%u propositional, %u theory, "
+                "t=%.1fs); unsat is SOUND\n",
+                cubes.size(),
+                propositionallyDischarged,
+                theoryDischarged,
+                phaseCSeconds );
+        return finish( ExitCode::UNSAT, "phase B unsat, debt fully discharged" );
+    }
+    printf( "PR: phase C - %u/%u debt cubes unpaid (%u propositional, %u theory, t=%.1fs)\n",
+            unpaid.size(),
+            cubes.size(),
+            propositionallyDischarged,
+            theoryDischarged,
+            phaseCSeconds );
+    finish( ExitCode::UNSAT, "phase B unsat (PR clauses injected - NOT certified)" );
 }
 #endif
 

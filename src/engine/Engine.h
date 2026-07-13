@@ -394,6 +394,12 @@ public:
     bool solveWithCDCL( double timeoutInSeconds = 0 ) override;
 
     /*
+      Phase C of the PR pipeline: batched bound-propagation discharge of
+      debt cubes on this (freshly processed, otherwise unused) engine.
+    */
+    unsigned dischargePrDebtCubes( const List<Set<int>> &cubes, List<Set<int>> &unpaid );
+
+    /*
       Creates a boolean-abstracted clause explaining a boolean-abstracted literal
     */
     Set<int> explainPhaseWithProof( const PiecewiseLinearConstraint *litConstraint ) override;
