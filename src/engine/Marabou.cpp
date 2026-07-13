@@ -339,8 +339,13 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
     // leaves dangling registrations for the next processInputQuery.
     String queryFile = "/tmp/pr_rebuild_query.ipq";
     _inputQuery.saveQuery( queryFile );
-    std::list<std::unique_ptr<InputQuery>> keepAliveQueries;
-    std::list<std::unique_ptr<Engine>> keepAliveEngines;
+    // Leaked BY CONSTRUCTION (heap lists, never deleted): destroying an
+    // engine that went through processInputQuery makes its CaDiCaL
+    // disconnect callback re-enter the half-destroyed engine
+    // (postContextPopHook) and segfault - both on normal exit and, worse,
+    // on exception unwind. The process exits right after displayResults.
+    auto &keepAliveQueries = *( new std::list<std::unique_ptr<InputQuery>>() );
+    auto &keepAliveEngines = *( new std::list<std::unique_ptr<Engine>>() );
     auto freshEngineOnFreshQuery = [&]() -> Engine * {
         keepAliveQueries.push_back( std::unique_ptr<InputQuery>( new InputQuery() ) );
         QueryLoader::loadQuery( queryFile, *keepAliveQueries.back() );
@@ -365,15 +370,6 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
         // copy it into the query displayResults reads from.
         if ( code == ExitCode::SAT && !keepAliveEngines.empty() )
             keepAliveEngines.back()->extractSolution( _inputQuery );
-        // Intentionally leak the phase engines and their queries: constraints
-        // register engine-context pointers across each pair and no destruction
-        // order is safe once a pair has been through processInputQuery
-        // (destructor chain segfaults after the verdict). The process exits
-        // right after displayResults.
-        for ( auto &engine : keepAliveEngines )
-            engine.release();
-        for ( auto &query : keepAliveQueries )
-            query.release();
         _engine->setExitCode( code );
     };
 
@@ -394,6 +390,8 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
     unsigned round = 0;
     unsigned nextAuxVar = 0; // Tseitin selectors for non-unit debt cubes
 
+    try
+    {
     while ( true )
     {
         if ( remaining() <= 0 )
@@ -562,6 +560,19 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
                 debtChain.size(),
                 inheritedPool.size() );
         fflush( stdout );
+    }
+    }
+    catch ( const Error &e )
+    {
+        printf( "PR: exception escaped a phase - %s code %d: %s\n",
+                e.getErrorClass(),
+                e.getCode(),
+                e.getUserMessage() );
+        finish( ExitCode::ERROR, "internal error (see above)" );
+    }
+    catch ( ... )
+    {
+        finish( ExitCode::ERROR, "unknown exception escaped a phase" );
     }
 }
 #endif
