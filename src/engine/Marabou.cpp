@@ -30,7 +30,6 @@
 
 #include <list>
 #include <memory>
-#include <unistd.h>
 
 #ifdef BUILD_CADICAL
 #include "CdclCore.h"
@@ -294,7 +293,7 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
     // the driver exits — constraints register engine-context pointers, so
     // destroying an engine while its query outlives it (or vice versa)
     // leaves dangling registrations for the next processInputQuery.
-    String queryFile = Stringf( "/tmp/pr_rebuild_query_%u.ipq", (unsigned)getpid() );
+    String queryFile = "/tmp/pr_rebuild_query.ipq";
     _inputQuery.saveQuery( queryFile );
     std::list<std::unique_ptr<InputQuery>> keepAliveQueries;
     std::list<std::unique_ptr<Engine>> keepAliveEngines;
