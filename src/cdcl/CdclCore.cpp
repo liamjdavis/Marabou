@@ -72,6 +72,9 @@ CdclCore::CdclCore( IEngine *engine )
     , _prStopRequested( false )
     , _prConflictLimit( 0 )
     , _prConflictCount( 0 )
+    , _prLastProgressTime()
+    , _prDecisionLevels( 0 )
+    , _prTheoryChecks( 0 )
     , _prSeedsAdded( false )
     , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
@@ -175,6 +178,8 @@ void CdclCore::notify_new_decision_level()
                 trail.append( lit );
         }
         _prLearner.observeTrail( trail );
+        ++_prDecisionLevels;
+        maybePrintPrProgress();
     }
 
     if ( _statistics )
@@ -281,6 +286,12 @@ bool CdclCore::cb_check_found_model( const std::vector<int> &model )
 
     if ( _prStopRequested )
         return false;
+
+    if ( _prLearner.isHarvesting() )
+    {
+        ++_prTheoryChecks;
+        maybePrintPrProgress();
+    }
 
     if ( _statistics )
         _statistics->incUnsignedAttribute( Statistics::NUM_VISITED_TREE_STATES );
@@ -1049,6 +1060,9 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     _prConflictCount = 0;
 
     struct timespec prStart = TimeUtils::sampleMicro();
+    _prLastProgressTime = prStart;
+    _prDecisionLevels = 0;
+    _prTheoryChecks = 0;
     if ( _engine->getVerbosity() > 0 )
     {
         printf( "PR: phase A - harvesting until %u conflicts are learned\n", _prConflictLimit );
@@ -1174,6 +1188,24 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
         fflush( stdout );
     }
     return result;
+}
+
+void CdclCore::maybePrintPrProgress()
+{
+    if ( !_prLearner.isHarvesting() || _engine->getVerbosity() == 0 )
+        return;
+    struct timespec now = TimeUtils::sampleMicro();
+    if ( TimeUtils::timePassed( _prLastProgressTime, now ) / 1e6 < 30.0 )
+        return;
+    _prLastProgressTime = now;
+    printf( "PR: phase A progress - decision levels %u, trails %u, theory checks started %u, "
+            "conflicts %u/%u\n",
+            _prDecisionLevels,
+            _prLearner.getNumObservedTrails(),
+            _prTheoryChecks,
+            _prConflictCount,
+            _prConflictLimit );
+    fflush( stdout );
 }
 
 unsigned CdclCore::dischargeDebtCubes( const List<Set<int>> &cubes, List<Set<int>> &unpaid )

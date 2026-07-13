@@ -327,6 +327,13 @@ private:
     unsigned _prConflictLimit;
     unsigned _prConflictCount;
 
+    // Harvest-mode progress instrumentation: where does phase A spend its
+    // time when conflicts stop arriving?
+    struct timespec _prLastProgressTime;
+    unsigned _prDecisionLevels;
+    unsigned _prTheoryChecks;
+    void maybePrintPrProgress();
+
 public:
     /*
         Two-pass driver plumbing: Marabou::solveWithPrRebuild runs ONE VIRGIN
