@@ -30,6 +30,7 @@
 
 #include <list>
 #include <memory>
+#include <unistd.h>
 
 #ifdef BUILD_CADICAL
 #include "CdclCore.h"
@@ -271,7 +272,15 @@ void Marabou::solveQuery()
 
     // TODO: update the variable assignment using NLR if possible and double-check that all the
     // constraints are indeed satisfied.
-    if ( _engine->getExitCode() == ExitCode::SAT )
+    bool prDriverRan = false;
+#ifdef BUILD_CADICAL
+    // The PR driver solves on separate phase engines and extracts the
+    // solution itself; _engine never solved, so extracting from it would
+    // overwrite the real counterexample.
+    prDriverRan =
+        _engine->shouldSolveWithCDCL() && Options::get()->getBool( Options::PR_CLAUSE_PREPROCESS );
+#endif
+    if ( _engine->getExitCode() == ExitCode::SAT && !prDriverRan )
         _engine->extractSolution( _inputQuery );
 }
 
@@ -285,7 +294,7 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
     // the driver exits — constraints register engine-context pointers, so
     // destroying an engine while its query outlives it (or vice versa)
     // leaves dangling registrations for the next processInputQuery.
-    String queryFile = "pr_rebuild_query.ipq";
+    String queryFile = Stringf( "/tmp/pr_rebuild_query_%u.ipq", (unsigned)getpid() );
     _inputQuery.saveQuery( queryFile );
     std::list<std::unique_ptr<InputQuery>> keepAliveQueries;
     std::list<std::unique_ptr<Engine>> keepAliveEngines;
@@ -309,6 +318,19 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
         fflush( stdout );
         CdclCore::prRebuildRole = CdclCore::PR_REBUILD_OFF;
         CdclCore::prSeedClauses.clear();
+        // On SAT the counterexample lives in the phase engine, not _engine:
+        // copy it into the query displayResults reads from.
+        if ( code == ExitCode::SAT && !keepAliveEngines.empty() )
+            keepAliveEngines.back()->extractSolution( _inputQuery );
+        // Intentionally leak the phase engines and their queries: constraints
+        // register engine-context pointers across each pair and no destruction
+        // order is safe once a pair has been through processInputQuery
+        // (destructor chain segfaults after the verdict). The process exits
+        // right after displayResults.
+        for ( auto &engine : keepAliveEngines )
+            engine.release();
+        for ( auto &query : keepAliveQueries )
+            query.release();
         _engine->setExitCode( code );
     };
 
