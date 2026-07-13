@@ -96,7 +96,20 @@ public:
     */
     bool dischargePrDebt( const List<Set<int>> &prClauses,
                           const Vector<Set<int>> &carry,
-                          const List<Pair<int, unsigned>> &rootPropagations );
+                          double timeoutInSeconds );
+
+    /*
+        Rebuild the SAT solver from scratch for PR work: fresh CaDiCaL,
+        root propagations replayed, current recursion pins added as unit
+        clauses, then the given clauses.
+    */
+    void prResetSolverWithClauses( const Vector<Set<int>> &clauses );
+
+    /*
+        The propagation bookkeeping solveWithCDCL normally performs before
+        calling the SAT solver (snc literals + zero terminator).
+    */
+    void prSolveBookkeeping();
 
     /**********************************************************************/
     /*  IPASIR-UP functions, for integrating Marabou with the SAT solver  */
@@ -328,6 +341,20 @@ private:
     bool _prStopRequested;
     unsigned _prConflictLimit;
     unsigned _prConflictCount;
+
+    // Recursive sound-discharge context: literals pinned by the debt cubes
+    // on the current recursion path (added as unit clauses, hence root-fixed
+    // and automatically excluded from harvested trails — which guarantees
+    // every recursion level pins at least one new literal), and the depth.
+    Vector<int> _prPins;
+    unsigned _prDepth;
+    List<Pair<int, unsigned>> _prRootProps;
+
+    // Per-debt-cube wall-clock budget: when > 0, the terminate callback
+    // aborts the solve past the deadline (theory-heavy solves can take
+    // unbounded wall time within a small SAT conflict budget).
+    double _prCubeTimeLimit;
+    struct timespec _prCubeStart;
 
     /*
       Access info in the internal data structures

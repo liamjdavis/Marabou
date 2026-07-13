@@ -1,0 +1,1607 @@
+/*********************                                                        */
+/*! \file PrTransportCertifier.cpp
+ ** \verbatim
+ ** Top contributors (to current version):
+ **   Liam Davis
+ ** This file is part of the Marabou project.
+ ** Copyright (c) 2017-2026 by the authors listed in the file AUTHORS
+ ** in the top-level source directory) and their institutional affiliations.
+ ** All rights reserved. See the file COPYING in the top-level source
+ ** directory for licensing information.\endverbatim
+ **
+ ** See the description of the class in PrTransportCertifier.h.
+ **/
+
+#include "PrTransportCertifier.h"
+
+#include "Equation.h"
+#include "FloatUtils.h"
+#include "Layer.h"
+#include "NetworkLevelReasoner.h"
+#include "PiecewiseLinearConstraint.h"
+#include "Query.h"
+#include "ReluConstraint.h"
+
+#include <random>
+
+PrTransportCertifier::PrTransportCertifier(
+    const NLR::NetworkLevelReasoner *nlr,
+    std::shared_ptr<Query> originalQuery,
+    std::shared_ptr<Query> preprocessedQuery,
+    const Map<unsigned, PiecewiseLinearConstraint *> &varToPlc )
+    : _nlr( nlr )
+    , _originalQuery( originalQuery )
+    , _preprocessedQuery( preprocessedQuery )
+    , _varToPlc( varToPlc )
+    , _topologySupported( false )
+    , _marginsSupported( false )
+    , _numInputs( 0 )
+{
+    if ( !_nlr || !_originalQuery )
+        return;
+
+    analyzeTopologyAndMappings();
+    extractBoxAndMargins();
+}
+
+void PrTransportCertifier::analyzeTopologyAndMappings()
+{
+    // Supported shape: layer 0 is INPUT; every other layer is WEIGHTED_SUM
+    // or RELU. Anything else disables SLIDE (VAC still applies)
+    unsigned numberOfLayers = _nlr->getNumberOfLayers();
+    if ( numberOfLayers < 2 )
+        return;
+
+    for ( unsigned i = 0; i < numberOfLayers; ++i )
+    {
+        const NLR::Layer *layer = _nlr->getLayer( i );
+        NLR::Layer::Type type = layer->getLayerType();
+
+        if ( i == 0 )
+        {
+            if ( type != NLR::Layer::INPUT )
+                return;
+            _numInputs = layer->getSize();
+            continue;
+        }
+
+        if ( type != NLR::Layer::WEIGHTED_SUM && type != NLR::Layer::RELU )
+            return;
+    }
+
+    // Map every ReLU pre-activation variable to its (layer, neuron)
+    for ( unsigned i = 1; i < numberOfLayers; ++i )
+    {
+        const NLR::Layer *layer = _nlr->getLayer( i );
+        if ( layer->getLayerType() != NLR::Layer::WEIGHTED_SUM )
+            continue;
+
+        for ( unsigned j = 0; j < layer->getSize(); ++j )
+            if ( layer->neuronHasVariable( j ) )
+                _bVarToLayerNeuron[layer->neuronToVariable( j )] =
+                    Pair<unsigned, unsigned>( i, j );
+    }
+
+    // Map CaDiCaL variables to pre-activation variables through the PLCs
+    for ( const auto &pair : _varToPlc )
+    {
+        if ( pair.first == 0 || pair.second == nullptr )
+            continue;
+
+        const ReluConstraint *relu = dynamic_cast<const ReluConstraint *>( pair.second );
+        if ( !relu )
+            continue;
+
+        unsigned b = relu->getB();
+        if ( _bVarToLayerNeuron.exists( b ) )
+        {
+            _cadicalVarToBVar[pair.first] = b;
+            _bVarToCadicalVar[b] = pair.first;
+        }
+    }
+
+    _topologySupported = true;
+}
+
+void PrTransportCertifier::extractBoxAndMargins()
+{
+    if ( !_topologySupported )
+        return;
+
+    // Original input box X, by input position. The slide's tube must stay
+    // inside X, so all bounds are required finite
+    unsigned numInputVariables = _originalQuery->getNumInputVariables();
+    if ( numInputVariables != _numInputs )
+        return;
+
+    Map<unsigned, unsigned> inputVarToPosition;
+    _inputBox.clear();
+    for ( unsigned i = 0; i < _numInputs; ++i )
+    {
+        unsigned variable = _originalQuery->inputVariableByIndex( i );
+        double lb = _originalQuery->getLowerBound( variable );
+        double ub = _originalQuery->getUpperBound( variable );
+        if ( lb == FloatUtils::negativeInfinity() || ub == FloatUtils::infinity() )
+            return;
+
+        _inputBox.append( Interval{ lb, ub } );
+        inputVarToPosition[variable] = i;
+    }
+
+    Map<unsigned, unsigned> outputVarToPosition;
+    for ( unsigned i = 0; i < _originalQuery->getNumOutputVariables(); ++i )
+        outputVarToPosition[_originalQuery->outputVariableByIndex( i )] = i;
+
+    // Margin rows from finite bounds on output variables. R is defined by
+    // the ORIGINAL property constraints; preprocessed tightenings are
+    // consequences and need no preservation
+    _margins.clear();
+    for ( const auto &pair : outputVarToPosition )
+    {
+        unsigned variable = pair.first;
+        double lb = _originalQuery->getLowerBound( variable );
+        double ub = _originalQuery->getUpperBound( variable );
+
+        if ( lb != FloatUtils::negativeInfinity() )
+        {
+            MarginRow row;
+            row._addends.append( MarginAddend{ 1.0, false, pair.second } );
+            row._isLowerBounded = true;
+            _margins.append( row );
+        }
+        if ( ub != FloatUtils::infinity() )
+        {
+            MarginRow row;
+            row._addends.append( MarginAddend{ 1.0, false, pair.second } );
+            row._isLowerBounded = false;
+            _margins.append( row );
+        }
+    }
+
+    // Margin rows from GE/LE equations. EQ equations are network structure
+    // (a forward pass satisfies them identically). An inequality over
+    // anything but input/output variables cannot be tracked - disable SLIDE
+    for ( const Equation &equation : _originalQuery->getEquations() )
+    {
+        if ( equation._type == Equation::EQ )
+            continue;
+
+        MarginRow row;
+        row._isLowerBounded = ( equation._type == Equation::GE );
+        for ( const Equation::Addend &addend : equation._addends )
+        {
+            if ( inputVarToPosition.exists( addend._variable ) )
+                row._addends.append( MarginAddend{
+                    addend._coefficient, true, inputVarToPosition[addend._variable] } );
+            else if ( outputVarToPosition.exists( addend._variable ) )
+                row._addends.append( MarginAddend{
+                    addend._coefficient, false, outputVarToPosition[addend._variable] } );
+            else
+                return;
+        }
+        _margins.append( row );
+    }
+
+    _marginsSupported = true;
+}
+
+PrTransportCertifier::Interval PrTransportCertifier::evaluateAffine( const Affine &affine ) const
+{
+    double lo = affine._constant;
+    double hi = affine._constant;
+    for ( unsigned i = 0; i < _numInputs; ++i )
+    {
+        double c = affine._coeffs[i];
+        if ( c >= 0 )
+        {
+            lo += c * _inputBox[i]._lo;
+            hi += c * _inputBox[i]._hi;
+        }
+        else
+        {
+            lo += c * _inputBox[i]._hi;
+            hi += c * _inputBox[i]._lo;
+        }
+    }
+    return Interval{ lo, hi };
+}
+
+double PrTransportCertifier::affineMinOverBox( const Affine &affine ) const
+{
+    return evaluateAffine( affine )._lo;
+}
+
+bool PrTransportCertifier::runValuePass( const Map<unsigned, bool> &assertions,
+                                         Map<unsigned, Vector<NeuronBounds>> &layerBounds ) const
+{
+    unsigned numberOfLayers = _nlr->getNumberOfLayers();
+
+    for ( unsigned layerIndex = 0; layerIndex < numberOfLayers; ++layerIndex )
+    {
+        const NLR::Layer *layer = _nlr->getLayer( layerIndex );
+        unsigned size = layer->getSize();
+        Vector<NeuronBounds> bounds( size );
+
+        if ( layer->getLayerType() == NLR::Layer::INPUT )
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                Affine identity;
+                identity._constant = 0;
+                identity._coeffs = Vector<double>( _numInputs, 0 );
+                identity._coeffs[j] = 1.0;
+                bounds[j]._symLb = identity;
+                bounds[j]._symUb = identity;
+                bounds[j]._concrete = _inputBox[j];
+            }
+        }
+        else if ( layer->getLayerType() == NLR::Layer::WEIGHTED_SUM )
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                Affine lb;
+                Affine ub;
+                lb._constant = layer->getBias( j );
+                ub._constant = layer->getBias( j );
+                lb._coeffs = Vector<double>( _numInputs, 0 );
+                ub._coeffs = Vector<double>( _numInputs, 0 );
+
+                for ( const auto &source : layer->getSourceLayers() )
+                {
+                    unsigned sourceLayerIndex = source.first;
+                    const Vector<NeuronBounds> &sourceBounds = layerBounds[sourceLayerIndex];
+                    unsigned sourceSize = _nlr->getLayer( sourceLayerIndex )->getSize();
+
+                    for ( unsigned k = 0; k < sourceSize; ++k )
+                    {
+                        double w = layer->getWeight( sourceLayerIndex, k, j );
+                        if ( w == 0 )
+                            continue;
+
+                        const Affine &srcForLb =
+                            w >= 0 ? sourceBounds[k]._symLb : sourceBounds[k]._symUb;
+                        const Affine &srcForUb =
+                            w >= 0 ? sourceBounds[k]._symUb : sourceBounds[k]._symLb;
+
+                        lb._constant += w * srcForLb._constant;
+                        ub._constant += w * srcForUb._constant;
+                        for ( unsigned i = 0; i < _numInputs; ++i )
+                        {
+                            lb._coeffs[i] += w * srcForLb._coeffs[i];
+                            ub._coeffs[i] += w * srcForUb._coeffs[i];
+                        }
+                    }
+                }
+
+                bounds[j]._symLb = lb;
+                bounds[j]._symUb = ub;
+                Interval concrete{ evaluateAffine( lb )._lo, evaluateAffine( ub )._hi };
+
+                // Intersect with the engine's preprocessed bounds (entailed
+                // over R̄, which every certified tube stays inside) and with
+                // a phase assertion on this pre-activation. The result is
+                // valid on R̄ ∩ γ(αc), the domain of every certificate
+                if ( layer->neuronHasVariable( j ) )
+                {
+                    unsigned variable = layer->neuronToVariable( j );
+
+                    if ( _preprocessedQuery &&
+                         variable < _preprocessedQuery->getNumberOfVariables() )
+                    {
+                        concrete._lo =
+                            std::max( concrete._lo, _preprocessedQuery->getLowerBound( variable ) );
+                        concrete._hi =
+                            std::min( concrete._hi, _preprocessedQuery->getUpperBound( variable ) );
+                    }
+
+                    if ( assertions.exists( variable ) )
+                    {
+                        if ( assertions[variable] )
+                            concrete._lo = std::max( concrete._lo, 0.0 );
+                        else
+                            concrete._hi = std::min( concrete._hi, 0.0 );
+                    }
+                }
+
+                bounds[j]._concrete = concrete;
+            }
+        }
+        else // RELU
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                List<NLR::NeuronIndex> sources = layer->getActivationSources( j );
+                if ( sources.size() != 1 )
+                    return false;
+
+                NLR::NeuronIndex source = *sources.begin();
+                const NeuronBounds &in = layerBounds[source._layer][source._neuron];
+
+                int status;
+                if ( in._concrete._lo >= 0 )
+                    status = 1;
+                else if ( in._concrete._hi <= 0 )
+                    status = -1;
+                else
+                    status = 0;
+
+                if ( status == 1 )
+                {
+                    bounds[j] = in;
+                    bounds[j]._concrete._lo = std::max( in._concrete._lo, 0.0 );
+                }
+                else if ( status == -1 )
+                {
+                    Affine zero;
+                    zero._constant = 0;
+                    zero._coeffs = Vector<double>( _numInputs, 0 );
+                    bounds[j]._symLb = zero;
+                    bounds[j]._symUb = zero;
+                    bounds[j]._concrete = Interval{ 0, 0 };
+                }
+                else
+                {
+                    // DeepPoly triangle: relu(z) <= λ(z - l), λ = u/(u-l);
+                    // relu(z) >= α·z with α ∈ {0,1} by the larger side
+                    double l = in._concrete._lo;
+                    double u = in._concrete._hi;
+                    double lambda = u / ( u - l );
+
+                    Affine ub;
+                    ub._constant = lambda * ( in._symUb._constant - l );
+                    ub._coeffs = Vector<double>( _numInputs, 0 );
+                    for ( unsigned i = 0; i < _numInputs; ++i )
+                        ub._coeffs[i] = lambda * in._symUb._coeffs[i];
+
+                    Affine lb;
+                    if ( u >= -l )
+                    {
+                        lb = in._symLb;
+                    }
+                    else
+                    {
+                        lb._constant = 0;
+                        lb._coeffs = Vector<double>( _numInputs, 0 );
+                    }
+
+                    bounds[j]._symLb = lb;
+                    bounds[j]._symUb = ub;
+                    bounds[j]._concrete =
+                        Interval{ std::max( evaluateAffine( lb )._lo, 0.0 ), std::max( u, 0.0 ) };
+                }
+            }
+        }
+
+        layerBounds[layerIndex] = bounds;
+    }
+
+    return true;
+}
+
+PrTransportCertifier::Interval PrTransportCertifier::concretize( const GateForm &form )
+{
+    double spread = form._radius;
+    for ( unsigned g = 0; g < form._coeffs.size(); ++g )
+        spread += std::abs( form._coeffs[g] );
+    return Interval{ form._center - spread, form._center + spread };
+}
+
+unsigned PrTransportCertifier::indexGates( const Map<unsigned, bool> &assertions,
+                                           const Map<unsigned, Vector<NeuronBounds>> &layerBounds,
+                                           Map<unsigned, unsigned> &neuronKeyToGate ) const
+{
+    unsigned numGates = 0;
+    unsigned numberOfLayers = _nlr->getNumberOfLayers();
+
+    for ( unsigned layerIndex = 0; layerIndex < numberOfLayers; ++layerIndex )
+    {
+        const NLR::Layer *layer = _nlr->getLayer( layerIndex );
+        if ( layer->getLayerType() != NLR::Layer::RELU )
+            continue;
+
+        for ( unsigned j = 0; j < layer->getSize(); ++j )
+        {
+            List<NLR::NeuronIndex> sources = layer->getActivationSources( j );
+            NLR::NeuronIndex source = *sources.begin();
+            const NeuronBounds &inValue = layerBounds.at( source._layer )[source._neuron];
+
+            bool unstable = inValue._concrete._lo < 0 && inValue._concrete._hi > 0;
+
+            const NLR::Layer *sourceLayer = _nlr->getLayer( source._layer );
+            if ( sourceLayer->neuronHasVariable( source._neuron ) )
+            {
+                unsigned variable = sourceLayer->neuronToVariable( source._neuron );
+                if ( assertions.exists( variable ) )
+                    unstable = false;
+            }
+
+            if ( unstable )
+                neuronKeyToGate[source._layer * 100000 + source._neuron] = numGates++;
+        }
+    }
+
+    return numGates;
+}
+
+bool PrTransportCertifier::runDerivativePass(
+    const Vector<double> &direction,
+    const Map<unsigned, bool> &assertions,
+    const Map<unsigned, Vector<NeuronBounds>> &layerBounds,
+    const Map<unsigned, unsigned> &neuronKeyToGate,
+    unsigned numGates,
+    Map<unsigned, Vector<GateForm>> &layerDerivatives ) const
+{
+    unsigned numberOfLayers = _nlr->getNumberOfLayers();
+
+    for ( unsigned layerIndex = 0; layerIndex < numberOfLayers; ++layerIndex )
+    {
+        const NLR::Layer *layer = _nlr->getLayer( layerIndex );
+        unsigned size = layer->getSize();
+        Vector<GateForm> derivatives( size );
+
+        if ( layer->getLayerType() == NLR::Layer::INPUT )
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                derivatives[j]._center = direction[j];
+                derivatives[j]._coeffs = Vector<double>( numGates, 0 );
+                derivatives[j]._radius = 0;
+            }
+        }
+        else if ( layer->getLayerType() == NLR::Layer::WEIGHTED_SUM )
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                GateForm sum;
+                sum._center = 0;
+                sum._coeffs = Vector<double>( numGates, 0 );
+                sum._radius = 0;
+
+                for ( const auto &source : layer->getSourceLayers() )
+                {
+                    unsigned sourceLayerIndex = source.first;
+                    const Vector<GateForm> &sourceDerivatives =
+                        layerDerivatives[sourceLayerIndex];
+                    unsigned sourceSize = _nlr->getLayer( sourceLayerIndex )->getSize();
+
+                    for ( unsigned k = 0; k < sourceSize; ++k )
+                    {
+                        double w = layer->getWeight( sourceLayerIndex, k, j );
+                        if ( w == 0 )
+                            continue;
+
+                        const GateForm &d = sourceDerivatives[k];
+                        sum._center += w * d._center;
+                        sum._radius += std::abs( w ) * d._radius;
+                        for ( unsigned g = 0; g < numGates; ++g )
+                            sum._coeffs[g] += w * d._coeffs[g];
+                    }
+                }
+                derivatives[j] = sum;
+            }
+        }
+        else // RELU
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                List<NLR::NeuronIndex> sources = layer->getActivationSources( j );
+                if ( sources.size() != 1 )
+                    return false;
+
+                NLR::NeuronIndex source = *sources.begin();
+                const GateForm &in = layerDerivatives[source._layer][source._neuron];
+                const NeuronBounds &inValue = layerBounds.at( source._layer )[source._neuron];
+
+                int status;
+                if ( inValue._concrete._lo >= 0 )
+                    status = 1;
+                else if ( inValue._concrete._hi <= 0 )
+                    status = -1;
+                else
+                    status = 0;
+
+                const NLR::Layer *sourceLayer = _nlr->getLayer( source._layer );
+                if ( sourceLayer->neuronHasVariable( source._neuron ) )
+                {
+                    unsigned variable = sourceLayer->neuronToVariable( source._neuron );
+                    if ( assertions.exists( variable ) )
+                        status = assertions[variable] ? 1 : -1;
+                }
+
+                if ( status == 1 )
+                {
+                    derivatives[j] = in;
+                }
+                else if ( status == -1 )
+                {
+                    derivatives[j]._center = 0;
+                    derivatives[j]._coeffs = Vector<double>( numGates, 0 );
+                    derivatives[j]._radius = 0;
+                }
+                else
+                {
+                    // δ_out = σ'·δ_in with σ' = 1/2 + 1/2·e_g. The center's
+                    // product with e_g stays linear; the symbol-symbol and
+                    // symbol-radius cross-terms go to the radius
+                    unsigned gate = neuronKeyToGate[source._layer * 100000 + source._neuron];
+
+                    double coeffMass = 0;
+                    for ( unsigned g = 0; g < numGates; ++g )
+                        coeffMass += std::abs( in._coeffs[g] );
+
+                    GateForm out;
+                    out._center = 0.5 * in._center;
+                    out._coeffs = Vector<double>( numGates, 0 );
+                    for ( unsigned g = 0; g < numGates; ++g )
+                        out._coeffs[g] = 0.5 * in._coeffs[g];
+                    out._coeffs[gate] += 0.5 * in._center;
+                    out._radius = in._radius + 0.5 * coeffMass;
+
+                    derivatives[j] = out;
+                }
+            }
+        }
+
+        layerDerivatives[layerIndex] = derivatives;
+    }
+
+    return true;
+}
+
+bool PrTransportCertifier::exactForward( const Vector<double> &point,
+                                         Map<unsigned, Vector<double>> &layerValues ) const
+{
+    unsigned numberOfLayers = _nlr->getNumberOfLayers();
+
+    for ( unsigned layerIndex = 0; layerIndex < numberOfLayers; ++layerIndex )
+    {
+        const NLR::Layer *layer = _nlr->getLayer( layerIndex );
+        unsigned size = layer->getSize();
+        Vector<double> values( size, 0 );
+
+        if ( layer->getLayerType() == NLR::Layer::INPUT )
+        {
+            for ( unsigned j = 0; j < size; ++j )
+                values[j] = point[j];
+        }
+        else if ( layer->getLayerType() == NLR::Layer::WEIGHTED_SUM )
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                double sum = layer->getBias( j );
+                for ( const auto &source : layer->getSourceLayers() )
+                {
+                    const Vector<double> &sourceValues = layerValues[source.first];
+                    unsigned sourceSize = _nlr->getLayer( source.first )->getSize();
+                    for ( unsigned k = 0; k < sourceSize; ++k )
+                        sum += layer->getWeight( source.first, k, j ) * sourceValues[k];
+                }
+                values[j] = sum;
+            }
+        }
+        else // RELU
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                List<NLR::NeuronIndex> sources = layer->getActivationSources( j );
+                if ( sources.size() != 1 )
+                    return false;
+                NLR::NeuronIndex source = *sources.begin();
+                values[j] = std::max( 0.0, layerValues[source._layer][source._neuron] );
+            }
+        }
+
+        layerValues[layerIndex] = values;
+    }
+
+    return true;
+}
+
+void PrTransportCertifier::exactJvp( const Vector<double> &direction,
+                                     const Map<unsigned, Vector<double>> &layerValues,
+                                     Map<unsigned, Vector<double>> &layerDerivatives ) const
+{
+    unsigned numberOfLayers = _nlr->getNumberOfLayers();
+
+    for ( unsigned layerIndex = 0; layerIndex < numberOfLayers; ++layerIndex )
+    {
+        const NLR::Layer *layer = _nlr->getLayer( layerIndex );
+        unsigned size = layer->getSize();
+        Vector<double> derivatives( size, 0 );
+
+        if ( layer->getLayerType() == NLR::Layer::INPUT )
+        {
+            for ( unsigned j = 0; j < size; ++j )
+                derivatives[j] = direction[j];
+        }
+        else if ( layer->getLayerType() == NLR::Layer::WEIGHTED_SUM )
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                double sum = 0;
+                for ( const auto &source : layer->getSourceLayers() )
+                {
+                    const Vector<double> &sourceDerivatives = layerDerivatives[source.first];
+                    unsigned sourceSize = _nlr->getLayer( source.first )->getSize();
+                    for ( unsigned k = 0; k < sourceSize; ++k )
+                        sum += layer->getWeight( source.first, k, j ) * sourceDerivatives[k];
+                }
+                derivatives[j] = sum;
+            }
+        }
+        else // RELU
+        {
+            for ( unsigned j = 0; j < size; ++j )
+            {
+                List<NLR::NeuronIndex> sources = layer->getActivationSources( j );
+                NLR::NeuronIndex source = *sources.begin();
+                double gate = layerValues.at( source._layer )[source._neuron] > 0 ? 1.0 : 0.0;
+                derivatives[j] = gate * layerDerivatives[source._layer][source._neuron];
+            }
+        }
+
+        layerDerivatives[layerIndex] = derivatives;
+    }
+}
+
+int PrTransportCertifier::diagnoseBySampling( const Set<int> &cube,
+                                              unsigned autarkyBVar,
+                                              int polarity,
+                                              Vector<double> &witnessPoint,
+                                              unsigned &witnessDirection ) const
+{
+    static const unsigned NUM_SAMPLES = 5;
+    static const unsigned MAX_TRIES = 20000;
+    static const double EPSILON = 1e-9;
+
+    std::mt19937 generator( 1 );
+    std::uniform_real_distribution<double> uniform( 0.0, 1.0 );
+
+    unsigned outputLayerIndex = _nlr->getNumberOfLayers() - 1;
+
+    // Per (coordinate, sign) direction: still sample-consistent for T1+T2?
+    Vector<unsigned> directionAlive( 2 * _numInputs, 1 );
+
+    unsigned samplesFound = 0;
+    for ( unsigned tries = 0; tries < MAX_TRIES && samplesFound < NUM_SAMPLES; ++tries )
+    {
+        Vector<double> point( _numInputs, 0 );
+        for ( unsigned i = 0; i < _numInputs; ++i )
+            point[i] =
+                _inputBox[i]._lo + uniform( generator ) * ( _inputBox[i]._hi - _inputBox[i]._lo );
+
+        Map<unsigned, Vector<double>> layerValues;
+        if ( !exactForward( point, layerValues ) )
+            return 0;
+
+        // Cube membership: every cube literal's pre-activation on its side
+        bool inside = true;
+        for ( int lit : cube )
+        {
+            unsigned var = (unsigned)abs( lit );
+            if ( !_cadicalVarToBVar.exists( var ) )
+                return 0;
+            Pair<unsigned, unsigned> neuron = _bVarToLayerNeuron[_cadicalVarToBVar[var]];
+            double value = layerValues[neuron.first()][neuron.second()];
+            if ( lit > 0 ? value < 0 : value > 0 )
+            {
+                inside = false;
+                break;
+            }
+        }
+        if ( !inside )
+            continue;
+
+        ++samplesFound;
+        if ( samplesFound == 1 )
+            witnessPoint = point;
+        Pair<unsigned, unsigned> autarkyNeuron = _bVarToLayerNeuron[autarkyBVar];
+
+        // One JVP per coordinate; the two signed directions negate it
+        for ( unsigned i = 0; i < _numInputs; ++i )
+        {
+            Vector<double> direction( _numInputs, 0 );
+            direction[i] = 1.0;
+
+            Map<unsigned, Vector<double>> layerDerivatives;
+            exactJvp( direction, layerValues, layerDerivatives );
+
+            for ( int sign = -1; sign <= 1; sign += 2 )
+            {
+                unsigned directionIndex = 2 * i + ( sign > 0 ? 1 : 0 );
+                if ( !directionAlive[directionIndex] )
+                    continue;
+
+                double factor = (double)sign;
+
+                // T1 at the sample: strict move toward the trail phase
+                double crossing =
+                    factor * layerDerivatives[autarkyNeuron.first()][autarkyNeuron.second()];
+                if ( ( polarity > 0 ? crossing : -crossing ) <= EPSILON )
+                {
+                    directionAlive[directionIndex] = 0;
+                    continue;
+                }
+
+                // T2 at the sample: margins non-decreasing
+                for ( const MarginRow &row : _margins )
+                {
+                    double rowDerivative = 0;
+                    for ( const MarginAddend &addend : row._addends )
+                    {
+                        double term = addend._isInput
+                                        ? factor * direction[addend._position]
+                                        : factor * layerDerivatives[outputLayerIndex]
+                                                                   [addend._position];
+                        rowDerivative += addend._coefficient * term;
+                    }
+                    if ( row._isLowerBounded ? rowDerivative < -EPSILON
+                                             : rowDerivative > EPSILON )
+                    {
+                        directionAlive[directionIndex] = 0;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if ( samplesFound == 0 )
+        return 0;
+
+    for ( unsigned i = 0; i < 2 * _numInputs; ++i )
+        if ( directionAlive[i] )
+        {
+            witnessDirection = i;
+            return 1;
+        }
+
+    return -1;
+}
+
+bool PrTransportCertifier::checkSlideDirection(
+    const Map<unsigned, bool> &assertions,
+    const Map<unsigned, Vector<NeuronBounds>> &layerBounds,
+    const Map<unsigned, unsigned> &neuronKeyToGate,
+    unsigned numGates,
+    unsigned autarkyBVar,
+    unsigned autarkyVar,
+    int polarity,
+    const Map<unsigned, int> &flipPolarity,
+    const Vector<double> &direction,
+    double &t1Ratio,
+    double &t2Ratio,
+    unsigned &stageReached,
+    GateForm *failingFormOut ) const
+{
+    static const double DIRECTION_EPSILON = 1e-9;
+
+    stageReached = 0;
+    t1Ratio = -1e9;
+    t2Ratio = -1e9;
+
+    Pair<unsigned, unsigned> autarkyNeuron = _bVarToLayerNeuron[autarkyBVar];
+    unsigned outputLayerIndex = _nlr->getNumberOfLayers() - 1;
+
+    Map<unsigned, Vector<GateForm>> layerDerivatives;
+    if ( !runDerivativePass(
+             direction, assertions, layerBounds, neuronKeyToGate, numGates, layerDerivatives ) )
+        return false;
+
+    // (T1) certified crossing rate toward the trail phase
+    const GateForm &autarkyForm =
+        layerDerivatives[autarkyNeuron.first()][autarkyNeuron.second()];
+    Interval autarkyDerivative = concretize( autarkyForm );
+
+    double spread = autarkyDerivative._hi - autarkyForm._center;
+    double oriented = polarity > 0 ? autarkyForm._center : -autarkyForm._center;
+    t1Ratio = spread > 0 ? oriented / spread : ( oriented > 0 ? 999.0 : -999.0 );
+
+    double rate = polarity > 0 ? autarkyDerivative._lo : -autarkyDerivative._hi;
+    if ( rate <= 0 )
+    {
+        if ( failingFormOut )
+            *failingFormOut = autarkyForm;
+        return false;
+    }
+    stageReached = 1;
+
+    // (T2) property margins never decrease along the slide
+    for ( const MarginRow &row : _margins )
+    {
+        GateForm rowForm;
+        rowForm._center = 0;
+        rowForm._coeffs = Vector<double>( numGates, 0 );
+        rowForm._radius = 0;
+
+        for ( const MarginAddend &addend : row._addends )
+        {
+            if ( addend._isInput )
+            {
+                rowForm._center += addend._coefficient * direction[addend._position];
+            }
+            else
+            {
+                const GateForm &term = layerDerivatives[outputLayerIndex][addend._position];
+                rowForm._center += addend._coefficient * term._center;
+                rowForm._radius += std::abs( addend._coefficient ) * term._radius;
+                for ( unsigned g = 0; g < numGates; ++g )
+                    rowForm._coeffs[g] += addend._coefficient * term._coeffs[g];
+            }
+        }
+
+        Interval rowDerivative = concretize( rowForm );
+        if ( row._isLowerBounded ? rowDerivative._lo < 0 : rowDerivative._hi > 0 )
+        {
+            double rowSpread = rowDerivative._hi - rowForm._center;
+            double rowOriented = row._isLowerBounded ? rowForm._center : -rowForm._center;
+            t2Ratio = rowSpread > 0 ? rowOriented / rowSpread
+                                    : ( rowOriented > 0 ? 999.0 : -999.0 );
+            if ( failingFormOut )
+                *failingFormOut = rowForm;
+            return false;
+        }
+    }
+    stageReached = 2;
+
+    // (T3) the per-point crossing distance t(x) = gap(x)/rate fits inside
+    // the box along every moving coordinate:
+    //   d_i > 0:  rate·(U_i - x_i) - d_i·gap(x) ≥ 0 on X
+    //   d_i < 0:  rate·(x_i - L_i) + d_i·gap(x) ≥ 0 on X  (d_i·gap ≤ 0)
+    const NeuronBounds &autarkyBounds =
+        layerBounds.at( autarkyNeuron.first() )[autarkyNeuron.second()];
+    const Affine &gapBound = polarity > 0 ? autarkyBounds._symLb : autarkyBounds._symUb;
+    double gapSign = polarity > 0 ? 1.0 : -1.0;
+
+    for ( unsigned i = 0; i < _numInputs; ++i )
+    {
+        if ( std::abs( direction[i] ) <= DIRECTION_EPSILON )
+            continue;
+
+        Affine phi;
+        phi._coeffs = Vector<double>( _numInputs, 0 );
+
+        if ( direction[i] > 0 )
+        {
+            phi._constant = rate * _inputBox[i]._hi;
+            phi._coeffs[i] = -rate;
+        }
+        else
+        {
+            phi._constant = -rate * _inputBox[i]._lo;
+            phi._coeffs[i] = rate;
+        }
+
+        double scale = std::abs( direction[i] ) * gapSign;
+        phi._constant += scale * gapBound._constant;
+        for ( unsigned k = 0; k < _numInputs; ++k )
+            phi._coeffs[k] += scale * gapBound._coeffs[k];
+
+        if ( affineMinOverBox( phi ) < 0 )
+        {
+            if ( failingFormOut )
+                *failingFormOut = autarkyForm; // pins tighten the gap bound too
+            return false;
+        }
+    }
+    stageReached = 3;
+
+    // (T4a) every asserted phase (condition and pins) must not cross;
+    // (T4b) autarky vars must not cross against their global flip polarity
+    for ( const auto &assertion : assertions )
+    {
+        Pair<unsigned, unsigned> neuron = _bVarToLayerNeuron[assertion.first];
+        const GateForm &form = layerDerivatives[neuron.first()][neuron.second()];
+        Interval d = concretize( form );
+        if ( assertion.second ? d._lo < 0 : d._hi > 0 )
+        {
+            if ( failingFormOut )
+                *failingFormOut = form;
+            return false;
+        }
+    }
+
+    for ( const auto &entry : flipPolarity )
+    {
+        if ( entry.first == autarkyVar )
+            continue;
+        if ( !_cadicalVarToBVar.exists( entry.first ) )
+            return false;
+
+        unsigned bVar = _cadicalVarToBVar[entry.first];
+        Pair<unsigned, unsigned> neuron = _bVarToLayerNeuron[bVar];
+        const GateForm &form = layerDerivatives[neuron.first()][neuron.second()];
+        Interval d = concretize( form );
+        const Interval &value = layerBounds.at( neuron.first() )[neuron.second()]._concrete;
+
+        bool ok = entry.second > 0 ? ( value._hi <= 0 || d._lo >= 0 )
+                                   : ( value._lo >= 0 || d._hi <= 0 );
+        if ( !ok )
+        {
+            if ( failingFormOut )
+                *failingFormOut = form;
+            return false;
+        }
+    }
+
+    stageReached = 4;
+    return true;
+}
+
+List<Vector<double>> PrTransportCertifier::buildWitnessDirections(
+    const Vector<double> &witnessPoint,
+    unsigned autarkyBVar,
+    int polarity ) const
+{
+    List<Vector<double>> directions;
+
+    Map<unsigned, Vector<double>> witnessValues;
+    if ( !exactForward( witnessPoint, witnessValues ) )
+        return directions;
+
+    Pair<unsigned, unsigned> autarkyNeuron = _bVarToLayerNeuron[autarkyBVar];
+    unsigned outputLayerIndex = _nlr->getNumberOfLayers() - 1;
+
+    // Exact cell gradients from one JVP per input coordinate
+    Vector<double> crossingGradient( _numInputs, 0 );
+    List<Vector<double>> marginGradients; // oriented: slide needs d·m ≥ 0
+    for ( unsigned r = 0; r < _margins.size(); ++r )
+        marginGradients.append( Vector<double>( _numInputs, 0 ) );
+
+    for ( unsigned i = 0; i < _numInputs; ++i )
+    {
+        Vector<double> unit( _numInputs, 0 );
+        unit[i] = 1.0;
+        Map<unsigned, Vector<double>> layerDerivatives;
+        exactJvp( unit, witnessValues, layerDerivatives );
+
+        crossingGradient[i] =
+            layerDerivatives[autarkyNeuron.first()][autarkyNeuron.second()];
+
+        unsigned rowIndex = 0;
+        for ( const MarginRow &row : _margins )
+        {
+            double value = 0;
+            for ( const MarginAddend &addend : row._addends )
+            {
+                double term = addend._isInput
+                                ? ( addend._position == i ? 1.0 : 0.0 )
+                                : layerDerivatives[outputLayerIndex][addend._position];
+                value += addend._coefficient * term;
+            }
+
+            auto it = marginGradients.begin();
+            std::advance( it, rowIndex );
+            ( *it )[i] = row._isLowerBounded ? value : -value;
+            ++rowIndex;
+        }
+    }
+
+    // d1: the oriented crossing gradient (steepest crossing)
+    Vector<double> d1( _numInputs, 0 );
+    double norm = 0;
+    for ( unsigned i = 0; i < _numInputs; ++i )
+    {
+        d1[i] = polarity > 0 ? crossingGradient[i] : -crossingGradient[i];
+        norm = std::max( norm, std::abs( d1[i] ) );
+    }
+    if ( norm <= 0 )
+        return directions;
+    for ( unsigned i = 0; i < _numInputs; ++i )
+        d1[i] /= norm;
+    directions.append( d1 );
+
+    // d2: d1 with the margin-violating components projected out
+    Vector<double> d2 = d1;
+    for ( const Vector<double> &m : marginGradients )
+    {
+        double dot = 0;
+        double mm = 0;
+        for ( unsigned i = 0; i < _numInputs; ++i )
+        {
+            dot += d2[i] * m[i];
+            mm += m[i] * m[i];
+        }
+        if ( dot < 0 && mm > 0 )
+            for ( unsigned i = 0; i < _numInputs; ++i )
+                d2[i] -= ( dot / mm ) * m[i];
+    }
+    norm = 0;
+    for ( unsigned i = 0; i < _numInputs; ++i )
+        norm = std::max( norm, std::abs( d2[i] ) );
+    if ( norm > 0 )
+    {
+        for ( unsigned i = 0; i < _numInputs; ++i )
+            d2[i] /= norm;
+        directions.append( d2 );
+    }
+
+    // d3: d2 biased toward the margins, trading crossing rate for slack
+    if ( norm > 0 && !marginGradients.empty() )
+    {
+        Vector<double> d3 = d2;
+        for ( const Vector<double> &m : marginGradients )
+        {
+            double mNorm = 0;
+            for ( unsigned i = 0; i < _numInputs; ++i )
+                mNorm = std::max( mNorm, std::abs( m[i] ) );
+            if ( mNorm <= 0 )
+                continue;
+            for ( unsigned i = 0; i < _numInputs; ++i )
+                d3[i] += 0.25 * m[i] / mNorm;
+        }
+        double d3Norm = 0;
+        for ( unsigned i = 0; i < _numInputs; ++i )
+            d3Norm = std::max( d3Norm, std::abs( d3[i] ) );
+        if ( d3Norm > 0 )
+        {
+            for ( unsigned i = 0; i < _numInputs; ++i )
+                d3[i] /= d3Norm;
+            directions.append( d3 );
+        }
+    }
+
+    return directions;
+}
+
+bool PrTransportCertifier::tryStrengthen( const PrCandidate &candidate,
+                                          Map<unsigned, bool> assertions,
+                                          const Map<unsigned, int> &flipPolarity,
+                                          unsigned autarkyBVar,
+                                          int polarity,
+                                          const Vector<double> &witnessPoint,
+                                          const Vector<double> &direction,
+                                          List<int> &pins ) const
+{
+    static const unsigned PIN_BUDGET = 40;
+
+    // Gate phases at the witness point decide the pin polarity
+    Map<unsigned, Vector<double>> witnessValues;
+    if ( !exactForward( witnessPoint, witnessValues ) )
+        return false;
+
+    unsigned autarkyVar = (unsigned)abs( candidate._autarkyLit );
+
+    for ( unsigned round = 0; round <= PIN_BUDGET; ++round )
+    {
+        Map<unsigned, Vector<NeuronBounds>> layerBounds;
+        if ( !runValuePass( assertions, layerBounds ) )
+            return false;
+
+        Map<unsigned, unsigned> neuronKeyToGate;
+        unsigned numGates = indexGates( assertions, layerBounds, neuronKeyToGate );
+
+        double t1Ratio;
+        double t2Ratio;
+        unsigned stageReached;
+        GateForm failingForm;
+        failingForm._coeffs = Vector<double>( numGates, 0 );
+
+        if ( checkSlideDirection( assertions,
+                                  layerBounds,
+                                  neuronKeyToGate,
+                                  numGates,
+                                  autarkyBVar,
+                                  autarkyVar,
+                                  polarity,
+                                  flipPolarity,
+                                  direction,
+                                  t1Ratio,
+                                  t2Ratio,
+                                  stageReached,
+                                  &failingForm ) )
+            return true;
+
+        if ( round == PIN_BUDGET || failingForm._coeffs.size() != numGates )
+            return false;
+
+        // Pin the most influential unstable gate of the failing form to its
+        // phase at the witness point
+        double bestInfluence = 0;
+        unsigned bestKey = 0;
+        bool found = false;
+        for ( const auto &gateEntry : neuronKeyToGate )
+        {
+            double influence = std::abs( failingForm._coeffs[gateEntry.second] );
+            if ( influence <= bestInfluence )
+                continue;
+
+            unsigned layerIndex = gateEntry.first / 100000;
+            unsigned neuron = gateEntry.first % 100000;
+            const NLR::Layer *layer = _nlr->getLayer( layerIndex );
+            if ( !layer->neuronHasVariable( neuron ) )
+                continue;
+            unsigned bVar = layer->neuronToVariable( neuron );
+            if ( !_bVarToCadicalVar.exists( bVar ) || assertions.exists( bVar ) )
+                continue;
+
+            bestInfluence = influence;
+            bestKey = gateEntry.first;
+            found = true;
+        }
+
+        if ( !found )
+            return false;
+
+        unsigned layerIndex = bestKey / 100000;
+        unsigned neuron = bestKey % 100000;
+        unsigned bVar = _nlr->getLayer( layerIndex )->neuronToVariable( neuron );
+        bool activeAtWitness = witnessValues[layerIndex][neuron] > 0;
+
+        assertions[bVar] = activeAtWitness;
+        int cadicalVar = (int)_bVarToCadicalVar[bVar];
+        pins.append( activeAtWitness ? cadicalVar : -cadicalVar );
+    }
+
+    return false;
+}
+
+bool PrTransportCertifier::unitPropagationRefutesCube( const Vector<Set<int>> &pool,
+                                                       const Set<int> &cube ) const
+{
+    Map<unsigned, int> assignment; // var -> assigned literal
+    for ( int lit : cube )
+        assignment[(unsigned)abs( lit )] = lit;
+
+    bool changed = true;
+    while ( changed )
+    {
+        changed = false;
+        for ( const Set<int> &clause : pool )
+        {
+            int unassigned = 0;
+            unsigned numUnassigned = 0;
+            bool satisfied = false;
+
+            for ( int lit : clause )
+            {
+                unsigned var = (unsigned)abs( lit );
+                if ( assignment.exists( var ) )
+                {
+                    if ( assignment[var] == lit )
+                    {
+                        satisfied = true;
+                        break;
+                    }
+                }
+                else
+                {
+                    ++numUnassigned;
+                    unassigned = lit;
+                }
+            }
+
+            if ( satisfied )
+                continue;
+
+            if ( numUnassigned == 0 )
+                return true; // conflict: the cube is boolean-empty
+
+            if ( numUnassigned == 1 )
+            {
+                assignment[(unsigned)abs( unassigned )] = unassigned;
+                changed = true;
+            }
+        }
+    }
+
+    return false;
+}
+
+List<Set<int>> PrTransportCertifier::generateTransportClauses( unsigned &numEmitted )
+{
+    numEmitted = 0;
+    List<Set<int>> clauses;
+
+    if ( !_topologySupported || !_marginsSupported )
+        return clauses;
+
+    // The first weighted-sum layer: pre-activations are affine in the
+    // inputs, so crossing derivatives are exact
+    const NLR::Layer *firstLayer = _nlr->getLayer( 1 );
+    if ( firstLayer->getLayerType() != NLR::Layer::WEIGHTED_SUM )
+        return clauses;
+
+    Map<unsigned, bool> emptyAssertions;
+    Map<unsigned, Vector<NeuronBounds>> layerBounds;
+    if ( !runValuePass( emptyAssertions, layerBounds ) )
+        return clauses;
+
+    Map<unsigned, unsigned> neuronKeyToGate;
+    unsigned numGates = indexGates( emptyAssertions, layerBounds, neuronKeyToGate );
+
+    struct Emission
+    {
+        unsigned _cadicalVar;
+        int _polarity; // +1: fixed active, -1: fixed inactive
+        Vector<double> _direction;
+    };
+    List<Emission> emissions;
+    Map<unsigned, int> emittedPolarity; // the T4 measure map
+
+    // Greedy pass: for each first-layer neuron try both phase polarities,
+    // each with the crossing gradient (the neuron's weight row) and a
+    // margin-projected variant
+    for ( unsigned j = 0; j < firstLayer->getSize(); ++j )
+    {
+        if ( !firstLayer->neuronHasVariable( j ) )
+            continue;
+        unsigned bVar = firstLayer->neuronToVariable( j );
+        if ( !_bVarToCadicalVar.exists( bVar ) )
+            continue;
+        unsigned cadicalVar = _bVarToCadicalVar[bVar];
+
+        // Skip stable neurons: their fixing is entailed, not PR
+        const Interval &preActivation = layerBounds[1][j]._concrete;
+        if ( preActivation._lo >= 0 || preActivation._hi <= 0 )
+            continue;
+
+        Vector<double> weightRow( _numInputs, 0 );
+        double norm = 0;
+        for ( unsigned i = 0; i < _numInputs; ++i )
+        {
+            weightRow[i] = firstLayer->getWeight( 0, i, j );
+            norm = std::max( norm, std::abs( weightRow[i] ) );
+        }
+        if ( norm <= 0 )
+            continue;
+        for ( unsigned i = 0; i < _numInputs; ++i )
+            weightRow[i] /= norm;
+
+        bool emitted = false;
+        for ( int polarity = 1; polarity >= -1 && !emitted; polarity -= 2 )
+        {
+            // Crossing toward active slides along +w; toward inactive
+            // along -w
+            Vector<double> d1( _numInputs, 0 );
+            for ( unsigned i = 0; i < _numInputs; ++i )
+                d1[i] = polarity > 0 ? weightRow[i] : -weightRow[i];
+
+            List<Vector<double>> directions;
+            directions.append( d1 );
+
+            for ( const Vector<double> &direction : directions )
+            {
+                double t1Ratio;
+                double t2Ratio;
+                unsigned stageReached;
+                if ( checkSlideDirection( emptyAssertions,
+                                          layerBounds,
+                                          neuronKeyToGate,
+                                          numGates,
+                                          bVar,
+                                          cadicalVar,
+                                          polarity,
+                                          emittedPolarity,
+                                          direction,
+                                          t1Ratio,
+                                          t2Ratio,
+                                          stageReached,
+                                          nullptr ) )
+                {
+                    Emission emission;
+                    emission._cadicalVar = cadicalVar;
+                    emission._polarity = polarity;
+                    emission._direction = direction;
+                    emissions.append( emission );
+                    emittedPolarity[cadicalVar] = polarity;
+                    emitted = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Fixpoint re-verification: earlier emissions were checked against a
+    // smaller measure map; drop any emission whose slide crosses a later
+    // one against its polarity, and repeat until stable
+    bool changed = true;
+    while ( changed )
+    {
+        changed = false;
+        List<Emission> surviving;
+        for ( const Emission &emission : emissions )
+        {
+            double t1Ratio;
+            double t2Ratio;
+            unsigned stageReached;
+            if ( checkSlideDirection( emptyAssertions,
+                                      layerBounds,
+                                      neuronKeyToGate,
+                                      numGates,
+                                      _cadicalVarToBVar[emission._cadicalVar],
+                                      emission._cadicalVar,
+                                      emission._polarity,
+                                      emittedPolarity,
+                                      emission._direction,
+                                      t1Ratio,
+                                      t2Ratio,
+                                      stageReached,
+                                      nullptr ) )
+            {
+                surviving.append( emission );
+            }
+            else
+            {
+                emittedPolarity.erase( emission._cadicalVar );
+                changed = true;
+            }
+        }
+        emissions = surviving;
+    }
+
+    for ( const Emission &emission : emissions )
+    {
+        Set<int> clause;
+        clause.insert( emission._polarity > 0 ? (int)emission._cadicalVar
+                                              : -(int)emission._cadicalVar );
+        clauses.append( clause );
+    }
+
+    numEmitted = clauses.size();
+    return clauses;
+}
+
+List<Set<int>> PrTransportCertifier::certify( const List<PrCandidate> &candidates,
+                                              const Vector<Set<int>> &pool,
+                                              PrCertificationStats &stats )
+{
+    List<Set<int>> certified;
+    stats = PrCertificationStats();
+    stats._numCandidates = candidates.size();
+
+    bool slideAvailable = _topologySupported && _marginsSupported;
+
+    // Global flip-polarity map over autarky variables. Every slide flips
+    // its variable TOWARD this polarity, and (T4) forbids crossings against
+    // it, so the count of aligned autarky phases is the strictly increasing
+    // Theorem-2 measure. Candidates whose autarky literal disagrees with an
+    // earlier candidate's polarity are rejected: two slides flipping the
+    // same variable in opposite directions would break well-foundedness
+    Map<unsigned, int> flipPolarity; // var -> autarky literal polarity
+    for ( const PrCandidate &candidate : candidates )
+    {
+        unsigned var = (unsigned)abs( candidate._autarkyLit );
+        if ( !flipPolarity.exists( var ) )
+            flipPolarity[var] = candidate._autarkyLit > 0 ? 1 : -1;
+    }
+
+    for ( const PrCandidate &candidate : candidates )
+    {
+        // The pruned cube: condition literals plus the flipped autarky literal
+        Set<int> cube = candidate._condition;
+        cube.insert( -candidate._autarkyLit );
+
+        // VAC: the pruned cube is already refuted by the entailed pool.
+        // Sound regardless of geometry; adds no pruning beyond propagation
+        if ( unitPropagationRefutesCube( pool, cube ) )
+        {
+            ++stats._certifiedVac;
+            certified.append( candidate.toClause() );
+            continue;
+        }
+
+        if ( !slideAvailable )
+        {
+            ++stats._rejectedUnsupported;
+            continue;
+        }
+
+        unsigned autarkyVar = (unsigned)abs( candidate._autarkyLit );
+        int polarity = candidate._autarkyLit > 0 ? 1 : -1;
+        if ( flipPolarity[autarkyVar] != polarity )
+        {
+            ++stats._rejectedPolarity;
+            continue;
+        }
+
+        // Map the autarky variable and all scoped variables to pre-activations
+        if ( !_cadicalVarToBVar.exists( autarkyVar ) )
+        {
+            ++stats._rejectedUnsupported;
+            continue;
+        }
+        unsigned autarkyBVar = _cadicalVarToBVar[autarkyVar];
+        Pair<unsigned, unsigned> autarkyNeuron = _bVarToLayerNeuron[autarkyBVar];
+
+        // Phase assertions of the condition αc; the flip variable is left
+        // free (the tube crosses its hyperplane)
+        Map<unsigned, bool> assertions;
+        bool unmapped = false;
+        for ( int lit : candidate._condition )
+        {
+            unsigned var = (unsigned)abs( lit );
+            if ( !_cadicalVarToBVar.exists( var ) )
+            {
+                unmapped = true;
+                break;
+            }
+            assertions[_cadicalVarToBVar[var]] = lit > 0;
+        }
+        if ( unmapped )
+        {
+            ++stats._rejectedUnsupported;
+            continue;
+        }
+
+        Map<unsigned, Vector<NeuronBounds>> layerBounds;
+        if ( !runValuePass( assertions, layerBounds ) )
+        {
+            ++stats._rejectedUnsupported;
+            continue;
+        }
+
+        // Gate symbols for the derivative forms, fixed per candidate (they
+        // depend only on the assertions)
+        Map<unsigned, unsigned> neuronKeyToGate;
+        unsigned numGates = indexGates( assertions, layerBounds, neuronKeyToGate );
+
+        // Try coordinate directions; record the deepest condition reached
+        // for failure attribution, and how close the blocking form came to
+        // certifying (center/spread ratio; 1.0 certifies)
+        unsigned deepestStage = 0; // 1: T1 passed, 2: +T2, 3: +T3, 4: certified
+        bool candidateCertified = false;
+        double bestT1Ratio = -1e9;
+        double bestT2Ratio = -1e9;
+
+        for ( unsigned inputIndex = 0; inputIndex < _numInputs && !candidateCertified;
+              ++inputIndex )
+        {
+            for ( int sign = -1; sign <= 1 && !candidateCertified; sign += 2 )
+            {
+                Vector<double> direction( _numInputs, 0 );
+                direction[inputIndex] = (double)sign;
+
+                double t1Ratio;
+                double t2Ratio;
+                unsigned stageReached;
+                candidateCertified = checkSlideDirection( assertions,
+                                                          layerBounds,
+                                                          neuronKeyToGate,
+                                                          numGates,
+                                                          autarkyBVar,
+                                                          autarkyVar,
+                                                          polarity,
+                                                          flipPolarity,
+                                                          direction,
+                                                          t1Ratio,
+                                                          t2Ratio,
+                                                          stageReached,
+                                                          nullptr );
+                bestT1Ratio = std::max( bestT1Ratio, t1Ratio );
+                bestT2Ratio = std::max( bestT2Ratio, t2Ratio );
+                deepestStage = std::max( deepestStage, stageReached );
+            }
+        }
+
+        if ( candidateCertified )
+        {
+            ++stats._certifiedSlide;
+            certified.append( candidate.toClause() );
+        }
+        else
+        {
+            switch ( deepestStage )
+            {
+            case 0:
+                ++stats._rejectedT1;
+                stats._maxT1Ratio = std::max( stats._maxT1Ratio, bestT1Ratio );
+                if ( bestT1Ratio > 0.5 )
+                    ++stats._t1RatioAbove50;
+                else if ( bestT1Ratio > 0.2 )
+                    ++stats._t1RatioAbove20;
+                break;
+            case 1:
+                ++stats._rejectedT2;
+                stats._maxT2Ratio = std::max( stats._maxT2Ratio, bestT2Ratio );
+                if ( bestT2Ratio > 0.5 )
+                    ++stats._t2RatioAbove50;
+                else if ( bestT2Ratio > 0.2 )
+                    ++stats._t2RatioAbove20;
+                break;
+            case 2:
+                ++stats._rejectedT3;
+                break;
+            default:
+                ++stats._rejectedT4;
+                break;
+            }
+
+            // Attribute T1/T2 losses: precision (a direction is exact-sign
+            // consistent at every sampled cube point; tighter bounds could
+            // certify it) vs expressiveness (no direction is, so no
+            // single-direction slide exists at any precision)
+            if ( deepestStage <= 1 )
+            {
+                Vector<double> witnessPoint;
+                unsigned witnessDirection = 0;
+                int diagnosis =
+                    diagnoseBySampling( cube, autarkyBVar, polarity, witnessPoint,
+                                        witnessDirection );
+                if ( diagnosis > 0 )
+                {
+                    ++stats._diagnosedL2Gap;
+
+                    // Witness-gradient directions: tailored per candidate
+                    // from the exact cell gradients at the witness point,
+                    // so both the crossing and the margin centers are
+                    // oriented correctly by construction
+                    List<Vector<double>> witnessDirections =
+                        buildWitnessDirections( witnessPoint, autarkyBVar, polarity );
+
+                    bool directedCertified = false;
+                    const Vector<double> *bestDirection = nullptr;
+                    unsigned bestStage = 0;
+
+                    for ( const Vector<double> &direction : witnessDirections )
+                    {
+                        double t1Ratio;
+                        double t2Ratio;
+                        unsigned stageReached;
+                        if ( checkSlideDirection( assertions,
+                                                  layerBounds,
+                                                  neuronKeyToGate,
+                                                  numGates,
+                                                  autarkyBVar,
+                                                  autarkyVar,
+                                                  polarity,
+                                                  flipPolarity,
+                                                  direction,
+                                                  t1Ratio,
+                                                  t2Ratio,
+                                                  stageReached,
+                                                  nullptr ) )
+                        {
+                            certified.append( candidate.toClause() );
+                            ++stats._certifiedSlideDirected;
+                            directedCertified = true;
+                            break;
+                        }
+
+                        bestT1Ratio = std::max( bestT1Ratio, t1Ratio );
+                        bestT2Ratio = std::max( bestT2Ratio, t2Ratio );
+                        if ( stageReached >= bestStage )
+                        {
+                            bestStage = stageReached;
+                            bestDirection = &direction;
+                        }
+                    }
+
+                    // Certifiable-core strengthening on the best tailored
+                    // direction: pin influential gates to their witness
+                    // phase until the slide certifies, and emit the
+                    // candidate with the pins in its condition
+                    if ( !directedCertified && bestDirection )
+                    {
+                        List<int> pins;
+                        if ( tryStrengthen( candidate,
+                                            assertions,
+                                            flipPolarity,
+                                            autarkyBVar,
+                                            polarity,
+                                            witnessPoint,
+                                            *bestDirection,
+                                            pins ) )
+                        {
+                            PrCandidate strengthened = candidate;
+                            for ( int pin : pins )
+                                strengthened._condition.insert( pin );
+                            certified.append( strengthened.toClause() );
+
+                            ++stats._certifiedSlideCore;
+                            stats._totalPinsAdded += pins.size();
+                            if ( pins.size() > stats._maxPinsAdded )
+                                stats._maxPinsAdded = pins.size();
+                        }
+                    }
+                }
+                else if ( diagnosis < 0 )
+                    ++stats._diagnosedL1Dead;
+                else
+                    ++stats._diagnosedEmpty;
+            }
+        }
+    }
+
+    return certified;
+}

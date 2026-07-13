@@ -46,6 +46,15 @@ public:
     virtual int solve() = 0;
 
     /*
+      Bound the NEXT solve call to at most the given number of conflicts;
+      a bounded solve that hits the limit returns 0 (inconclusive). The
+      limit resets after each solve. Default: no-op (unbounded).
+    */
+    virtual void limitConflicts( int /* limit */ )
+    {
+    }
+
+    /*
       Get value (-lit=false, lit=true) of valid non-zero literal.
     */
     virtual int val( int lit ) = 0;

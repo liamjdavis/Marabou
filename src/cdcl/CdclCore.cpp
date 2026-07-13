@@ -61,6 +61,10 @@ CdclCore::CdclCore( IEngine *engine )
     , _prStopRequested( false )
     , _prConflictLimit( 0 )
     , _prConflictCount( 0 )
+    , _prPins()
+    , _prDepth( 0 )
+    , _prRootProps()
+    , _prCubeTimeLimit( 0 )
     , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
     _satSolverVarToPlc.insert( 0, NULL );
@@ -862,13 +866,25 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
     if ( Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH ) == "" &&
          Options::get()->getString( Options::NAP_EXTERNAL_CLAUSE_FILE_PATH2 ) == "" )
-        if ( _engine->solve( _timeoutInSeconds ) )
+    {
+        bool initialSolveResult = _engine->solve( _timeoutInSeconds );
+        if ( getenv( "PR_DEBUG" ) )
+        {
+            printf( "PR-debug: initial engine solve returned %d, exit code %d, "
+                    "timeout param %.1f\n",
+                    (int)initialSolveResult,
+                    (int)_engine->getExitCode(),
+                    _timeoutInSeconds );
+            fflush( stdout );
+        }
+        if ( initialSolveResult )
         {
             _engine->setExitCode( ExitCode::SAT );
             if ( GlobalConfiguration::WRITE_ALETHE_PROOF && !Options::get()->getBool( Options::DNC_MODE ) )
                 _engine->deleteProofIfExists();
             return true;
         }
+    }
 
     // Add the zero literal at the end
     if ( !_literalsToPropagate.empty() )
@@ -876,9 +892,39 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
     if ( !_externalClauseToAdd.empty() )
     {
-        ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
-        _engine->setExitCode( ExitCode::UNSAT );
-        return false;
+        // Declaring UNSAT here is sound only for a genuine ROOT conflict:
+        // every literal of the pending clause already falsified at root.
+        // Otherwise it is an ordinary lemma the engine's pre-solve deposited
+        // — leave it in the buffer (cb_has_external_clause delivers it to
+        // the SAT solver) and keep solving. Restarted runs (PR phase B and
+        // the debt recursion) reach this point with multi-literal lemmas and
+        // were previously declared UNSAT without any search.
+        bool rootConflict = true;
+        for ( int literal : _externalClauseToAdd )
+            if ( !isLiteralFixed( -literal ) )
+            {
+                rootConflict = false;
+                break;
+            }
+        if ( rootConflict )
+        {
+            if ( getenv( "PR_DEBUG" ) )
+            {
+                printf( "PR-debug: pending clause (size %u) is a root conflict - UNSAT\n",
+                        _externalClauseToAdd.size() );
+                fflush( stdout );
+            }
+            ASSERT( _engine->getExitCode() == ExitCode::NOT_DONE );
+            _engine->setExitCode( ExitCode::UNSAT );
+            return false;
+        }
+        if ( getenv( "PR_DEBUG" ) )
+        {
+            printf( "PR-debug: pending %u-literal lemma is not a root conflict - "
+                    "deferring to the SAT solver\n",
+                    _externalClauseToAdd.size() );
+            fflush( stdout );
+        }
     }
 
     Set<int> externalClause;
@@ -967,13 +1013,26 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
         printf( "Warning: PR clause preprocessing injects clauses that are not justified in the "
                 "produced proof; the proof may not check\n" );
 
-    // Snapshot root-level theory propagations so the restarted run can replay them
-    List<Pair<int, unsigned>> rootPropagations = _literalsToPropagate;
+    if ( _prDepth == 0 )
+    {
+        // Snapshot root-level theory propagations so restarted runs can replay them
+        _prRootProps = _literalsToPropagate;
+    }
+    else
+    {
+        // Recursive call on a pinned debt cube: fresh solver with the pins
+        // installed as unit clauses before Phase A starts.
+        prResetSolverWithClauses( Vector<Set<int>>() );
+    }
 
     struct timespec prStart = TimeUtils::sampleMicro();
     if ( _engine->getVerbosity() > 0 )
     {
-        printf( "PR: phase A - harvesting until %u conflicts are learned\n", _prConflictLimit );
+        printf( "PR[d%u]: phase A - harvesting until %u conflicts are learned "
+                "(%u pinned literals)\n",
+                _prDepth,
+                _prConflictLimit,
+                _prPins.size() );
         fflush( stdout );
     }
 
@@ -986,8 +1045,10 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
         _prLearner.stopHarvest();
         if ( _engine->getVerbosity() > 0 )
         {
-            printf( "PR: phase A concluded on its own (t=%.1fs)\n",
-                    TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6 );
+            printf( "PR[d%u]: phase A concluded on its own (t=%.1fs, exit code %d)\n",
+                    _prDepth,
+                    TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6,
+                    (int)_engine->getExitCode() );
             fflush( stdout );
         }
         return result;
@@ -996,13 +1057,16 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     ASSERT( _prStopRequested )
 
     List<Set<int>> prClauses = _prLearner.finalizeHarvest();
-    const Vector<Set<int>> &carry = _prLearner.getPoolClauses();
+    // Copy, not reference: recursion below swaps _prLearner, which would
+    // invalidate a reference into its pool.
+    Vector<Set<int>> carry = _prLearner.getPoolClauses();
     _prStopRequested = false;
 
     if ( _engine->getVerbosity() > 0 )
     {
-        printf( "PR: phase A done (t=%.1fs) - observed %u trails, harvested %u candidates; "
+        printf( "PR[d%u]: phase A done (t=%.1fs) - observed %u trails, harvested %u candidates; "
                 "carrying %u learned clauses, injecting %u PR clauses\n",
+                _prDepth,
                 TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6,
                 _prLearner.getNumObservedTrails(),
                 _prLearner.getNumHarvestedCandidates(),
@@ -1041,7 +1105,7 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
             writeClauseArray( "pr_clauses", prClauses );
             fprintf( f, ",\"root_units\": [" );
             bool first = true;
-            for ( const Pair<int, unsigned> &propagation : rootPropagations )
+            for ( const Pair<int, unsigned> &propagation : _prRootProps )
             {
                 if ( propagation.first() != 0 )
                 {
@@ -1058,24 +1122,16 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
         }
     }
 
-    // Restart: restore the engine to its initial state and rebuild the SAT solver
-    _shouldRestart = true;
-    notify_backtrack( 0 );
-    reset();
-
-    for ( const Pair<int, unsigned> &propagation : rootPropagations )
-        if ( propagation.first() != 0 )
-            _literalsToPropagate.append( propagation );
-
-    for ( const Set<int> &clause : carry )
-        _satSolver->addClause( clause );
-
+    // Restart: restore the engine to its initial state and rebuild the SAT
+    // solver with pins + carried entailed clauses + PR clauses.
+    prResetSolverWithClauses( carry );
     for ( const Set<int> &clause : prClauses )
         _satSolver->addClause( clause );
 
     if ( _engine->getVerbosity() > 0 )
     {
-        printf( "PR: phase B starting (t=%.1fs)\n",
+        printf( "PR[d%u]: phase B starting (t=%.1fs)\n",
+                _prDepth,
                 TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6 );
         fflush( stdout );
     }
@@ -1084,7 +1140,8 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
 
     if ( _engine->getVerbosity() > 0 )
     {
-        printf( "PR: phase B done (t=%.1fs, exit code %d)\n",
+        printf( "PR[d%u]: phase B done (t=%.1fs, exit code %d)\n",
+                _prDepth,
                 TimeUtils::timePassed( prStart, TimeUtils::sampleMicro() ) / 1e6,
                 (int)_engine->getExitCode() );
         fflush( stdout );
@@ -1095,36 +1152,37 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     // discharging their debt cubes before reporting UNSAT.
     if ( getenv( "PR_SOUND_DISCHARGE" ) && _engine->getExitCode() == ExitCode::UNSAT &&
          !prClauses.empty() )
-        return dischargePrDebt( prClauses, carry, rootPropagations );
+        return dischargePrDebt( prClauses, carry, timeoutInSeconds );
 
     return phaseBResult;
 }
 
-bool CdclCore::dischargePrDebt( const List<Set<int>> &prClauses,
-                                const Vector<Set<int>> &carry,
-                                const List<Pair<int, unsigned>> &rootPropagations )
+void CdclCore::prResetSolverWithClauses( const Vector<Set<int>> &clauses )
 {
-    if ( _engine->getVerbosity() > 0 )
-    {
-        printf( "PR-sound: phase C - discharging %u debt cubes\n", prClauses.size() );
-        fflush( stdout );
-    }
-
-    // Fresh solver holding ONLY entailed clauses: discharging a cube in the
-    // Phase-B solver would let uncertified PR clauses justify each other.
     _engine->setExitCode( ExitCode::NOT_DONE );
     _shouldRestart = true;
     notify_backtrack( 0 );
     reset();
 
-    for ( const Pair<int, unsigned> &propagation : rootPropagations )
+    for ( const Pair<int, unsigned> &propagation : _prRootProps )
         if ( propagation.first() != 0 )
             _literalsToPropagate.append( propagation );
 
-    for ( const Set<int> &clause : carry )
-        _satSolver->addClause( clause );
+    // Pins as unit clauses: root-fixed, so trail harvesting skips them and
+    // every deeper recursion level is guaranteed to pin fresh literals.
+    for ( int pin : _prPins )
+    {
+        Set<int> unit;
+        unit.insert( pin );
+        _satSolver->addClause( unit );
+    }
 
-    // Bookkeeping normally done by solveWithCDCL before the solve call.
+    for ( const Set<int> &clause : clauses )
+        _satSolver->addClause( clause );
+}
+
+void CdclCore::prSolveBookkeeping()
+{
     for ( const auto &pair : _literalsToPropagate )
     {
         _sncSplitLiterals.append( pair.first() );
@@ -1132,8 +1190,39 @@ bool CdclCore::dischargePrDebt( const List<Set<int>> &prClauses,
     }
     if ( !_literalsToPropagate.empty() )
         _literalsToPropagate.append( Pair<int, unsigned>( 0, _satSolver->getLevel() ) );
+}
 
-    unsigned certified = 0;
+bool CdclCore::dischargePrDebt( const List<Set<int>> &prClauses,
+                                const Vector<Set<int>> &carry,
+                                double timeoutInSeconds )
+{
+    unsigned cubeConflictBudget = 1000;
+    if ( const char *budgetStr = getenv( "PR_CUBE_CONFLICTS" ) )
+        cubeConflictBudget = (unsigned)atoi( budgetStr );
+    double cubeTimeBudget = 10.0;
+    if ( const char *timeStr = getenv( "PR_CUBE_SECONDS" ) )
+        cubeTimeBudget = atof( timeStr );
+
+    if ( _engine->getVerbosity() > 0 )
+    {
+        printf( "PR-sound[d%u]: phase C - discharging %u debt cubes "
+                "(budget %u conflicts / %.0fs per cube)\n",
+                _prDepth,
+                prClauses.size(),
+                cubeConflictBudget,
+                cubeTimeBudget );
+        fflush( stdout );
+    }
+
+    // Fresh solver holding ONLY entailed clauses (+ recursion pins):
+    // discharging a cube in the Phase-B solver would let uncertified PR
+    // clauses justify each other.
+    Vector<Set<int>> soundClauses = carry;
+    prResetSolverWithClauses( soundClauses );
+    prSolveBookkeeping();
+
+    unsigned certifiedDirect = 0;
+    unsigned certifiedRecursive = 0;
     unsigned index = 0;
     for ( const Set<int> &clause : prClauses )
     {
@@ -1144,52 +1233,124 @@ bool CdclCore::dischargePrDebt( const List<Set<int>> &prClauses,
         for ( int literal : clause )
             _satSolver->assume( -literal );
 
+        _satSolver->limitConflicts( (int)cubeConflictBudget );
+        _prCubeStart = TimeUtils::sampleMicro();
+        _prCubeTimeLimit = cubeTimeBudget;
+        // Theory solves inside the IPASIR-UP callbacks run with
+        // _timeoutInSeconds, measured against cumulative engine time — cap
+        // it at (elapsed + cube budget) so a single theory call cannot
+        // outlive the cube's wall-clock budget and starve the terminator.
+        double savedTimeout = _timeoutInSeconds;
+        if ( _statistics )
+            _timeoutInSeconds =
+                _statistics->getTotalTimeInMicro() / 1e6 + cubeTimeBudget;
         int result = _satSolver->solve();
+        _timeoutInSeconds = savedTimeout;
+        _prCubeTimeLimit = 0;
 
         if ( result == 20 )
         {
-            // Cube refuted: the clause is entailed given the clauses certified
-            // so far — promote it to a permanent (now legitimate) clause.
+            // Cube refuted within budget: the clause is entailed given the
+            // clauses certified so far — promote it to a permanent clause.
             _satSolver->addClause( clause );
-            ++certified;
-            if ( _engine->getVerbosity() > 0 && ( index % 10 == 0 || index == prClauses.size() ) )
-            {
-                printf( "PR-sound: certified %u/%u debt cubes\n", index, prClauses.size() );
-                fflush( stdout );
-            }
+            soundClauses.append( clause );
+            ++certifiedDirect;
+            notify_backtrack( 0 );
         }
         else if ( result == 10 || _engine->getExitCode() == ExitCode::SAT )
         {
             // Theory-checked model inside a pruned region: the region Phase B
             // deleted contained a genuine counterexample.
             if ( _engine->getVerbosity() > 0 )
-                printf( "PR-sound: debt cube %u/%u is SAT - genuine counterexample, "
+            {
+                printf( "PR-sound[d%u]: debt cube %u/%u is SAT - genuine counterexample, "
                         "overall answer is SAT\n",
+                        _prDepth,
                         index,
                         prClauses.size() );
+                fflush( stdout );
+            }
             _engine->setExitCode( ExitCode::SAT );
             return true;
         }
         else
         {
+            // Budget blown: the cube is hard. Recurse — run the full PR
+            // pipeline on the pinned subquery so the cube gets its own
+            // harvested clauses (its own fast pass + its own debts) instead
+            // of an unbounded entailed-only grind.
             if ( _engine->getVerbosity() > 0 )
-                printf( "PR-sound: debt cube %u/%u inconclusive (solver result %d) - "
-                        "UNSAT cannot be certified\n",
+            {
+                printf( "PR-sound[d%u]: debt cube %u/%u blew the budget - recursing\n",
+                        _prDepth,
                         index,
-                        prClauses.size(),
-                        result );
-            _engine->setExitCode( ExitCode::TIMEOUT );
-            return false;
+                        prClauses.size() );
+                fflush( stdout );
+            }
+
+            PrClauseLearner savedLearner = _prLearner;
+            _prLearner = PrClauseLearner();
+            Vector<int> savedPins = _prPins;
+            for ( int literal : clause )
+                _prPins.append( -literal );
+            ++_prDepth;
+
+            bool childResult = solveWithPrPreprocessedCDCL( timeoutInSeconds );
+
+            --_prDepth;
+            _prPins = savedPins;
+            _prLearner = savedLearner;
+
+            ExitCode childExit = _engine->getExitCode();
+            if ( childExit == ExitCode::SAT )
+                return childResult;
+            if ( childExit != ExitCode::UNSAT )
+            {
+                if ( _engine->getVerbosity() > 0 )
+                {
+                    printf( "PR-sound[d%u]: debt cube %u/%u inconclusive after recursion "
+                            "(exit code %d) - UNSAT cannot be certified\n",
+                            _prDepth,
+                            index,
+                            prClauses.size(),
+                            (int)childExit );
+                    fflush( stdout );
+                }
+                _engine->setExitCode( ExitCode::TIMEOUT );
+                return false;
+            }
+
+            // Cube certified by the recursion. The child trashed our
+            // discharge solver; rebuild it with everything certified so far.
+            soundClauses.append( clause );
+            ++certifiedRecursive;
+            prResetSolverWithClauses( soundClauses );
+            prSolveBookkeeping();
         }
 
-        // Return the theory engine to root level before the next cube.
-        notify_backtrack( 0 );
+        if ( _engine->getVerbosity() > 0 && ( index % 10 == 0 || index == prClauses.size() ) )
+        {
+            printf( "PR-sound[d%u]: certified %u/%u debt cubes (%u direct, %u recursive)\n",
+                    _prDepth,
+                    index,
+                    prClauses.size(),
+                    certifiedDirect,
+                    certifiedRecursive );
+            fflush( stdout );
+        }
     }
 
     if ( _engine->getVerbosity() > 0 )
-        printf( "PR-sound: phase C done - certified %u/%u PR clauses; UNSAT is sound\n",
-                certified,
-                prClauses.size() );
+    {
+        printf( "PR-sound[d%u]: phase C done - certified %u/%u PR clauses "
+                "(%u direct, %u recursive); UNSAT is sound\n",
+                _prDepth,
+                certifiedDirect + certifiedRecursive,
+                prClauses.size(),
+                certifiedDirect,
+                certifiedRecursive );
+        fflush( stdout );
+    }
     _engine->setExitCode( ExitCode::UNSAT );
     return false;
 }
@@ -1312,6 +1473,10 @@ bool CdclCore::terminate()
                        _satSolver->getLevel(),
                        _engine->getExitCode() != ExitCode::NOT_DONE )
                   .ascii() )
+    if ( _prCubeTimeLimit > 0 &&
+         TimeUtils::timePassed( _prCubeStart, TimeUtils::sampleMicro() ) / 1e6 >
+             _prCubeTimeLimit )
+        return true;
     return _prStopRequested || _engine->getExitCode() != ExitCode::NOT_DONE;
 }
 

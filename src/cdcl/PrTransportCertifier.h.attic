@@ -1,0 +1,367 @@
+/*********************                                                        */
+/*! \file PrTransportCertifier.h
+ ** \verbatim
+ ** Top contributors (to current version):
+ **   Liam Davis
+ ** This file is part of the Marabou project.
+ ** Copyright (c) 2017-2026 by the authors listed in the file AUTHORS
+ ** in the top-level source directory) and their institutional affiliations.
+ ** All rights reserved. See the file COPYING in the top-level source
+ ** directory for licensing information.\endverbatim
+ **
+ ** Sound certification of PR clause candidates by violation-preserving
+ ** transport ("A Sound and Relatively Complete Calculus for PR Clause
+ ** Validity"). A candidate (condition αc, autarky literal a at trail
+ ** polarity) prunes the cube K = γ(αc ∧ ¬a). It is CERTIFIED when the
+ ** calculus derives a must-edge out of K:
+ **
+ **   VAC:   unit propagation of the entailed pool refutes K (the pruned
+ **          cube is already boolean-empty; the clause is redundant
+ **          pruning, counted separately).
+ **   SLIDE: a fixed input direction d relocates every counterexample in K
+ **          across a's phase hyperplane into γ(αc ∧ a), certified by
+ **            (T1) the crossing pre-activation moves strictly toward the
+ **                 trail phase along d (certified rate r > 0),
+ **            (T2) every property margin is non-decreasing along d, so
+ **                 relocated points remain counterexamples,
+ **            (T3) the per-point crossing distance gap(x)/r fits inside
+ **                 the input box (a linear condition combining the
+ **                 symbolic bound on ẑ_a with the crossing rate),
+ **            (T4) no scoped phase (the candidate's own condition vars,
+ **                 and every candidate autarky var) can cross against its
+ **                 polarity, so relocation chains strictly increase the
+ **                 count of trail-polarity autarky phases and terminate
+ **                 (the Theorem-2 measure).
+ **
+ ** Certified clauses are sound to inject into any downstream solver, with
+ ** no guards, audits, or revalidation (fixpoint stability of transport
+ ** certificates). Rejected candidates cost pruning power only, never
+ ** soundness or completeness.
+ **
+ ** F# is self-contained, read off the NLR: a symbolic forward pass
+ ** (per-neuron affine bounds in the inputs over the original box X,
+ ** DeepPoly-style relaxation for unstable ReLUs, exact for phase-asserted
+ ** ones) for values, and an interval forward pass on the directional
+ ** derivative (JVP) for slopes. Supported topology: INPUT / WEIGHTED_SUM /
+ ** RELU layers; anything else disables SLIDE (VAC still applies).
+ **
+ ** Property margins are taken from the ORIGINAL (pre-preprocessing) query:
+ ** finite bounds on output variables plus GE/LE equations over
+ ** input/output variables. EQ equations are assumed to be network
+ ** structure (a forward pass satisfies them identically); vnnlib
+ ** properties compile to bounds and GE/LE rows. If an inequality mentions
+ ** any other variable, SLIDE is disabled globally (sound fallback).
+ **/
+
+#ifndef __PrTransportCertifier_h__
+#define __PrTransportCertifier_h__
+
+#include "List.h"
+#include "Map.h"
+#include "Pair.h"
+#include "PrClauseLearner.h"
+#include "Set.h"
+#include "Vector.h"
+
+#include <memory>
+
+class PiecewiseLinearConstraint;
+class Query;
+namespace NLR {
+class NetworkLevelReasoner;
+}
+
+struct PrCertificationStats
+{
+    unsigned _numCandidates = 0;
+    unsigned _certifiedVac = 0;
+    unsigned _certifiedSlide = 0;
+    unsigned _rejectedPolarity = 0;    // conflicting global flip polarity
+    unsigned _rejectedUnsupported = 0; // topology / margins / unmapped var
+    unsigned _rejectedT1 = 0;          // no direction with certified crossing rate
+    unsigned _rejectedT2 = 0;          // some property margin may decrease
+    unsigned _rejectedT3 = 0;          // crossing distance may exit the input box
+    unsigned _rejectedT4 = 0;          // a scoped phase may cross against polarity
+
+    /*
+      Sampling diagnosis of T1/T2 rejections: exact derivatives at sampled
+      cube points decide whether the loss is precision (some direction is
+      sample-consistent - tighter bounds could certify) or expressiveness
+      (every direction's exact signs already disagree across samples - no
+      single-direction slide exists at any precision)
+    */
+    unsigned _diagnosedL2Gap = 0;  // sample-consistent direction exists
+    unsigned _diagnosedL1Dead = 0; // no direction is even sample-consistent
+    unsigned _diagnosedEmpty = 0;  // no sample landed in the cube
+
+    /*
+      Certifiable-core strengthening: candidates certified after pinning
+      influential unstable gates into the condition (the emitted clause
+      prunes the certified core of the cube, not all of it)
+    */
+    unsigned _certifiedSlideCore = 0;
+    unsigned _totalPinsAdded = 0;
+    unsigned _maxPinsAdded = 0;
+
+    /*
+      Candidates certified with a witness-gradient direction (tailored per
+      candidate from exact cell gradients at the sampled witness, instead
+      of a coordinate direction)
+    */
+    unsigned _certifiedSlideDirected = 0;
+
+    /*
+      Closeness to certification: per rejected candidate, the best
+      center/spread ratio of the blocking derivative form over all
+      directions (1.0 = certified; 0.5 = spread must halve; negative =
+      center has the wrong sign, no precision helps)
+    */
+    double _maxT1Ratio = -1e9;
+    double _maxT2Ratio = -1e9;
+    unsigned _t1RatioAbove50 = 0; // rejected-at-T1 with best ratio > 0.5
+    unsigned _t1RatioAbove20 = 0; // ... > 0.2
+    unsigned _t2RatioAbove50 = 0;
+    unsigned _t2RatioAbove20 = 0;
+};
+
+class PrTransportCertifier
+{
+public:
+    /*
+      nlr:            topology + weights (read-only)
+      originalQuery:  the pre-preprocessing query - input box and property
+                      margins (the constraints defining the violation set R)
+      varToPlc:       CaDiCaL variable -> piecewise-linear constraint
+    */
+    /*
+      preprocessedQuery supplies the engine's preprocessed neuron bounds
+      (forward + backward tightening, conditioned on the spec). They are
+      entailed over the violating set R̄, and every certified tube stays in
+      R̄, so intersecting them into the value pass is sound and tightens
+      gate statuses for free.
+    */
+    PrTransportCertifier( const NLR::NetworkLevelReasoner *nlr,
+                          std::shared_ptr<Query> originalQuery,
+                          std::shared_ptr<Query> preprocessedQuery,
+                          const Map<unsigned, PiecewiseLinearConstraint *> &varToPlc );
+
+    /*
+      Certify the candidates against the entailed pool. Returns the clauses
+      of the certified candidates (sound to inject); fills stats.
+    */
+    List<Set<int>> certify( const List<PrCandidate> &candidates,
+                            const Vector<Set<int>> &pool,
+                            PrCertificationStats &stats );
+
+    /*
+      Geometry-first generation: instead of certifying carve-proposed
+      candidates, enumerate the transports the geometry certifies by
+      construction and read the clauses off them. First-layer ReLUs have
+      exact crossing derivatives (affine pre-activations), so T1/T3/T4 are
+      exact and only the margin condition (T2) is bound-level. Each
+      certified (neuron, direction) pair emits a unit PR clause fixing the
+      neuron's phase; the emitted set is made mutually consistent under the
+      relocation measure by a fixpoint re-verification pass. Returns
+      clauses sound to inject.
+    */
+    List<Set<int>> generateTransportClauses( unsigned &numEmitted );
+
+private:
+    struct Interval
+    {
+        double _lo;
+        double _hi;
+    };
+
+    /*
+      An affine function of the network inputs: _constant + Σ _coeffs[i]·x_i.
+    */
+    struct Affine
+    {
+        double _constant;
+        Vector<double> _coeffs;
+    };
+
+    /*
+      Per-neuron symbolic state of one forward value pass, plus the concrete
+      interval it evaluates to over the input box (intersected with the
+      phase assertion where one applies).
+    */
+    struct NeuronBounds
+    {
+        Affine _symLb;
+        Affine _symUb;
+        Interval _concrete;
+    };
+
+    const NLR::NetworkLevelReasoner *_nlr;
+    std::shared_ptr<Query> _originalQuery;
+    std::shared_ptr<Query> _preprocessedQuery;
+    const Map<unsigned, PiecewiseLinearConstraint *> &_varToPlc;
+
+    bool _topologySupported;
+    bool _marginsSupported;
+    unsigned _numInputs;
+    Vector<Interval> _inputBox; // original box X, by input position
+
+    // CaDiCaL var -> pre-activation b-variable; b-variable -> (layer, neuron)
+    Map<unsigned, unsigned> _cadicalVarToBVar;
+    Map<unsigned, Pair<unsigned, unsigned>> _bVarToLayerNeuron;
+
+    /*
+      Property margin rows: Σ c·v over input/output positions. GE rows must
+      not decrease along the slide, LE rows must not increase.
+    */
+    struct MarginAddend
+    {
+        double _coefficient;
+        bool _isInput;
+        unsigned _position;
+    };
+    struct MarginRow
+    {
+        List<MarginAddend> _addends;
+        bool _isLowerBounded; // true: GE; false: LE
+    };
+    List<MarginRow> _margins;
+
+    void analyzeTopologyAndMappings();
+    void extractBoxAndMargins();
+
+    /*
+      Symbolic forward value pass under phase assertions (map: pre-activation
+      b-variable -> asserted active?). Produces per-layer, per-neuron bounds.
+    */
+    bool runValuePass( const Map<unsigned, bool> &assertions,
+                       Map<unsigned, Vector<NeuronBounds>> &layerBounds ) const;
+
+    /*
+      Gate-correlated (zonotope-style) form of a directional derivative:
+      center + Σ c_g·e_g ± radius, one symbol e_g ∈ [-1,1] per unstable
+      gate (σ' = 1/2 + 1/2·e_g). Weighted sums are exact on forms; an
+      unstable gate keeps the center's sign correlation linear and sheds
+      only the bilinear cross-terms into the radius, so opposite-sign paths
+      through shared gates cancel when forms are combined.
+    */
+    struct GateForm
+    {
+        double _center;
+        Vector<double> _coeffs; // by gate index
+        double _radius;
+    };
+
+    /*
+      Assign a gate index to every unstable pre-activation under the given
+      assertions; returns the number of gates.
+    */
+    unsigned indexGates( const Map<unsigned, bool> &assertions,
+                         const Map<unsigned, Vector<NeuronBounds>> &layerBounds,
+                         Map<unsigned, unsigned> &neuronKeyToGate ) const;
+
+    /*
+      Gate-correlated forward pass of the directional derivative along input
+      direction d (by input position), using assertions and the value pass
+      bounds for the ReLU gains.
+    */
+    bool runDerivativePass( const Vector<double> &direction,
+                            const Map<unsigned, bool> &assertions,
+                            const Map<unsigned, Vector<NeuronBounds>> &layerBounds,
+                            const Map<unsigned, unsigned> &neuronKeyToGate,
+                            unsigned numGates,
+                            Map<unsigned, Vector<GateForm>> &layerDerivatives ) const;
+
+    static Interval concretize( const GateForm &form );
+
+    bool unitPropagationRefutesCube( const Vector<Set<int>> &pool, const Set<int> &cube ) const;
+
+    /*
+      Sampling diagnosis for a T1/T2-rejected candidate. Returns 1 if some
+      coordinate direction has exact T1+T2 signs at every sampled cube point
+      (precision gap), -1 if none does (no single-direction slide exists),
+      0 if no sample landed in the cube. On return value 1, witnessPoint and
+      witnessDirection describe a sample-consistent (point, direction) pair
+      seeding certifiable-core strengthening.
+    */
+    int diagnoseBySampling( const Set<int> &cube,
+                            unsigned autarkyBVar,
+                            int polarity,
+                            Vector<double> &witnessPoint,
+                            unsigned &witnessDirection ) const;
+
+    // b-variable -> CaDiCaL variable (inverse of _cadicalVarToBVar)
+    Map<unsigned, unsigned> _bVarToCadicalVar;
+
+    /*
+      Certifiable-core strengthening: starting from a sample-consistent
+      (point, direction) witness, repeatedly pin the most influential
+      unstable gate (largest |coefficient| in the failing derivative form)
+      to its phase at the witness point, until the slide certifies or the
+      pin budget is exhausted. Pins are returned as CaDiCaL literals to be
+      folded into the candidate's condition; each pin costs one pass, so
+      the loop is linear, and every pin tightens the next pass. Sound with
+      no new argument: the strengthened candidate is an ordinary candidate
+      with a fatter condition.
+    */
+    bool tryStrengthen( const PrCandidate &candidate,
+                        Map<unsigned, bool> assertions,
+                        const Map<unsigned, int> &flipPolarity,
+                        unsigned autarkyBVar,
+                        int polarity,
+                        const Vector<double> &witnessPoint,
+                        const Vector<double> &direction,
+                        List<int> &pins ) const;
+
+    /*
+      Check all slide conditions (T1-T4) for one direction against the
+      given value-pass bounds. Fills the closeness ratios, the deepest
+      stage reached (1: T1, 2: +T2, 3: +T3, 4: certified), and - on
+      failure, when requested - a copy of the blocking derivative form
+      (for influence-guided pinning).
+    */
+    bool checkSlideDirection( const Map<unsigned, bool> &assertions,
+                              const Map<unsigned, Vector<NeuronBounds>> &layerBounds,
+                              const Map<unsigned, unsigned> &neuronKeyToGate,
+                              unsigned numGates,
+                              unsigned autarkyBVar,
+                              unsigned autarkyVar,
+                              int polarity,
+                              const Map<unsigned, int> &flipPolarity,
+                              const Vector<double> &direction,
+                              double &t1Ratio,
+                              double &t2Ratio,
+                              unsigned &stageReached,
+                              GateForm *failingFormOut ) const;
+
+    /*
+      Tailored directions from exact cell gradients at the witness point:
+      the oriented crossing gradient, its projection onto the margin
+      halfspaces, and a margin-biased blend.
+    */
+    List<Vector<double>> buildWitnessDirections( const Vector<double> &witnessPoint,
+                                                 unsigned autarkyBVar,
+                                                 int polarity ) const;
+
+    /*
+      Exact forward pass at a concrete input point; fills per-layer neuron
+      values. Returns false on unsupported topology.
+    */
+    bool exactForward( const Vector<double> &point,
+                       Map<unsigned, Vector<double>> &layerValues ) const;
+
+    /*
+      Exact JVP at a concrete input point along direction d, using the gates
+      of a prior exact forward pass.
+    */
+    void exactJvp( const Vector<double> &direction,
+                   const Map<unsigned, Vector<double>> &layerValues,
+                   Map<unsigned, Vector<double>> &layerDerivatives ) const;
+
+    Interval evaluateAffine( const Affine &affine ) const;
+
+    /*
+      Minimum of an affine function over the input box.
+    */
+    double affineMinOverBox( const Affine &affine ) const;
+};
+
+#endif // __PrTransportCertifier_h__
