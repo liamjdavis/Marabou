@@ -233,8 +233,7 @@ void Marabou::solveQuery()
 #ifdef BUILD_CADICAL
         else if ( _engine->shouldSolveWithCDCL() )
         {
-            if ( getenv( "PR_REBUILD" ) &&
-                 Options::get()->getBool( Options::PR_CLAUSE_PREPROCESS ) )
+            if ( Options::get()->getBool( Options::PR_CLAUSE_PREPROCESS ) )
                 solveWithPrRebuild( timeoutInSeconds );
             else
             {
@@ -280,24 +279,6 @@ void Marabou::solveQuery()
 void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
 {
     struct timespec start = TimeUtils::sampleMicro();
-    double nodeBudget = 120.0;
-    if ( const char *s = getenv( "PR_NODE_SECONDS" ) )
-        nodeBudget = atof( s );
-    double fastPassBudget = 60.0;
-    if ( const char *s = getenv( "PR_DEBT_QUERY_SECONDS" ) )
-        fastPassBudget = atof( s );
-    unsigned maxDepth = 8;
-    if ( const char *s = getenv( "PR_MAX_DEPTH" ) )
-        maxDepth = (unsigned)atoi( s );
-
-    struct PrNode
-    {
-        Vector<Set<int>> extras;    // debt clauses accumulated on this path
-        Vector<Set<int>> inherited; // entailed pools from ancestor harvests
-        unsigned depth;
-    };
-    Vector<PrNode> work;
-    work.append( PrNode{ Vector<Set<int>>(), Vector<Set<int>>(), 0 } );
 
     // Full isolation per engine: serialize the query once, reload a fresh
     // InputQuery per engine, and keep every (query, engine) pair alive until
@@ -324,109 +305,50 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
         return timeoutInSeconds == 0 ? 1e9 : (double)timeoutInSeconds - elapsed;
     };
     auto finish = [&]( ExitCode code, const char *msg ) {
-        printf( "PR-rebuild: %s\n", msg );
+        printf( "PR: %s\n", msg );
         fflush( stdout );
         CdclCore::prRebuildRole = CdclCore::PR_REBUILD_OFF;
         CdclCore::prSeedClauses.clear();
         _engine->setExitCode( code );
     };
 
-    unsigned nodesDischarged = 0;
-    while ( !work.empty() )
-    {
-        if ( remaining() <= 0 )
-            return finish( ExitCode::TIMEOUT, "out of time" );
+    // ---- Phase A: harvest on a virgin engine ----
+    CdclCore::prRebuildRole = CdclCore::PR_REBUILD_HARVEST;
+    CdclCore::prSeedClauses.clear();
+    CdclCore::prHandoffValid = false;
 
-        PrNode node = work.pop();
+    Engine *engineA = freshEngineOnFreshQuery();
+    if ( engineA )
+        engineA->solveWithCDCL( remaining() );
 
-        // ---- Phase A: harvest on a virgin engine ----
-        CdclCore::prRebuildRole = CdclCore::PR_REBUILD_HARVEST;
-        CdclCore::prRebuildDepth = node.depth;
-        CdclCore::prSeedClauses = node.extras;
-        for ( const Set<int> &clause : node.inherited )
-            CdclCore::prSeedClauses.append( clause );
-        CdclCore::prHandoffValid = false;
+    ExitCode exitA = keepAliveEngines.back()->getExitCode();
+    if ( exitA == ExitCode::SAT )
+        return finish( ExitCode::SAT,
+                       "phase A found a theory-checked counterexample - sat" );
+    if ( exitA == ExitCode::UNSAT )
+        return finish( ExitCode::UNSAT, "phase A concluded on its own - unsat" );
+    if ( !CdclCore::prHandoffValid )
+        return finish( ExitCode::TIMEOUT,
+                       "phase A neither concluded nor harvested within budget" );
 
-        Engine *engineA = freshEngineOnFreshQuery();
-        if ( engineA )
-            engineA->solveWithCDCL( std::min( nodeBudget, remaining() ) );
+    // ---- Phase B: full solve on a virgin engine, ALL harvested clauses
+    // injected (raw variant: the UNSAT verdict is not certified) ----
+    CdclCore::prRebuildRole = CdclCore::PR_REBUILD_SOLVE;
+    CdclCore::prSeedClauses = CdclCore::prHandoffCarry;
+    for ( const Set<int> &clause : CdclCore::prHandoffSelected )
+        CdclCore::prSeedClauses.append( clause );
 
-        ExitCode exitA = keepAliveEngines.back()->getExitCode();
-        if ( exitA == ExitCode::SAT )
-            return finish( ExitCode::SAT,
-                           "phase A found a theory-checked counterexample - sat" );
-        if ( exitA == ExitCode::UNSAT )
-        {
-            ++nodesDischarged;
-            printf( "PR-rebuild[d%u]: node discharged by phase A (%u done, %u queued)\n",
-                    node.depth,
-                    nodesDischarged,
-                    work.size() );
-            fflush( stdout );
-            continue;
-        }
-        if ( !CdclCore::prHandoffValid )
-            return finish( ExitCode::TIMEOUT,
-                           "phase A neither concluded nor harvested within budget" );
+    Engine *engineB = freshEngineOnFreshQuery();
+    if ( engineB )
+        engineB->solveWithCDCL( remaining() );
 
-        List<Set<int>> selected = CdclCore::prHandoffSelected;
-        Vector<Set<int>> carry = CdclCore::prHandoffCarry;
-
-        // ---- Phase B: fast pass on a virgin engine ----
-        CdclCore::prRebuildRole = CdclCore::PR_REBUILD_SOLVE;
-        CdclCore::prSeedClauses = node.extras;
-        for ( const Set<int> &clause : node.inherited )
-            CdclCore::prSeedClauses.append( clause );
-        for ( const Set<int> &clause : carry )
-            CdclCore::prSeedClauses.append( clause );
-        for ( const Set<int> &clause : selected )
-            CdclCore::prSeedClauses.append( clause );
-
-        Engine *engineB = freshEngineOnFreshQuery();
-        if ( engineB )
-            engineB->solveWithCDCL( std::min( fastPassBudget, remaining() ) );
-
-        ExitCode exitB = keepAliveEngines.back()->getExitCode();
-        if ( exitB == ExitCode::SAT )
-            return finish( ExitCode::SAT,
-                           "fast pass found a theory-checked counterexample - sat" );
-        if ( exitB != ExitCode::UNSAT )
-            return finish( ExitCode::TIMEOUT, "fast pass inconclusive" );
-
-        // ---- Fast pass UNSAT: queue the debt node ----
-        if ( node.depth + 1 > maxDepth )
-            return finish( ExitCode::TIMEOUT, "depth cap reached" );
-
-        Set<int> debtClause;
-        for ( const Set<int> &clause : selected )
-        {
-            if ( clause.size() != 1 )
-                return finish( ExitCode::TIMEOUT,
-                               "non-unit PR clause - debt-as-query not applicable" );
-            for ( int literal : clause )
-                debtClause.insert( -literal );
-        }
-
-        PrNode child;
-        child.extras = node.extras;
-        child.extras.append( debtClause );
-        child.inherited = node.inherited;
-        for ( const Set<int> &clause : carry )
-            child.inherited.append( clause );
-        child.depth = node.depth + 1;
-        work.append( child );
-
-        printf( "PR-rebuild[d%u]: fast pass UNSAT with %u PR clauses; queued debt "
-                "node d%u (%u-literal debt clause, %u inherited)\n",
-                node.depth,
-                selected.size(),
-                child.depth,
-                debtClause.size(),
-                child.inherited.size() );
-        fflush( stdout );
-    }
-
-    finish( ExitCode::UNSAT, "all nodes discharged - unsat is sound" );
+    ExitCode exitB = keepAliveEngines.back()->getExitCode();
+    if ( exitB == ExitCode::SAT )
+        return finish( ExitCode::SAT,
+                       "phase B found a theory-checked counterexample - sat" );
+    if ( exitB == ExitCode::UNSAT )
+        return finish( ExitCode::UNSAT, "phase B unsat (PR clauses injected - uncertified)" );
+    finish( ExitCode::TIMEOUT, "phase B inconclusive" );
 }
 #endif
 

@@ -64,11 +64,6 @@ int CadicalWrapper::solve()
     return _solver->solve();
 }
 
-void CadicalWrapper::limitConflicts( int limit )
-{
-    _solver->limit( "conflicts", limit );
-}
-
 int CadicalWrapper::val( int lit )
 {
     return _solver->val( lit );

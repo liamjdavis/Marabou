@@ -58,11 +58,6 @@ public:
     int solve() override;
 
     /*
-      Bound the next solve call to at most the given number of conflicts.
-    */
-    void limitConflicts( int limit ) override;
-
-    /*
       Get value (-lit=false, lit=true) of valid non-zero literal.
     */
     int val( int lit ) override;

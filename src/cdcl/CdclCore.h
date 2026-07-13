@@ -78,50 +78,13 @@ public:
     bool solveWithCDCL( double timeoutInSeconds );
 
     /*
-        Two-pass CDCL solving: a conflict-budgeted run harvesting PR clauses from
-        conditional autarkies of the learned clause pool, then a restarted full
-        run with the harvested clauses injected
+        PR clause preprocessing entry point, dispatched per engine role:
+        HARVEST runs a conflict-budgeted CDCL pass harvesting PR clauses from
+        conditional autarkies of the learned clause pool and fills the
+        handoff; SOLVE runs a plain CDCL solve of the seeded query. The
+        two-pass driver lives in Marabou::solveWithPrRebuild.
     */
     bool solveWithPrPreprocessedCDCL( double timeoutInSeconds );
-
-    /*
-        Phase C of the sound-accounting pipeline (PR-CLAUSES.md section 7):
-        after a Phase-B UNSAT obtained with injected PR clauses, certify each
-        clause by refuting its debt cube (the clause's falsifying assignment)
-        in a fresh solver seeded with entailed clauses only. Clauses are
-        certified in injection order; each certified clause is added
-        permanently, so later cubes solve against a strictly stronger,
-        legitimately-earned database. A SAT debt cube is a genuine
-        counterexample and flips the overall answer to SAT.
-    */
-    bool dischargePrDebt( const List<Set<int>> &prClauses,
-                          const Vector<Set<int>> &carry,
-                          double timeoutInSeconds );
-
-    /*
-        Debt discharge as ONE follow-up query (all-unit clauses): the union
-        of debt cubes is the single clause (¬c₁ ∨ … ∨ ¬cₖ) — hand the case
-        split to CDCL instead of sequential assumption solves. UNSAT ⇒ all
-        debt discharged; SAT ⇒ genuine counterexample; stall ⇒ recurse the
-        full PR pipeline on the debt query (the clause joins the node
-        context via _prExtraClauses).
-    */
-    bool dischargePrDebtAsQuery( const List<Set<int>> &prClauses,
-                                 const Vector<Set<int>> &carry,
-                                 double timeoutInSeconds );
-
-    /*
-        Rebuild the SAT solver from scratch for PR work: fresh CaDiCaL,
-        root propagations replayed, current recursion pins added as unit
-        clauses, then the given clauses.
-    */
-    void prResetSolverWithClauses( const Vector<Set<int>> &clauses );
-
-    /*
-        The propagation bookkeeping solveWithCDCL normally performs before
-        calling the SAT solver (snc literals + zero terminator).
-    */
-    void prSolveBookkeeping();
 
     /**********************************************************************/
     /*  IPASIR-UP functions, for integrating Marabou with the SAT solver  */
@@ -354,35 +317,19 @@ private:
     unsigned _prConflictLimit;
     unsigned _prConflictCount;
 
-    // Recursive sound-discharge context: literals pinned by the debt cubes
-    // on the current recursion path (added as unit clauses, hence root-fixed
-    // and automatically excluded from harvested trails — which guarantees
-    // every recursion level pins at least one new literal), and the depth.
-    Vector<int> _prPins;
-    unsigned _prDepth;
-    List<Pair<int, unsigned>> _prRootProps;
-
-    // Debt clauses accumulated along the recursion path (one per level in
-    // query mode); installed by prResetSolverWithClauses at every phase of
-    // the node, so a child solves Q ∧ (ancestors' debt clauses).
-    Vector<Set<int>> _prExtraClauses;
-
 public:
     /*
-        Rebuild-mode plumbing (PR_REBUILD=1): the two-pass/recursive driver
-        moves to Marabou::solveWithPrRebuild, which runs ONE VIRGIN ENGINE
-        per phase per node (the in-process engine restore is corrupt — it
+        Two-pass driver plumbing: Marabou::solveWithPrRebuild runs ONE VIRGIN
+        ENGINE per phase (the in-process engine restore is corrupt — it
         deposits root conflicts and validates models against a broken
         tableau). These statics hand state between engine instances:
 
         - prRebuildRole: HARVEST = run phase A only, fill the handoff and
           return with exit code NOT_DONE; SOLVE = plain CDCL solve.
         - prSeedClauses: clauses installed into the fresh core's SAT solver
-          at solve start (node context: debt chain + inherited pool [+ the
-          injected PR clauses for a fast pass]).
-        - prHandoff*: phase A's outputs (selection-capped PR clauses and the
-          entailed conflict pool) for the driver to route onward.
-        - prRebuildDepth: node depth, for the decayed phase A budget.
+          at solve start (phase A's carry + PR clauses, for phase B).
+        - prHandoff*: phase A's outputs (PR clauses and the entailed
+          conflict pool) for the driver to route onward.
     */
     enum PrRebuildRole {
         PR_REBUILD_OFF = 0,
@@ -394,22 +341,9 @@ public:
     static List<Set<int>> prHandoffSelected;
     static Vector<Set<int>> prHandoffCarry;
     static bool prHandoffValid;
-    static unsigned prRebuildDepth;
 
 private:
     bool _prSeedsAdded;
-
-    // Conflict clauses inherited from ancestor nodes: entailed for the
-    // ancestor's region, hence for every descendant. Installed in the
-    // solver at every reset AND seeded into the child's learner pool so
-    // the carve sees ancestor support (enabling conditional clauses).
-    Vector<Set<int>> _prInheritedPool;
-
-    // Per-debt-cube wall-clock budget: when > 0, the terminate callback
-    // aborts the solve past the deadline (theory-heavy solves can take
-    // unbounded wall time within a small SAT conflict budget).
-    double _prCubeTimeLimit;
-    struct timespec _prCubeStart;
 
     /*
       Access info in the internal data structures

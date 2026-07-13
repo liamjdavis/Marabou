@@ -149,24 +149,28 @@ src/engine/Engine.cpp          # solveWithCDCL dispatch
 - `terminate()` / `cb_decide()` / `cb_check_found_model()` — honor the stop
   request so CaDiCaL aborts promptly without further theory solves.
 
-### 3.3 Two-pass driver (`CdclCore::solveWithPrPreprocessedCDCL`)
+### 3.3 Two-pass driver (`Marabou::solveWithPrRebuild`)
 
-1. Snapshot root-level `_literalsToPropagate` (theory-fixed phases from
-   preprocessing) for replay.
-2. **Phase A**: `solveWithCDCL` with harvesting on. If it concludes
-   (SAT/UNSAT/timeout) within the conflict budget, return that verdict
-   directly.
-3. On budget-triggered abort: `finalizeHarvest()` (dedup + subsumption), grab
-   the pool as carry (Phase A conflict clauses — entailed, sound to reuse).
-4. Restart: `_shouldRestart = true; notify_backtrack(0)` (restores initial
-   engine state, pops context to root) then `reset()` (fresh CaDiCaL with
-   re-registered observed vars).
-5. Replay root propagations; `addClause()` every carry clause and every PR
-   clause into the fresh solver.
-6. **Phase B**: `solveWithCDCL` to completion.
+Each phase runs on a **virgin engine**: the in-process engine restore
+(`notify_backtrack(0)` + `reset()`) is corrupt — it deposits root-conflict
+lemmas and validates models against a broken tableau (confirmed false SAT).
+The driver serializes the query once (`pr_rebuild_query.ipq`) and reloads it
+into a freshly constructed and processed `Engine` per phase; clauses flow
+between engines via `CdclCore` statics (`prRebuildRole`, `prSeedClauses`,
+`prHandoff*`).
 
-`Engine::solveWithCDCL` dispatches to the driver when
-`Options::PR_CLAUSE_PREPROCESS` is set.
+1. **Phase A** (role HARVEST): `solveWithCDCL` with harvesting on. SAT/UNSAT
+   within the conflict budget is returned directly (theory-checked / earned
+   by search — sound). On budget-triggered abort: `finalizeHarvest()` (dedup
+   + subsumption), hand off the PR clauses plus the conflict pool as carry
+   (entailed, sound to reuse).
+2. **Phase B** (role SOLVE): fresh engine; every carry clause and every PR
+   clause seeded into its CaDiCaL at solve start; `solveWithCDCL` to
+   completion. UNSAT here is **uncertified** (§2.4).
+
+`Marabou::solveQuery` dispatches to the driver when
+`Options::PR_CLAUSE_PREPROCESS` is set; `Engine::solveWithCDCL` routes each
+engine into `CdclCore::solveWithPrPreprocessedCDCL`, which acts per role.
 
 ---
 
@@ -213,8 +217,10 @@ cmake --build . -j 8
 Marker lines:
 
 - `PR: phase A - harvesting until N conflicts are learned`
-- `PR: phase A done - observed N trails, harvested H candidates; carrying C
-  learned clauses, injecting K PR clauses`
+- `PR: phase A done (t=Ts) - observed N trails, harvested H candidates;
+  handing off C carry clauses and K PR clauses`
+- `PR: seeded fresh core with M clauses`
+- `PR: phase B unsat (PR clauses injected - uncertified)`
 
 ### 5.4 Tests
 
@@ -236,7 +242,17 @@ cd build-picid && ctest -R PrClauseLearner --output-on-failure
 
 ---
 
-## 7. Sound Accounting Port Plan (DRAFT — not implemented)
+## 7. Sound Accounting Port Plan (implemented, measured, REMOVED)
+
+> **Status (2026-07-12):** the plan below was implemented (flat Phase C
+> sweep, budgeted recursive discharge, debt-as-one-query, worklist rebuild
+> pipeline) and stripped back out: a single debt cube routinely cost more
+> than the full baseline solve — conservation of refutation; sound methods
+> redo the pruned work somewhere. The tree keeps only the raw two-pass
+> driver of §3.3. Kept from that arc as bug fixes: the virgin-engine
+> architecture (in-process restore is corrupt) and the root-conflict guard
+> in `solveWithCDCL` (a pending multi-literal lemma is not an UNSAT). The
+> text remains as the reference for any future sound-accounting attempt.
 
 Port of the sound-accounting architecture validated on α,β-CROWN
 (`Verifier_Development/PR-CLAUSES.md` §2.4/§3.3, commits `2ee5535`,
