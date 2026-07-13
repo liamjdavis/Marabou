@@ -21,13 +21,22 @@
 #include "Query.h"
 #include "TimeUtils.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <thread>
 #include <utility>
+#include <vector>
 
 std::atomic<unsigned> CdclCore::numCdclCores{ 0 };
 Map<unsigned, Set<int>> CdclCore::sharedClauses{};
+
+CdclCore::PrRebuildRole CdclCore::prRebuildRole = CdclCore::PR_REBUILD_OFF;
+Vector<Set<int>> CdclCore::prSeedClauses{};
+List<Set<int>> CdclCore::prHandoffSelected{};
+Vector<Set<int>> CdclCore::prHandoffCarry{};
+bool CdclCore::prHandoffValid = false;
+unsigned CdclCore::prRebuildDepth = 0;
 std::mutex CdclCore::sharedClausesMutex{};
 std::atomic<unsigned> CdclCore::clauseIndex{ 0 };
 
@@ -64,6 +73,7 @@ CdclCore::CdclCore( IEngine *engine )
     , _prPins()
     , _prDepth( 0 )
     , _prRootProps()
+    , _prSeedsAdded( false )
     , _prCubeTimeLimit( 0 )
     , _index( CdclCore::numCdclCores.fetch_add( 1 ) )
 {
@@ -850,6 +860,23 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     if ( !_satSolver )
         reset();
 
+    // Rebuild mode: install the node's seed clauses (debt chain, inherited
+    // pool, and for SOLVE roles the injected PR clauses) into this fresh
+    // core exactly once.
+    if ( prRebuildRole != PR_REBUILD_OFF && !_prSeedsAdded )
+    {
+        for ( const Set<int> &clause : prSeedClauses )
+            _satSolver->addClause( clause );
+        if ( _engine->getVerbosity() > 0 && !prSeedClauses.empty() )
+        {
+            printf( "PR-rebuild[d%u]: seeded fresh core with %u clauses\n",
+                    prRebuildDepth,
+                    prSeedClauses.size() );
+            fflush( stdout );
+        }
+        _prSeedsAdded = true;
+    }
+
     _timeoutInSeconds = timeoutInSeconds;
 
     // Maybe query detected as UNSAT in processInputQuery
@@ -921,8 +948,14 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         if ( getenv( "PR_DEBUG" ) )
         {
             printf( "PR-debug: pending %u-literal lemma is not a root conflict - "
-                    "deferring to the SAT solver\n",
+                    "deferring to the SAT solver; literals:",
                     _externalClauseToAdd.size() );
+            for ( int literal : _externalClauseToAdd )
+                printf( " %d(fixed:%d,negFixed:%d)",
+                        literal,
+                        (int)isLiteralFixed( literal ),
+                        (int)isLiteralFixed( -literal ) );
+            printf( "\n" );
             fflush( stdout );
         }
     }
@@ -1025,18 +1058,35 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
         prResetSolverWithClauses( Vector<Set<int>>() );
     }
 
+    // Rebuild mode, SOLVE role: no harvest, no restart — just a plain CDCL
+    // solve of the seeded query on this virgin engine.
+    if ( prRebuildRole == PR_REBUILD_SOLVE )
+        return solveWithCDCL( timeoutInSeconds );
+
+    // Deeper nodes inherit their ancestors' conflict pool, so they need
+    // fewer NEW conflicts to carve: halve the budget per level, floor 2.
+    unsigned effectiveDepth = prRebuildRole == PR_REBUILD_HARVEST ? prRebuildDepth : _prDepth;
+    if ( effectiveDepth > 0 )
+        _prConflictLimit = std::max( 2u, _prConflictLimit >> effectiveDepth );
+
     struct timespec prStart = TimeUtils::sampleMicro();
     if ( _engine->getVerbosity() > 0 )
     {
-        printf( "PR[d%u]: phase A - harvesting until %u conflicts are learned "
-                "(%u pinned literals)\n",
+        printf( "PR[d%u]: phase A - harvesting until %u NEW conflicts are learned "
+                "(%u pinned literals, %u inherited clauses, %u debt clauses)\n",
                 _prDepth,
                 _prConflictLimit,
-                _prPins.size() );
+                _prPins.size(),
+                _prInheritedPool.size(),
+                _prExtraClauses.size() );
         fflush( stdout );
     }
 
     _prLearner.startHarvest();
+    // Ancestor conflicts are entailed for this node's region: seed the
+    // learner pool so the carve sees their support (conditional clauses).
+    for ( const Set<int> &clause : _prInheritedPool )
+        _prLearner.addPoolClause( clause );
     bool result = solveWithCDCL( timeoutInSeconds );
 
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
@@ -1061,6 +1111,45 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     // invalidate a reference into its pool.
     Vector<Set<int>> carry = _prLearner.getPoolClauses();
     _prStopRequested = false;
+
+    // Selection cap, mirroring alpha-beta-CROWN's top_k_strongest: sort by
+    // clause size ascending (shortest condition = strongest prune), keep K.
+    // Bounds the debt fan-out at every recursion level.
+    if ( const char *capStr = getenv( "PR_MAX_INJECT" ) )
+    {
+        unsigned maxInject = (unsigned)atoi( capStr );
+        if ( maxInject > 0 && prClauses.size() > maxInject )
+        {
+            std::vector<Set<int>> sorted( prClauses.begin(), prClauses.end() );
+            std::stable_sort( sorted.begin(),
+                              sorted.end(),
+                              []( const Set<int> &a, const Set<int> &b ) {
+                                  return a.size() < b.size();
+                              } );
+            List<Set<int>> capped;
+            for ( unsigned i = 0; i < maxInject; ++i )
+                capped.append( sorted[i] );
+            prClauses = capped;
+        }
+    }
+
+    // Rebuild mode, HARVEST role: hand the selection and the entailed pool
+    // to the top-level driver and stop — phases B/C run on fresh engines.
+    if ( prRebuildRole == PR_REBUILD_HARVEST )
+    {
+        prHandoffSelected = prClauses;
+        prHandoffCarry = carry;
+        prHandoffValid = true;
+        if ( _engine->getVerbosity() > 0 )
+        {
+            printf( "PR-rebuild[d%u]: harvest handoff - %u PR clauses, %u carry\n",
+                    prRebuildDepth,
+                    prHandoffSelected.size(),
+                    prHandoffCarry.size() );
+            fflush( stdout );
+        }
+        return result;
+    }
 
     if ( _engine->getVerbosity() > 0 )
     {
@@ -1122,6 +1211,22 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
         }
     }
 
+    // Diagnostic probe: pure restart with NO injections — phase B becomes a
+    // plain re-solve of the same query on the restored engine. Any deviation
+    // from a virgin run of the instance is restore corruption.
+    if ( getenv( "PR_PROBE_PURE_RESTART" ) )
+    {
+        printf( "PR-probe: pure restart - re-solving original query with no "
+                "injected clauses\n" );
+        fflush( stdout );
+        prResetSolverWithClauses( Vector<Set<int>>() );
+        bool probeResult = solveWithCDCL( timeoutInSeconds );
+        printf( "PR-probe: pure restarted re-solve finished (exit code %d)\n",
+                (int)_engine->getExitCode() );
+        fflush( stdout );
+        return probeResult;
+    }
+
     // Restart: restore the engine to its initial state and rebuild the SAT
     // solver with pins + carried entailed clauses + PR clauses.
     prResetSolverWithClauses( carry );
@@ -1177,6 +1282,12 @@ void CdclCore::prResetSolverWithClauses( const Vector<Set<int>> &clauses )
         _satSolver->addClause( unit );
     }
 
+    for ( const Set<int> &clause : _prInheritedPool )
+        _satSolver->addClause( clause );
+
+    for ( const Set<int> &clause : _prExtraClauses )
+        _satSolver->addClause( clause );
+
     for ( const Set<int> &clause : clauses )
         _satSolver->addClause( clause );
 }
@@ -1196,6 +1307,21 @@ bool CdclCore::dischargePrDebt( const List<Set<int>> &prClauses,
                                 const Vector<Set<int>> &carry,
                                 double timeoutInSeconds )
 {
+    // Query mode (default when every clause is unit): the whole debt is one
+    // clause — let CDCL do the case split instead of sequential assumptions.
+    if ( !getenv( "PR_DEBT_SEQ" ) )
+    {
+        bool allUnit = true;
+        for ( const Set<int> &clause : prClauses )
+            if ( clause.size() != 1 )
+            {
+                allUnit = false;
+                break;
+            }
+        if ( allUnit )
+            return dischargePrDebtAsQuery( prClauses, carry, timeoutInSeconds );
+    }
+
     unsigned cubeConflictBudget = 1000;
     if ( const char *budgetStr = getenv( "PR_CUBE_CONFLICTS" ) )
         cubeConflictBudget = (unsigned)atoi( budgetStr );
@@ -1293,11 +1419,19 @@ bool CdclCore::dischargePrDebt( const List<Set<int>> &prClauses,
             Vector<int> savedPins = _prPins;
             for ( int literal : clause )
                 _prPins.append( -literal );
+            unsigned inheritedPushed = 0;
+            for ( const Set<int> &carriedClause : soundClauses )
+            {
+                _prInheritedPool.append( carriedClause );
+                ++inheritedPushed;
+            }
             ++_prDepth;
 
             bool childResult = solveWithPrPreprocessedCDCL( timeoutInSeconds );
 
             --_prDepth;
+            while ( inheritedPushed-- > 0 )
+                _prInheritedPool.pop();
             _prPins = savedPins;
             _prLearner = savedLearner;
 
@@ -1352,6 +1486,140 @@ bool CdclCore::dischargePrDebt( const List<Set<int>> &prClauses,
         fflush( stdout );
     }
     _engine->setExitCode( ExitCode::UNSAT );
+    return false;
+}
+
+bool CdclCore::dischargePrDebtAsQuery( const List<Set<int>> &prClauses,
+                                       const Vector<Set<int>> &carry,
+                                       double timeoutInSeconds )
+{
+    double queryBudget = 60.0;
+    if ( const char *budgetStr = getenv( "PR_DEBT_QUERY_SECONDS" ) )
+        queryBudget = atof( budgetStr );
+    unsigned maxDepth = 8;
+    if ( const char *depthStr = getenv( "PR_MAX_DEPTH" ) )
+        maxDepth = (unsigned)atoi( depthStr );
+
+    // Union of all debt cubes = one clause: at least one pruned literal true.
+    Set<int> debtClause;
+    for ( const Set<int> &clause : prClauses )
+        for ( int literal : clause )
+            debtClause.insert( -literal );
+
+    if ( _engine->getVerbosity() > 0 )
+    {
+        printf( "PR-sound[d%u]: phase C - debt as ONE query: clause of %u "
+                "literals (budget %.0fs, then recurse; depth cap %u)\n",
+                _prDepth,
+                debtClause.size(),
+                queryBudget,
+                maxDepth );
+        fflush( stdout );
+    }
+
+    // The debt clause becomes part of this node's context: installed in the
+    // discharge solver now, and inherited by any recursion below.
+    _prExtraClauses.append( debtClause );
+
+    prResetSolverWithClauses( carry );
+    prSolveBookkeeping();
+
+    bool unbounded = _prDepth >= maxDepth;
+    if ( !unbounded )
+    {
+        _prCubeStart = TimeUtils::sampleMicro();
+        _prCubeTimeLimit = queryBudget;
+    }
+    double savedTimeout = _timeoutInSeconds;
+    if ( !unbounded && _statistics )
+        _timeoutInSeconds = _statistics->getTotalTimeInMicro() / 1e6 + queryBudget;
+
+    int result = _satSolver->solve();
+
+    _timeoutInSeconds = savedTimeout;
+    _prCubeTimeLimit = 0;
+
+    if ( result == 20 )
+    {
+        if ( _engine->getVerbosity() > 0 )
+        {
+            printf( "PR-sound[d%u]: debt query UNSAT - all %u clauses certified "
+                    "at once; UNSAT is sound\n",
+                    _prDepth,
+                    prClauses.size() );
+            fflush( stdout );
+        }
+        _prExtraClauses.pop();
+        _engine->setExitCode( ExitCode::UNSAT );
+        return false;
+    }
+    if ( result == 10 || _engine->getExitCode() == ExitCode::SAT )
+    {
+        if ( _engine->getVerbosity() > 0 )
+        {
+            printf( "PR-sound[d%u]: debt query SAT - genuine counterexample, "
+                    "overall answer is SAT\n",
+                    _prDepth );
+            fflush( stdout );
+        }
+        _prExtraClauses.pop();
+        _engine->setExitCode( ExitCode::SAT );
+        return true;
+    }
+
+    // Budget blown: recurse the full PR pipeline on the debt query itself.
+    // The debt clause stays in _prExtraClauses so the child inherits it.
+    if ( _engine->getVerbosity() > 0 )
+    {
+        printf( "PR-sound[d%u]: debt query blew the budget - recursing on it\n",
+                _prDepth );
+        fflush( stdout );
+    }
+
+    PrClauseLearner savedLearner = _prLearner;
+    _prLearner = PrClauseLearner();
+    // The child inherits this node's entailed pool (carry): entailed for
+    // this region, hence for the child's subregion.
+    unsigned inheritedPushed = 0;
+    for ( const Set<int> &carriedClause : carry )
+    {
+        _prInheritedPool.append( carriedClause );
+        ++inheritedPushed;
+    }
+    ++_prDepth;
+
+    bool childResult = solveWithPrPreprocessedCDCL( timeoutInSeconds );
+
+    --_prDepth;
+    while ( inheritedPushed-- > 0 )
+        _prInheritedPool.pop();
+    _prLearner = savedLearner;
+    _prExtraClauses.pop();
+
+    ExitCode childExit = _engine->getExitCode();
+    if ( childExit == ExitCode::SAT )
+        return childResult;
+    if ( childExit == ExitCode::UNSAT )
+    {
+        if ( _engine->getVerbosity() > 0 )
+        {
+            printf( "PR-sound[d%u]: debt query certified by recursion; "
+                    "UNSAT is sound\n",
+                    _prDepth );
+            fflush( stdout );
+        }
+        _engine->setExitCode( ExitCode::UNSAT );
+        return false;
+    }
+    if ( _engine->getVerbosity() > 0 )
+    {
+        printf( "PR-sound[d%u]: debt query inconclusive after recursion "
+                "(exit code %d) - UNSAT cannot be certified\n",
+                _prDepth,
+                (int)childExit );
+        fflush( stdout );
+    }
+    _engine->setExitCode( ExitCode::TIMEOUT );
     return false;
 }
 

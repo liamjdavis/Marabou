@@ -49,6 +49,16 @@ private:
     void solveQuery();
 
     /*
+      Sound PR pipeline with a VIRGIN ENGINE per phase per node
+      (PR_REBUILD=1): the in-process engine restore is corrupt, so each
+      phase A (harvest), phase B (fast pass) and debt level runs on a
+      freshly processed engine; clauses flow between engines through
+      CdclCore's rebuild statics. Worklist of nodes, each defined by its
+      accumulated debt clauses and inherited entailed pool.
+    */
+    void solveWithPrRebuild( unsigned timeoutInSeconds );
+
+    /*
       Display the results
     */
     void displayResults( unsigned long long microSecondsElapsed ) const;

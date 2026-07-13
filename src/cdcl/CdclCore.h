@@ -99,6 +99,18 @@ public:
                           double timeoutInSeconds );
 
     /*
+        Debt discharge as ONE follow-up query (all-unit clauses): the union
+        of debt cubes is the single clause (¬c₁ ∨ … ∨ ¬cₖ) — hand the case
+        split to CDCL instead of sequential assumption solves. UNSAT ⇒ all
+        debt discharged; SAT ⇒ genuine counterexample; stall ⇒ recurse the
+        full PR pipeline on the debt query (the clause joins the node
+        context via _prExtraClauses).
+    */
+    bool dischargePrDebtAsQuery( const List<Set<int>> &prClauses,
+                                 const Vector<Set<int>> &carry,
+                                 double timeoutInSeconds );
+
+    /*
         Rebuild the SAT solver from scratch for PR work: fresh CaDiCaL,
         root propagations replayed, current recursion pins added as unit
         clauses, then the given clauses.
@@ -349,6 +361,49 @@ private:
     Vector<int> _prPins;
     unsigned _prDepth;
     List<Pair<int, unsigned>> _prRootProps;
+
+    // Debt clauses accumulated along the recursion path (one per level in
+    // query mode); installed by prResetSolverWithClauses at every phase of
+    // the node, so a child solves Q ∧ (ancestors' debt clauses).
+    Vector<Set<int>> _prExtraClauses;
+
+public:
+    /*
+        Rebuild-mode plumbing (PR_REBUILD=1): the two-pass/recursive driver
+        moves to Marabou::solveWithPrRebuild, which runs ONE VIRGIN ENGINE
+        per phase per node (the in-process engine restore is corrupt — it
+        deposits root conflicts and validates models against a broken
+        tableau). These statics hand state between engine instances:
+
+        - prRebuildRole: HARVEST = run phase A only, fill the handoff and
+          return with exit code NOT_DONE; SOLVE = plain CDCL solve.
+        - prSeedClauses: clauses installed into the fresh core's SAT solver
+          at solve start (node context: debt chain + inherited pool [+ the
+          injected PR clauses for a fast pass]).
+        - prHandoff*: phase A's outputs (selection-capped PR clauses and the
+          entailed conflict pool) for the driver to route onward.
+        - prRebuildDepth: node depth, for the decayed phase A budget.
+    */
+    enum PrRebuildRole {
+        PR_REBUILD_OFF = 0,
+        PR_REBUILD_HARVEST,
+        PR_REBUILD_SOLVE
+    };
+    static PrRebuildRole prRebuildRole;
+    static Vector<Set<int>> prSeedClauses;
+    static List<Set<int>> prHandoffSelected;
+    static Vector<Set<int>> prHandoffCarry;
+    static bool prHandoffValid;
+    static unsigned prRebuildDepth;
+
+private:
+    bool _prSeedsAdded;
+
+    // Conflict clauses inherited from ancestor nodes: entailed for the
+    // ancestor's region, hence for every descendant. Installed in the
+    // solver at every reset AND seeded into the child's learner pool so
+    // the carve sees ancestor support (enabling conditional clauses).
+    Vector<Set<int>> _prInheritedPool;
 
     // Per-debt-cube wall-clock budget: when > 0, the terminate callback
     // aborts the solve past the deadline (theory-heavy solves can take
