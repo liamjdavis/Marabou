@@ -131,6 +131,9 @@ public:
 #ifdef BUILD_CADICAL
         // Number of learned conflict clauses after which the PR clause harvesting pass stops
         PR_CLAUSE_PREPROCESS_CONFLICTS,
+
+        // Keep only the K strongest PR clauses (shortest condition first); 0 = inject all
+        PR_CLAUSE_TOP_K,
 #endif
     };
 

@@ -1082,6 +1082,35 @@ bool CdclCore::solveWithPrPreprocessedCDCL( double timeoutInSeconds )
     Vector<Set<int>> carry = _prLearner.getPoolClauses();
     _prStopRequested = false;
 
+    // top_k_strongest (alpha-beta-CROWN ranking.py): shortest condition
+    // first - a tighter implication fires under more partial assignments.
+    // Deterministic lexicographic tiebreak; K = 0 injects everything.
+    unsigned topK = (unsigned)Options::get()->getInt( Options::PR_CLAUSE_TOP_K );
+    if ( topK > 0 && prClauses.size() > topK )
+    {
+        std::vector<Set<int>> ranked( prClauses.begin(), prClauses.end() );
+        std::stable_sort( ranked.begin(),
+                          ranked.end(),
+                          []( const Set<int> &a, const Set<int> &b ) {
+                              if ( a.size() != b.size() )
+                                  return a.size() < b.size();
+                              auto ia = a.begin();
+                              auto ib = b.begin();
+                              while ( ia != a.end() && ib != b.end() )
+                              {
+                                  if ( *ia != *ib )
+                                      return *ia < *ib;
+                                  ++ia;
+                                  ++ib;
+                              }
+                              return false;
+                          } );
+        List<Set<int>> capped;
+        for ( unsigned i = 0; i < topK; ++i )
+            capped.append( ranked[i] );
+        prClauses = capped;
+    }
+
     // Instrumentation: dump the injection package for offline analysis.
     if ( const char *dumpPath = getenv( "PR_DUMP" ) )
     {

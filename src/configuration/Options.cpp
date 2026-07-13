@@ -78,6 +78,7 @@ void Options::initializeDefaultValues()
     _intOptions[NUM_CONSTRAINTS_TO_REFINE_INC_LIN] = 30;
 #ifdef BUILD_CADICAL
     _intOptions[PR_CLAUSE_PREPROCESS_CONFLICTS] = 10;
+    _intOptions[PR_CLAUSE_TOP_K] = 512;
 #endif
 
     /*

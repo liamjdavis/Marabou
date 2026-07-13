@@ -154,7 +154,13 @@ void OptionParser::initialize()
                 &( ( *_intOptions )[Options::PR_CLAUSE_PREPROCESS_CONFLICTS] ) )
                 ->default_value( ( *_intOptions )[Options::PR_CLAUSE_PREPROCESS_CONFLICTS] ),
             "(CDCL) Number of learned conflict clauses after which the PR clause harvesting "
-            "pass stops" )
+            "pass stops" )(
+            "pr-clause-top-k",
+            boost::program_options::value<int>(
+                &( ( *_intOptions )[Options::PR_CLAUSE_TOP_K] ) )
+                ->default_value( ( *_intOptions )[Options::PR_CLAUSE_TOP_K] ),
+            "(CDCL) Keep only the K strongest PR clauses, shortest condition first "
+            "(alpha-beta-CROWN's top_k_strongest); 0 injects all" )
 #endif
 
 #ifdef ENABLE_GUROBI
