@@ -239,8 +239,12 @@ endif ()
 # Debian, gmp-devel on RHEL) or with a prefix such as a conda environment
 # (configure with -DCMAKE_PREFIX_PATH=$CONDA_PREFIX). An explicit -DGMP_LIB=...
 # / -DGMP_INCLUDE=... still overrides the search.
-find_library(GMP_LIB NAMES gmp libgmp)
-find_path(GMP_INCLUDE NAMES gmp.h)
+find_library(GMP_LIB NAMES gmp libgmp
+    HINTS ENV CONDA_PREFIX ENV GMP_ROOT
+    PATH_SUFFIXES lib lib64)
+find_path(GMP_INCLUDE NAMES gmp.h
+    HINTS ENV CONDA_PREFIX ENV GMP_ROOT
+    PATH_SUFFIXES include)
 if (NOT GMP_LIB)
     message(FATAL_ERROR
         "GMP library not found. Install gmp-devel (RHEL) / libgmp-dev (Debian), "
@@ -254,8 +258,20 @@ if (NOT GMP_INCLUDE)
 endif ()
 message(STATUS "Found GMP: ${GMP_LIB} (include dir: ${GMP_INCLUDE})")
 
-# Add include directories and link to GMP where needed later
+# Put GMP's headers on the compiler include path (proofs/AletheProofWriter.h
+# includes <gmp.h> directly). GMP_INCLUDE may be a shared prefix (a conda env's
+# include/) that also ships protobuf/onnx headers which would shadow Marabou's
+# vendored copies, so expose ONLY the GMP headers via a private include dir.
 set(HAVE_GMP TRUE)
+set(GMP_PRIVATE_INCLUDE ${CMAKE_BINARY_DIR}/gmp_include)
+file(MAKE_DIRECTORY ${GMP_PRIVATE_INCLUDE})
+foreach(_gmp_header gmp.h gmpxx.h)
+    if (EXISTS ${GMP_INCLUDE}/${_gmp_header})
+        file(CREATE_LINK ${GMP_INCLUDE}/${_gmp_header}
+             ${GMP_PRIVATE_INCLUDE}/${_gmp_header} SYMBOLIC)
+    endif ()
+endforeach()
+include_directories(SYSTEM ${GMP_PRIVATE_INCLUDE})
 list(APPEND LIBS ${GMP_LIB})
 
 ###########
