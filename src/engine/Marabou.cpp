@@ -28,8 +28,10 @@
 #include "QueryLoader.h"
 #include "VnnLibParser.h"
 
+#include <cstdlib>
 #include <list>
 #include <memory>
+#include <unistd.h>
 
 #ifdef BUILD_CADICAL
 #include "CdclCore.h"
@@ -337,7 +339,13 @@ void Marabou::solveWithPrRebuild( unsigned timeoutInSeconds )
     // the driver exits — constraints register engine-context pointers, so
     // destroying an engine while its query outlives it (or vice versa)
     // leaves dangling registrations for the next processInputQuery.
-    String queryFile = "/tmp/pr_rebuild_query.ipq";
+    // Pid-unique and TMPDIR-aware: the file is reloaded every round, so a
+    // fixed path lets concurrent runs on one node clobber each other
+    // mid-run (the reload then dies in QueryLoader on garbage input).
+    const char *tmpDir = getenv( "TMPDIR" );
+    String queryFile = Stringf( "%s/pr_rebuild_query_%d.ipq",
+                                tmpDir && *tmpDir ? tmpDir : "/tmp",
+                                (int)getpid() );
     _inputQuery.saveQuery( queryFile );
     // Leaked BY CONSTRUCTION (heap lists, never deleted): destroying an
     // engine that went through processInputQuery makes its CaDiCaL
