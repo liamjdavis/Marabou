@@ -88,6 +88,11 @@ public:
 #ifdef BUILD_CADICAL
         // Switch the solving procedure to be CDCL-based
         SOLVE_WITH_CDCL,
+
+        // Seed the SAT solver with the entailed implication skeleton
+        // (single-pin DeepPoly probes: failed-literal units + binary
+        // phase implications)
+        IMPLICATION_SKELETON,
 #endif
     };
 

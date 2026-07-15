@@ -123,6 +123,10 @@ const bool GlobalConfiguration::ALETHE_ELABORATE_TERMS = true;
 const unsigned GlobalConfiguration::ALETHE_PROOF_FLUSHING_FREQUENCY = 50;
 
 const unsigned GlobalConfiguration::BACKWARD_BOUND_PROPAGATION_DEPTH = 3;
+
+// Per-probe simplex pivot budget for the implication skeleton's LP
+// feasibility check (cost control only; exhausting it counts as feasible).
+const unsigned GlobalConfiguration::SKELETON_PROBE_SIMPLEX_PIVOT_CAP = 400;
 const unsigned GlobalConfiguration::MAX_ROUNDS_OF_BACKWARD_ANALYSIS = 10;
 
 const bool GlobalConfiguration::ANALYZE_PROOF_DEPENDENCIES = false;

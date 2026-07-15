@@ -543,6 +543,15 @@ public:
     */
     virtual void propagateLitAsSplit( int lit ) = 0;
 
+    /*
+      The CaDiCaL variables allocated for this constraint's boolean
+      abstraction (empty before initBooleanAbstraction runs).
+    */
+    const List<unsigned> &getCdclVars() const
+    {
+        return _cdclVars;
+    }
+
     virtual bool isBoundFixingPhase( unsigned /*var*/,
                                      double /*bound*/,
                                      Tightening::BoundType /*boundType*/ ) const

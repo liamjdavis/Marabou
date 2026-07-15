@@ -1163,6 +1163,12 @@ void Engine::invokePreprocessor( const IQuery &inputQuery, bool preprocess )
         throw MarabouError( MarabouError::UNBOUNDED_VARIABLES_NOT_YET_SUPPORTED,
                             Stringf( "Error! Have %u infinite bounds", infiniteBounds ).ascii() );
     }
+
+    // Pristine snapshot for the skeleton unit audit: the query's constraints
+    // are not yet registered with this engine (no live CDOs / bound-manager
+    // pointers), so this is the last point where a deep copy is safe.
+    if ( getenv( "SKELETON_VERIFY_UNITS" ) )
+        _skeletonAuditQuery = std::make_shared<Query>( *_preprocessedQuery );
 }
 
 void Engine::printInputBounds( const IQuery &inputQuery ) const
@@ -1725,6 +1731,7 @@ bool Engine::processInputQuery( const IQuery &inputQuery, bool preprocess )
 
                 _cdclCore.initBooleanAbstraction( constraint );
             }
+
         }
 #endif
     }
@@ -4566,7 +4573,404 @@ std::shared_ptr<Query> Engine::getInputQuery() const
 
 bool Engine::solveWithCDCL( double timeoutInSeconds )
 {
+    // SKELETON_VERIFY_PIN=<bvar>:<active|inactive> pins a ReLU's b variable
+    // at the root (LB 0 / UB 0) so a probe-refuted pin can be verified by a
+    // fresh full solve: unsat here proves the failed-literal unit entailed.
+    if ( const char *pinSpec = getenv( "SKELETON_VERIFY_PIN" ) )
+    {
+        unsigned bVar = 0;
+        char phase[16] = { 0 };
+        if ( sscanf( pinSpec, "%u:%15s", &bVar, phase ) == 2 )
+        {
+            PiecewiseLinearCaseSplit pin;
+            pin.storeBoundTightening( Tightening( bVar,
+                                                  0.0,
+                                                  strcmp( phase, "active" ) == 0
+                                                      ? Tightening::LB
+                                                      : Tightening::UB ) );
+            applySplit( pin );
+            printf( "SKELETON_VERIFY_PIN applied: b=%u phase=%s\n", bVar, phase );
+            fflush( stdout );
+        }
+    }
+
+    if ( Options::get()->getBool( Options::IMPLICATION_SKELETON ) )
+        computeImplicationSkeleton();
+
     return _cdclCore.solveWithCDCL( timeoutInSeconds );
+}
+
+void Engine::computeImplicationSkeleton()
+{
+    if ( _skeletonComputed || !_networkLevelReasoner ||
+         _lpSolverType != LPSolverType::NATIVE )
+        return;
+    _skeletonComputed = true;
+
+    struct timespec start = TimeUtils::sampleMicro();
+
+    // Probe targets: unfixed ReLUs with a boolean abstraction.
+    struct ProbeTarget
+    {
+        ReluConstraint *relu;
+        int var; // +var = active
+    };
+    Vector<ProbeTarget> targets;
+    for ( auto *plc : _plConstraints )
+    {
+        if ( plc->getType() != RELU || !plc->isActive() || plc->phaseFixed() ||
+             plc->getCdclVars().empty() )
+            continue;
+        targets.append( ProbeTarget{ (ReluConstraint *)plc, (int)plc->getCdclVars().front() } );
+    }
+
+    // Facts derived under a pin are conditional on it: keep them away from
+    // the SAT solver while probing.
+    _cdclCore.setProbeMode( true );
+
+    Vector<Set<int>> clauses;
+    // (b variable, pinned-active) per failed literal, for the optional
+    // fresh-engine soundness audit below.
+    std::vector<std::pair<unsigned, bool>> refutedPins;
+    unsigned probes = 0;
+    unsigned failedLiterals = 0;
+    unsigned binaryImplications = 0;
+
+    // Per-probe bound snapshots (indexed 2*i + (activePhase ? 0 : 1)),
+    // for hull folding and the conditional-tightening table.
+    unsigned n = _tableau->getN();
+    std::vector<std::vector<double>> probeLbs( 2 * targets.size() );
+    std::vector<std::vector<double>> probeUbs( 2 * targets.size() );
+    std::vector<char> probeRefuted( 2 * targets.size(), 0 );
+
+    for ( unsigned i = 0; i < targets.size(); ++i )
+    {
+        for ( bool activePhase : { true, false } )
+        {
+            ++probes;
+            if ( _verbosity > 0 && probes % 100 == 0 )
+            {
+                printf( "Skeleton probing progress: %u/%u (t=%.1fs)\n",
+                        probes,
+                        2 * targets.size(),
+                        TimeUtils::timePassed( start, TimeUtils::sampleMicro() ) / 1e6 );
+                fflush( stdout );
+            }
+            bool refuted = false;
+
+            preContextPushHook();
+            getContext().push();
+            try
+            {
+                PiecewiseLinearCaseSplit pin;
+                pin.storeBoundTightening( Tightening( targets[i].relu->getB(),
+                                                      0.0,
+                                                      activePhase ? Tightening::LB
+                                                                  : Tightening::UB ) );
+                applySplit( pin );
+
+                // Tighten to fixpoint: DeepPoly + bound propagation + valid
+                // case splits, then a budgeted LP feasibility check.
+                refuted = !probeTightenToFixpoint() ||
+                          !probeLpFeasible(
+                              GlobalConfiguration::SKELETON_PROBE_SIMPLEX_PIVOT_CAP );
+            }
+            catch ( const InfeasibleQueryException & )
+            {
+                refuted = true;
+            }
+            catch ( ... )
+            {
+                // Numerical trouble (malformed basis, precision): no facts
+                // from this probe, but the pin is not refuted.
+            }
+
+            unsigned probeIndex = 2 * i + ( activePhase ? 0 : 1 );
+            probeRefuted[probeIndex] = refuted;
+            if ( !refuted )
+            {
+                // Snapshot the branch bounds before the context pop reverts
+                // them (valid on this pin's region).
+                probeLbs[probeIndex].resize( n );
+                probeUbs[probeIndex].resize( n );
+                for ( unsigned v = 0; v < n; ++v )
+                {
+                    probeLbs[probeIndex][v] = _tableau->getLowerBound( v );
+                    probeUbs[probeIndex][v] = _tableau->getUpperBound( v );
+                }
+            }
+
+            int pinnedLiteral = activePhase ? targets[i].var : -targets[i].var;
+            if ( refuted )
+            {
+                Set<int> unit;
+                unit.insert( -pinnedLiteral );
+                clauses.append( unit );
+                ++failedLiterals;
+                refutedPins.push_back( { targets[i].relu->getB(), activePhase } );
+                if ( getenv( "SKELETON_DUMP_UNITS" ) )
+                {
+                    printf( "SKELETON UNIT: b=%u f=%u refutedPhase=%s literal=%d\n",
+                            targets[i].relu->getB(),
+                            targets[i].relu->getF(),
+                            activePhase ? "active" : "inactive",
+                            pinnedLiteral );
+                    fflush( stdout );
+                }
+            }
+            else
+            {
+                for ( unsigned j = 0; j < targets.size(); ++j )
+                {
+                    if ( j == i )
+                        continue;
+                    ReluConstraint *other = targets[j].relu;
+
+                    // Union of two detectors: the phase CDO (set through the
+                    // notification path) and the raw bound signs on b (which
+                    // catch fixings whose notification never fired).
+                    bool impliedActive = false;
+                    bool impliedInactive = false;
+                    if ( other->phaseFixed() )
+                    {
+                        PhaseStatus phase = other->getPhaseStatus();
+                        impliedActive = phase == RELU_PHASE_ACTIVE;
+                        impliedInactive = phase == RELU_PHASE_INACTIVE;
+                    }
+                    if ( !impliedActive && !impliedInactive )
+                    {
+                        unsigned b = other->getB();
+                        if ( !FloatUtils::isNegative( _tableau->getLowerBound( b ) ) )
+                            impliedActive = true;
+                        else if ( !FloatUtils::isPositive( _tableau->getUpperBound( b ) ) )
+                            impliedInactive = true;
+                    }
+                    if ( !impliedActive && !impliedInactive )
+                        continue;
+
+                    int impliedLiteral = impliedActive ? targets[j].var : -targets[j].var;
+                    Set<int> binary;
+                    binary.insert( -pinnedLiteral );
+                    binary.insert( impliedLiteral );
+                    clauses.append( binary );
+                    ++binaryImplications;
+                }
+            }
+
+            getContext().pop();
+            postContextPopHook();
+        }
+    }
+
+    _cdclCore.setProbeMode( false );
+
+    // ---- Hull fold: for each probed ReLU, every real point satisfies one
+    // of its phases, so the elementwise hull of the two branch bound vectors
+    // is valid at the ROOT. If one phase was refuted, the surviving branch's
+    // bounds apply at the root outright. Take the best hull across all pins.
+    unsigned hullTightened = 0;
+    if ( !getenv( "SKELETON_NO_HULL" ) )
+    {
+        std::vector<double> bestLb( n );
+        std::vector<double> bestUb( n );
+        for ( unsigned v = 0; v < n; ++v )
+        {
+            bestLb[v] = _tableau->getLowerBound( v );
+            bestUb[v] = _tableau->getUpperBound( v );
+        }
+        for ( unsigned i = 0; i < targets.size(); ++i )
+        {
+            unsigned a = 2 * i, b = 2 * i + 1;
+            if ( probeRefuted[a] && probeRefuted[b] )
+                continue; // both phases impossible: units already imply unsat
+            for ( unsigned v = 0; v < n; ++v )
+            {
+                double hullLb, hullUb;
+                if ( probeRefuted[a] )
+                {
+                    hullLb = probeLbs[b][v];
+                    hullUb = probeUbs[b][v];
+                }
+                else if ( probeRefuted[b] )
+                {
+                    hullLb = probeLbs[a][v];
+                    hullUb = probeUbs[a][v];
+                }
+                else
+                {
+                    hullLb = FloatUtils::min( probeLbs[a][v], probeLbs[b][v] );
+                    hullUb = FloatUtils::max( probeUbs[a][v], probeUbs[b][v] );
+                }
+                if ( hullLb > bestLb[v] )
+                    bestLb[v] = hullLb;
+                if ( hullUb < bestUb[v] )
+                    bestUb[v] = hullUb;
+            }
+        }
+        for ( unsigned v = 0; v < n; ++v )
+        {
+            if ( FloatUtils::gt( bestLb[v], _tableau->getLowerBound( v ) ) )
+            {
+                _tableau->tightenLowerBound( v, bestLb[v] );
+                ++hullTightened;
+            }
+            if ( FloatUtils::lt( bestUb[v], _tableau->getUpperBound( v ) ) )
+            {
+                _tableau->tightenUpperBound( v, bestUb[v] );
+                ++hullTightened;
+            }
+        }
+        if ( hullTightened > 0 )
+        {
+            // Cascade the refined root bounds once (may fix phases; those
+            // propagate to the SAT solver as ordinary root facts).
+            try
+            {
+                probeTightenToFixpoint();
+            }
+            catch ( const InfeasibleQueryException & )
+            {
+                // Refined root infeasible: the whole query is unsat; let the
+                // solve discover it through the tightened bounds.
+            }
+        }
+    }
+
+    // NOTE: a third channel (conditional-tightening table - per-pin branch
+    // bounds applied when the literal held mid-search) was measured dead in
+    // every delivery form and removed; see INPROCESSING.md for the numbers.
+
+    // Diagnostic knobs: SKELETON_NO_SEED probes but seeds nothing (isolates
+    // probe-time state perturbation from clause effects); SKELETON_UNITS_ONLY
+    // seeds just the failed-literal units.
+    if ( getenv( "SKELETON_NO_SEED" ) )
+        clauses.clear();
+    else if ( getenv( "SKELETON_UNITS_ONLY" ) )
+    {
+        Vector<Set<int>> unitsOnly;
+        for ( const Set<int> &clause : clauses )
+            if ( clause.size() == 1 )
+                unitsOnly.append( clause );
+        clauses = unitsOnly;
+    }
+    _cdclCore.setSkeletonClauses( clauses );
+
+    if ( _verbosity > 0 )
+    {
+        printf( "Implication skeleton (LP probes): %u probes -> %u failed-literal units, "
+                "%u binary implications, %u hull-tightened root bounds (t=%.2fs)\n",
+                probes,
+                failedLiterals,
+                binaryImplications,
+                hullTightened,
+                TimeUtils::timePassed( start, TimeUtils::sampleMicro() ) / 1e6 );
+        fflush( stdout );
+    }
+
+    // Soundness audit (SKELETON_VERIFY_UNITS=<timeout seconds>, default 120):
+    // failed-literal units come from budgeted LP infeasibility without
+    // precision-restoration guards, so a degraded basis could fake one.
+    // Re-check each on a fresh engine with a fresh tableau: solve Q with the
+    // pin as a plain bound; unsat there means the unit is genuinely entailed.
+    if ( const char *verifyEnv = getenv( "SKELETON_VERIFY_UNITS" ) )
+    {
+        double verifyTimeout = atof( verifyEnv ) > 0 ? atof( verifyEnv ) : 120;
+        bool cdclWasOn = Options::get()->getBool( Options::SOLVE_WITH_CDCL );
+        Options::get()->setBool( Options::SOLVE_WITH_CDCL, false );
+        unsigned verifiedCount = 0;
+        for ( const auto &pin : refutedPins )
+        {
+            unsigned b = pin.first;
+            bool activePhase = pin.second;
+            // Copy the pristine snapshot, NOT _preprocessedQuery: the live
+            // query's constraints carry this engine's CDOs and bound-manager
+            // pointers, and duplicating them is undefined.
+            Query pinnedQuery = *_skeletonAuditQuery;
+            if ( activePhase )
+                pinnedQuery.setLowerBound( b,
+                                           FloatUtils::max( pinnedQuery.getLowerBound( b ), 0.0 ) );
+            else
+                pinnedQuery.setUpperBound( b,
+                                           FloatUtils::min( pinnedQuery.getUpperBound( b ), 0.0 ) );
+
+            ExitCode result = ExitCode::UNSAT;
+            try
+            {
+                Engine auditEngine;
+                auditEngine.setVerbosity( 0 );
+                if ( auditEngine.processInputQuery( pinnedQuery ) )
+                {
+                    auditEngine.solve( verifyTimeout );
+                    result = auditEngine.getExitCode();
+                }
+            }
+            catch ( ... )
+            {
+                result = ExitCode::ERROR;
+            }
+
+            if ( result == ExitCode::UNSAT )
+                ++verifiedCount;
+            printf( "Skeleton unit audit: pin b=x%u %s => %s\n",
+                    b,
+                    activePhase ? ">=0" : "<=0",
+                    result == ExitCode::UNSAT   ? "VERIFIED entailed (unsat)"
+                    : result == ExitCode::SAT   ? "UNSOUND UNIT (sat!)"
+                                                : "unresolved (timeout/error)" );
+            fflush( stdout );
+        }
+        printf( "Skeleton unit audit: %u/%u units verified entailed\n",
+                verifiedCount,
+                (unsigned)refutedPins.size() );
+        fflush( stdout );
+        Options::get()->setBool( Options::SOLVE_WITH_CDCL, cdclWasOn );
+    }
+}
+
+bool Engine::probeTightenToFixpoint()
+{
+    do
+    {
+        // One DeepPoly pass (unconditional - mirrors
+        // performSymbolicBoundTightening without its type/proof gates).
+        _networkLevelReasoner->obtainCurrentBounds();
+        _networkLevelReasoner->deepPolyPropagation();
+        List<Tightening> tightenings;
+        _networkLevelReasoner->getConstraintTightenings( tightenings );
+        for ( const auto &tightening : tightenings )
+        {
+            if ( tightening._type == Tightening::LB )
+            {
+                if ( FloatUtils::gt( tightening._value,
+                                     _tableau->getLowerBound( tightening._variable ) ) )
+                    _tableau->tightenLowerBound( tightening._variable, tightening._value );
+            }
+            else if ( FloatUtils::lt( tightening._value,
+                                      _tableau->getUpperBound( tightening._variable ) ) )
+                _tableau->tightenUpperBound( tightening._variable, tightening._value );
+        }
+
+        if ( !propagateBoundManagerTightenings() )
+            return false;
+    }
+    while ( applyAllValidConstraintCaseSplits() );
+
+    return true;
+}
+
+bool Engine::probeLpFeasible( unsigned pivotCap )
+{
+    informLPSolverOfBounds();
+
+    unsigned pivots = 0;
+    while ( !allVarsWithinBounds() )
+    {
+        if ( pivots++ >= pivotCap )
+            return true; // budget exhausted: unknown counts as feasible
+        performSimplexStep();
+    }
+
+    return true;
 }
 
 Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litConstraint )

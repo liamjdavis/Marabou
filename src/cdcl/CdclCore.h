@@ -57,6 +57,43 @@ public:
     void initBooleanAbstraction( PiecewiseLinearConstraint *plc );
 
     /*
+      Install the implication skeleton's entailed clauses; they are added to
+      the SAT solver when solving starts.
+    */
+    void setSkeletonClauses( const Vector<Set<int>> &clauses )
+    {
+        _skeletonClauses = clauses;
+
+        // Index the skeleton for first-order vivification: units, and the
+        // direct implication adjacency (binary {a,b} = edges -a -> b, -b -> a).
+        _skeletonUnits.clear();
+        _skeletonImplied.clear();
+        for ( const Set<int> &clause : clauses )
+        {
+            if ( clause.size() == 1 )
+                _skeletonUnits.insert( *clause.begin() );
+            else if ( clause.size() == 2 )
+            {
+                auto it = clause.begin();
+                int a = *it++;
+                int b = *it;
+                _skeletonImplied[-a].insert( b );
+                _skeletonImplied[-b].insert( a );
+            }
+        }
+    }
+
+    /*
+      While the engine runs implication-skeleton probes, facts derived under
+      a probe's pin are conditional on it - literal propagations and conflict
+      clauses must not reach the SAT solver as if they were root-valid.
+    */
+    void setProbeMode( bool probeMode )
+    {
+        _probeMode = probeMode;
+    }
+
+    /*
        Push _context, record statistics
      */
     void pushContext();
@@ -287,6 +324,34 @@ private:
     HashMap<unsigned, bool> _largestAssignmentSoFar;
 
     Vector<Set<int>> _initialClauses;
+
+    // Entailed clauses from the implication skeleton (failed-literal units
+    // and binary phase implications), installed into the SAT solver at
+    // solve start. Sound by construction - no accounting needed.
+    Vector<Set<int>> _skeletonClauses;
+
+    // See setProbeMode.
+    bool _probeMode = false;
+
+    // Last heartbeat progress print (cb_check_found_model).
+    struct timespec _heartbeatLastPrint = { 0, 0 };
+
+
+    // Skeleton index for first-order vivification of learned clauses:
+    // _skeletonUnits holds root-true literals; _skeletonImplied[x] holds the
+    // direct skeleton consequences of literal x being true.
+    Set<int> _skeletonUnits;
+    Map<int, Set<int>> _skeletonImplied;
+    unsigned _numVivifiedLiterals = 0;
+
+    /*
+      First-order vivification: drop literal l from an entailed clause when
+      -l is a skeleton unit, or some other literal l' of the clause has the
+      direct skeleton edge -l' -> -l (any assignment falsifying the rest of
+      the clause then forces -l, so the shortened clause is still entailed).
+      Never empties a clause.
+    */
+    void vivifyClause( Set<int> &clause );
 
     std::shared_ptr<PLConstraintScoreTracker> _scoreTracker;
 

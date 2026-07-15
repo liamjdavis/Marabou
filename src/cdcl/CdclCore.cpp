@@ -15,6 +15,7 @@
 
 #ifdef BUILD_CADICAL
 #include "CdclCore.h"
+#include "InfeasibleQueryException.h"
 
 #include "NetworkLevelReasoner.h"
 #include "Options.h"
@@ -251,8 +252,38 @@ bool CdclCore::cb_check_found_model( const std::vector<int> &model )
     if ( checkIfShouldExitDueToTimeout() )
         return false;
 
+    if ( getenv( "CDCL_TRACE_CALLBACKS" ) )
+    {
+        static unsigned checkCalls = 0;
+        ++checkCalls;
+        if ( checkCalls == 1 || checkCalls % 100 == 0 )
+        {
+            printf( "TRACE cb_check_found_model calls: %u\n", checkCalls );
+            fflush( stdout );
+        }
+    }
+
     if ( _statistics )
+    {
         _statistics->incUnsignedAttribute( Statistics::NUM_VISITED_TREE_STATES );
+
+        // Heartbeat: report progress every 30s so long runs are observable
+        // at verbosity 1 (stats blocks only print at solve end).
+        if ( _engine->getVerbosity() > 0 )
+        {
+            struct timespec now = TimeUtils::sampleMicro();
+            if ( _heartbeatLastPrint.tv_sec == 0 )
+                _heartbeatLastPrint = now;
+            else if ( TimeUtils::timePassed( _heartbeatLastPrint, now ) / 1e6 >= 30.0 )
+            {
+                _heartbeatLastPrint = now;
+                printf( "CDCL progress: %u visited states, %u conflict clauses\n",
+                        _statistics->getUnsignedAttribute( Statistics::NUM_VISITED_TREE_STATES ),
+                        _numOfConflictClauses );
+                fflush( stdout );
+            }
+        }
+    }
     CDCL_LOG( Stringf( "%u l%d Checking model found by SAT solver", _index, _satSolver->getLevel() )
                   .ascii() )
     ASSERT( _externalClauseToAdd.empty() )
@@ -402,8 +433,40 @@ int CdclCore::cb_propagate()
 
     if ( _literalsToPropagate.empty() )
     {
+        if ( getenv( "CDCL_TRACE_CALLBACKS" ) )
+        {
+            static unsigned propagateSolves = 0;
+            ++propagateSolves;
+            if ( propagateSolves == 1 || propagateSolves % 100 == 0 )
+            {
+                printf( "TRACE cb_propagate theory-solves: %u\n", propagateSolves );
+                fflush( stdout );
+            }
+        }
+
         if ( _statistics )
+        {
             _statistics->incUnsignedAttribute( Statistics::NUM_VISITED_TREE_STATES );
+
+            // Heartbeat: report progress every 30s so long runs are observable
+            // at verbosity 1 (stats blocks only print at solve end). This is
+            // the real theory-check site; cb_check_found_model never fires.
+            if ( _engine->getVerbosity() > 0 )
+            {
+                struct timespec now = TimeUtils::sampleMicro();
+                if ( _heartbeatLastPrint.tv_sec == 0 )
+                    _heartbeatLastPrint = now;
+                else if ( TimeUtils::timePassed( _heartbeatLastPrint, now ) / 1e6 >= 30.0 )
+                {
+                    _heartbeatLastPrint = now;
+                    printf( "CDCL progress: %u visited states, %u conflict clauses\n",
+                            _statistics->getUnsignedAttribute(
+                                Statistics::NUM_VISITED_TREE_STATES ),
+                            _numOfConflictClauses );
+                    fflush( stdout );
+                }
+            }
+        }
 
         // If no literals left to propagate, and no clause already found, attempt solving
         if ( _externalClauseToAdd.empty() )
@@ -761,6 +824,19 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     ASSERT( !clause.exists( 0 ) )
 
+    // First-order vivification against the implication skeleton: entailed
+    // clause + entailed edges => the shortened clause is entailed too.
+    if ( !( _skeletonUnits.empty() && _skeletonImplied.empty() ) && clause.size() > 1 )
+    {
+        Set<int> vivified = clause;
+        vivifyClause( vivified );
+        if ( vivified.size() < clause.size() )
+        {
+            addExternalClause( vivified, shareClause );
+            return;
+        }
+    }
+
     if ( shareClause &&
          clause.size() <=
              static_cast<unsigned>( GlobalConfiguration::CDCL_SHARED_CLAUSES_SIZE_LIMIT_PERCENTAGE *
@@ -851,6 +927,15 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         return false;
     }
 
+    // Entailed implication-skeleton clauses (failed-literal units + binary
+    // phase implications): sound by construction, so they join the formula
+    // like any initial clause.
+    for ( const Set<int> &clause : _skeletonClauses )
+    {
+        _satSolver->addClause( clause );
+        _initialClauses.append( clause );
+    }
+
     Set<int> externalClause;
 
     externalClause = _satSolver->addExternalNAPClause(
@@ -869,6 +954,9 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     if ( _statistics && _engine->getVerbosity() )
     {
         printf( "\nCdclCore::Final statistics:\n" );
+        if ( _numVivifiedLiterals > 0 )
+            printf( "\tSkeleton vivification: %u literals removed from learned clauses\n",
+                    _numVivifiedLiterals );
         _statistics->print();
     }
 
@@ -923,6 +1011,10 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
 
 void CdclCore::addLiteralToPropagate( int literal )
 {
+    // Probe-conditional facts must not leak to the SAT solver as root facts.
+    if ( _probeMode )
+        return;
+
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
         return;
 
@@ -952,8 +1044,51 @@ bool CdclCore::isLiteralToBePropagated( int literal ) const
     return false;
 }
 
+void CdclCore::vivifyClause( Set<int> &clause )
+{
+    bool changed = true;
+    while ( changed && clause.size() > 1 )
+    {
+        changed = false;
+        for ( int literal : clause )
+        {
+            // -literal is a root fact: literal can never help satisfy.
+            bool removable = _skeletonUnits.exists( -literal );
+
+            // Some other literal's negation directly implies -literal.
+            if ( !removable )
+            {
+                for ( int other : clause )
+                {
+                    if ( other == literal )
+                        continue;
+                    if ( _skeletonImplied.exists( -other ) &&
+                         _skeletonImplied[-other].exists( -literal ) )
+                    {
+                        removable = true;
+                        break;
+                    }
+                }
+            }
+
+            if ( removable )
+            {
+                clause.erase( literal );
+                ++_numVivifiedLiterals;
+                changed = true;
+                break; // iterator invalidated; restart scan
+            }
+        }
+    }
+}
+
 void CdclCore::addDecisionBasedConflictClause()
 {
+    // A conflict under a probe's pin refutes the pin, not the query; the
+    // probe loop reads the infeasibility directly.
+    if ( _probeMode )
+        return;
+
     CDCL_LOG( Stringf( "%u l%d Add Decision Clause", _index, _satSolver->getLevel() ).ascii() )
 
     struct timespec start = TimeUtils::sampleMicro();

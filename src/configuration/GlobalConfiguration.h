@@ -279,6 +279,9 @@ public:
      */
     static const unsigned BACKWARD_BOUND_PROPAGATION_DEPTH;
 
+    // Per-probe simplex pivot budget for implication-skeleton LP probes
+    static const unsigned SKELETON_PROBE_SIMPLEX_PIVOT_CAP;
+
     /* How many rounds of backward analysis to perform?
      */
     static const unsigned MAX_ROUNDS_OF_BACKWARD_ANALYSIS;

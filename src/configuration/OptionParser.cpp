@@ -141,7 +141,14 @@ void OptionParser::initialize()
         ( "cdcl",
           boost::program_options::bool_switch( &( ( *_boolOptions )[Options::SOLVE_WITH_CDCL] ) )
               ->default_value( ( *_boolOptions )[Options::SOLVE_WITH_CDCL] ),
-          "Solve the input query with CDCL as the solving procedure" )
+          "Solve the input query with CDCL as the solving procedure" )(
+            "implication-skeleton",
+            boost::program_options::bool_switch(
+                &( ( *_boolOptions )[Options::IMPLICATION_SKELETON] ) )
+                ->default_value( ( *_boolOptions )[Options::IMPLICATION_SKELETON] ),
+            "(CDCL) Seed the SAT solver with the entailed implication skeleton: "
+            "single-pin DeepPoly probes yielding failed-literal units and binary "
+            "phase implications" )
 #endif
 
 #ifdef ENABLE_GUROBI

@@ -394,6 +394,16 @@ public:
     bool solveWithCDCL( double timeoutInSeconds = 0 ) override;
 
     /*
+      Entailed implication skeleton (--implication-skeleton): probe every
+      unfixed ReLU phase once, through the full tightening stack plus a
+      budgeted LP feasibility check, under a context push/pop. Refuted pins
+      become unit clauses (failed literals); phases fixed under a pin become
+      binary implications. All clauses are entailed - sound by construction -
+      and are seeded into the SAT solver at solve start.
+    */
+    void computeImplicationSkeleton();
+
+    /*
       Creates a boolean-abstracted clause explaining a boolean-abstracted literal
     */
     Set<int> explainPhaseWithProof( const PiecewiseLinearConstraint *litConstraint ) override;
@@ -505,6 +515,19 @@ private:
       Preprocessed Query
     */
     std::shared_ptr<Query> _preprocessedQuery;
+
+#ifdef BUILD_CADICAL
+    /*
+      Implication-skeleton probing (see computeImplicationSkeleton).
+      _skeletonAuditQuery: pristine post-preprocessing snapshot, taken before
+      constraint registration, for the SKELETON_VERIFY_UNITS fresh-engine
+      audit (the live query cannot be deep-copied safely).
+    */
+    bool _skeletonComputed = false;
+    std::shared_ptr<Query> _skeletonAuditQuery;
+    bool probeTightenToFixpoint();
+    bool probeLpFeasible( unsigned pivotCap );
+#endif
 
     /*
       Pivot selection strategies.
