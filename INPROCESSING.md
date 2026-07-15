@@ -60,14 +60,34 @@ Build (CaDiCaL required; note `file(GLOB)` in CMakeLists — adding/removing
 mkdir build && cd build && cmake ../ -DENABLE_GUROBI=ON && make -j
 ```
 
-Solve with the skeleton:
+## Benchmarking (A/B)
+
+Control and treated commands are **identical except for
+`--implication-skeleton`** — same solver mode, LP backend, timeout,
+verbosity, seed defaults:
 
 ```bash
-./Marabou resources/onnx/acasxu/ACASXU_experimental_v2a_3_4.onnx \
-          resources/properties/acas_property_1.txt \
-          --cdcl --lp-solver native --implication-skeleton \
-          --timeout 900 --verbosity 1
+# control (baseline CDCL)
+timeout -s KILL 1000 ./Marabou \
+    resources/onnx/acasxu/ACASXU_experimental_v2a_3_4.onnx \
+    resources/properties/acas_property_1.txt \
+    --cdcl --lp-solver native --timeout 900 --verbosity 1
+
+# treated (baseline + inprocessing) — only the one flag differs
+timeout -s KILL 1000 ./Marabou \
+    resources/onnx/acasxu/ACASXU_experimental_v2a_3_4.onnx \
+    resources/properties/acas_property_1.txt \
+    --cdcl --lp-solver native --timeout 900 --verbosity 1 \
+    --implication-skeleton
 ```
+
+Metric: `Total visited states` from the **final** stats block (the probe
+phase prints an early block with `visited states: 1` — always take the last
+occurrence). Wall time is secondary (trajectory chaos makes it noisy).
+Always wrap in `timeout -s KILL` with margin over `--timeout`; kill strays
+with `pkill -9 -x Marabou` (never `-f`). Calibration anchors: 3_4×prop_1
+control 6,062 / treated 3,934 (both unsat); 1_2×prop_1 control 1,982 /
+treated 2,106 (both unsat).
 
 CLI flags:
 
