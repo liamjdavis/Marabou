@@ -15,8 +15,8 @@
 
 #ifdef BUILD_CADICAL
 #include "CdclCore.h"
-#include "InfeasibleQueryException.h"
 
+#include "InfeasibleQueryException.h"
 #include "NetworkLevelReasoner.h"
 #include "Options.h"
 #include "Query.h"
@@ -459,10 +459,10 @@ int CdclCore::cb_propagate()
                 else if ( TimeUtils::timePassed( _heartbeatLastPrint, now ) / 1e6 >= 30.0 )
                 {
                     _heartbeatLastPrint = now;
-                    printf( "CDCL progress: %u visited states, %u conflict clauses\n",
-                            _statistics->getUnsignedAttribute(
-                                Statistics::NUM_VISITED_TREE_STATES ),
-                            _numOfConflictClauses );
+                    printf(
+                        "CDCL progress: %u visited states, %u conflict clauses\n",
+                        _statistics->getUnsignedAttribute( Statistics::NUM_VISITED_TREE_STATES ),
+                        _numOfConflictClauses );
                     fflush( stdout );
                 }
             }
@@ -911,7 +911,8 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
         if ( _engine->solve( _timeoutInSeconds ) )
         {
             _engine->setExitCode( ExitCode::SAT );
-            if ( GlobalConfiguration::WRITE_ALETHE_PROOF && !Options::get()->getBool( Options::DNC_MODE ) )
+            if ( GlobalConfiguration::WRITE_ALETHE_PROOF &&
+                 !Options::get()->getBool( Options::DNC_MODE ) )
                 _engine->deleteProofIfExists();
             return true;
         }
@@ -1013,6 +1014,16 @@ void CdclCore::addLiteralToPropagate( int literal )
 {
     // Probe-conditional facts must not leak to the SAT solver as root facts.
     if ( _probeMode )
+        return;
+
+    // The skeleton's C2 hull fold tightens the root tableau after probe mode is
+    // lifted but before solveWithCDCL constructs _satSolver, so a phase fixed by
+    // that cascade lands here with no solver to propagate to. Nothing is lost by
+    // dropping it: solveWithCDCL clears _literalsToPropagate right after
+    // creating the solver, so a queued literal would be discarded anyway, and
+    // the fold's bounds live on in the root tableau for theory propagation to
+    // rediscover.
+    if ( !_satSolver )
         return;
 
     if ( _engine->getExitCode() != ExitCode::NOT_DONE )
