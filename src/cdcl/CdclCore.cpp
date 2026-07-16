@@ -1431,8 +1431,8 @@ void CdclCore::processVivifyLpQueue()
                 continue; // unpinnable: kept in the clause regardless
             unsigned deltas = 0;
             if ( _probePinFacts.exists( -lit ) )
-                deltas = _probePinFacts[-lit].lbDeltas.size() +
-                         _probePinFacts[-lit].ubDeltas.size();
+                deltas =
+                    _probePinFacts[-lit].lbDeltas.size() + _probePinFacts[-lit].ubDeltas.size();
             pinnable.emplace_back( lit, deltas );
         }
         if ( pinnable.size() < 2 )
@@ -1448,8 +1448,8 @@ void CdclCore::processVivifyLpQueue()
         // the LP descent handles what only the theory can refute.
         Vector<Pair<unsigned, bool>> pins;
         for ( const auto &p : pinnable )
-            pins.append( Pair<unsigned, bool>( _cdclVarToB[(unsigned)std::abs( p.first )],
-                                               p.first < 0 ) );
+            pins.append(
+                Pair<unsigned, bool>( _cdclVarToB[(unsigned)std::abs( p.first )], p.first < 0 ) );
 
         Vector<Pair<unsigned, bool>> impliedPhases;
         int applied = _engine->probePinDescent(
@@ -1678,8 +1678,14 @@ void CdclCore::addDecisionBasedConflictClause()
     if ( _probeMode )
         return;
 
-    // The pre-search pristine root check runs before the SAT solver exists;
-    // a root conflict there is rediscovered by the search's own root solve.
+    // Same pre-solver window as addLiteralToPropagate: the C2 hull fold and the
+    // pre-search pristine root check both run after probe mode is lifted but
+    // before solveWithCDCL constructs _satSolver, and a conflict there reaches
+    // this callback with no solver. Bailing out is what we want regardless of
+    // the crash: this clause is built from the decisions on the trail, and
+    // before the search starts there are none, so it would reduce to the empty
+    // clause and assert FALSE for the whole query. A genuine root conflict is
+    // rediscovered by the search's own root solve.
     if ( !_satSolver )
         return;
 
