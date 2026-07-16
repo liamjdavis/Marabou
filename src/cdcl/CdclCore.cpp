@@ -22,8 +22,11 @@
 #include "Query.h"
 #include "TimeUtils.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
+#include <map>
 #include <thread>
 #include <utility>
 
@@ -338,6 +341,12 @@ int CdclCore::cb_decide()
         _satSolver->forceBacktrack( 0 );
         return 0;
     }
+
+    // Rung-1 vivification runs at the amortized point: boolean level 0
+    // (post-restart), engine restored to its root state, before the next
+    // decision. Descents push/pop context around the root.
+    if ( _satSolver->getLevel() == 0 )
+        processVivifyLpQueue();
 
     unsigned decisionVariable =
         GlobalConfiguration::USE_DEEPSOI_LOCAL_SEARCH && _satSolver->getLevel() > 3
@@ -824,9 +833,10 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     ASSERT( !clause.exists( 0 ) )
 
-    // First-order vivification against the implication skeleton: entailed
-    // clause + entailed edges => the shortened clause is entailed too.
-    if ( !( _skeletonUnits.empty() && _skeletonImplied.empty() ) && clause.size() > 1 )
+    // Vivification against the implication skeleton: entailed clause +
+    // entailed probe facts => the shortened clause is entailed too.
+    if ( !( _skeletonUnits.empty() && _skeletonImplied.empty() && _probePinFacts.empty() ) &&
+         clause.size() > 1 )
     {
         Set<int> vivified = clause;
         vivifyClause( vivified );
@@ -835,6 +845,19 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
             addExternalClause( vivified, shareClause );
             return;
         }
+    }
+
+    // Queue for rung-1 (LP-grade) vivification at the next level-0 visit.
+    // Clauses produced by that pass itself must not re-queue.
+    static const unsigned lpMaxSize = [] {
+        const char *s = getenv( "SKELETON_VIVIFY_LP_MAX_SIZE" );
+        return s ? (unsigned)atoi( s ) : 32u;
+    }();
+    if ( !_inVivifyLpPass && !_probeMode && !_cdclVarToB.empty() && clause.size() > 1 &&
+         clause.size() <= lpMaxSize && !getenv( "SKELETON_NO_VIVIFY_LP" ) )
+    {
+        _vivifyLpQueue.append( clause );
+        ++_numVivifyLpQueued;
     }
 
     if ( shareClause &&
@@ -868,9 +891,15 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
 
     ++_numOfClauses;
 
-    ++_numOfConflictClauses;
-    if ( _numOfConflictClauses == _restartLimit )
-        _shouldRestart = true;
+    // Clauses injected by the vivification pass are not fresh conflicts;
+    // keeping them out of the restart schedule keeps the cadence comparable
+    // with and without vivification.
+    if ( !_inVivifyLpPass )
+    {
+        ++_numOfConflictClauses;
+        if ( _numOfConflictClauses == _restartLimit )
+            _shouldRestart = true;
+    }
 
     if ( _statistics )
     {
@@ -955,9 +984,28 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     if ( _statistics && _engine->getVerbosity() )
     {
         printf( "\nCdclCore::Final statistics:\n" );
-        if ( _numVivifiedLiterals > 0 )
-            printf( "\tSkeleton vivification: %u literals removed from learned clauses\n",
-                    _numVivifiedLiterals );
+        if ( _numVivifiedLiterals > 0 || _numVivifiedLiteralsBounds > 0 || _vivifyTimeMicro > 0 )
+            printf( "\tSkeleton vivification: %u edge-removed + %u bound-removed literals "
+                    "(%u numeric checks, %u size-skips, max clause %u, %.2fs total)\n",
+                    _numVivifiedLiterals,
+                    _numVivifiedLiteralsBounds,
+                    _numVivifyNumericChecks,
+                    _numVivifySizeSkips,
+                    _maxVivifyClauseSize,
+                    _vivifyTimeMicro / 1e6 );
+        if ( _numVivifyLpVisits > 0 || _numVivifyLpQueued > 0 )
+            printf( "\tLP vivification (rung 1): %u descents -> %u clauses shortened, "
+                    "%u literals removed, %u edges harvested (%u level-0 visits, %u queued, "
+                    "%u fixed-skips, %u still queued, %.2fs total)\n",
+                    _numVivifyLpDescents,
+                    _numVivifyLpShortened,
+                    _numVivifyLpLiteralsRemoved,
+                    _numVivifyLpHarvestedEdges,
+                    _numVivifyLpVisits,
+                    _numVivifyLpQueued,
+                    _numVivifyLpSkippedFixed,
+                    _vivifyLpQueue.size(),
+                    _vivifyLpTimeMicro / 1e6 );
         _statistics->print();
     }
 
@@ -1055,42 +1103,301 @@ bool CdclCore::isLiteralToBePropagated( int literal ) const
     return false;
 }
 
+void CdclCore::processVivifyLpQueue()
+{
+    ++_numVivifyLpVisits;
+    if ( _vivifyLpQueue.empty() || _cdclVarToB.empty() || !_satSolver )
+        return;
+
+    static const unsigned clausesPerVisit = [] {
+        const char *s = getenv( "SKELETON_VIVIFY_LP_CLAUSES" );
+        return s ? (unsigned)atoi( s ) : 256u;
+    }();
+    // Global wall-clock budget: rung-1 descents must never eat the run.
+    static const double totalBudgetSec = [] {
+        const char *s = getenv( "SKELETON_VIVIFY_LP_BUDGET" );
+        return s ? atof( s ) : 60.0;
+    }();
+
+    if ( _vivifyLpTimeMicro / 1e6 >= totalBudgetSec )
+        return;
+
+    struct timespec start = TimeUtils::sampleMicro();
+
+    // Facts derived under the descent pins are conditional on them: keep
+    // them away from the SAT solver (same guard as the probe pass).
+    setProbeMode( true );
+
+    unsigned processed = 0;
+    while ( !_vivifyLpQueue.empty() && processed < clausesPerVisit &&
+            _engine->getExitCode() == ExitCode::NOT_DONE && !checkIfShouldExitDueToTimeout() &&
+            ( _vivifyLpTimeMicro + TimeUtils::timePassed( start, TimeUtils::sampleMicro() ) ) /
+                    1e6 <
+                totalBudgetSec )
+    {
+        Set<int> clause = _vivifyLpQueue.back();
+        _vivifyLpQueue.popBack();
+        ++processed;
+
+        // A literal fixed TRUE satisfies the clause at root: skip. A literal
+        // fixed FALSE is just dead - it stays out of the pin set below (its
+        // negation is a root fact, so omitting its pin only weakens the
+        // check), and the descent proceeds on the live literals.
+        bool skip = false;
+        for ( int lit : clause )
+            if ( isLiteralFixed( lit ) )
+            {
+                skip = true;
+                break;
+            }
+        if ( skip )
+        {
+            ++_numVivifyLpSkippedFixed;
+            continue;
+        }
+
+        // Pin order: most-tightening-first (rung-0 delta counts), so
+        // infeasibility hits as early as possible in the descent.
+        std::vector<std::pair<int, unsigned>> pinnable; // (literal, delta count)
+        for ( int lit : clause )
+        {
+            if ( isLiteralFixed( -lit ) )
+                continue; // dead literal: not pinned, not kept
+            unsigned var = (unsigned)( lit > 0 ? lit : -lit );
+            if ( !_cdclVarToB.exists( var ) )
+                continue; // unpinnable: kept in the clause regardless
+            unsigned deltas = 0;
+            if ( _probePinFacts.exists( -lit ) )
+                deltas = _probePinFacts[-lit].lbDeltas.size() +
+                         _probePinFacts[-lit].ubDeltas.size();
+            pinnable.emplace_back( lit, deltas );
+        }
+        if ( pinnable.size() < 2 )
+            continue;
+        std::sort( pinnable.begin(),
+                   pinnable.end(),
+                   []( const std::pair<int, unsigned> &a, const std::pair<int, unsigned> &b ) {
+                       return a.second > b.second;
+                   } );
+
+        // The pin of literal lit's NEGATION: lit = active (b >= 0), so
+        // -lit pins b <= 0, and vice versa.
+        Vector<Pair<unsigned, bool>> pins;
+        for ( const auto &p : pinnable )
+            pins.append( Pair<unsigned, bool>( _cdclVarToB[(unsigned)std::abs( p.first )],
+                                               p.first < 0 ) );
+
+        Vector<Pair<unsigned, bool>> impliedPhases;
+        int applied = _engine->probePinDescent(
+            pins, GlobalConfiguration::SKELETON_PROBE_SIMPLEX_PIVOT_CAP, &impliedPhases );
+        ++_numVivifyLpDescents;
+
+        // Harvest the pin-1 implications as binary clauses: pin of literal
+        // l1's negation fixed phase q, so {l1, q} is entailed. Each descent
+        // grows the clausalized implication graph at no extra LP cost.
+        if ( !impliedPhases.empty() )
+        {
+            int l1 = pinnable[0].first;
+            _inVivifyLpPass = true;
+            for ( const auto &implied : impliedPhases )
+            {
+                if ( !_bToCdclVar.exists( implied.first() ) )
+                    continue;
+                int q = implied.second() ? (int)_bToCdclVar[implied.first()]
+                                         : -(int)_bToCdclVar[implied.first()];
+                if ( q == l1 || q == -l1 )
+                    continue;
+                std::pair<int, int> key( std::min( l1, q ), std::max( l1, q ) );
+                if ( _seenHarvestEdges.count( key ) )
+                    continue;
+                _seenHarvestEdges.insert( key );
+                Set<int> edge;
+                edge.insert( l1 );
+                edge.insert( q );
+                addExternalClause( edge, false );
+                ++_numVivifyLpHarvestedEdges;
+            }
+            _inVivifyLpPass = false;
+        }
+
+        if ( applied < 0 )
+            continue; // feasible (or numerical trouble): no shortening
+
+        // Q ^ first `applied` pins is infeasible => the disjunction of those
+        // literals is entailed on its own. Everything else drops (including
+        // the unpinnable literals).
+        Set<int> shortened;
+        for ( int i = 0; i < applied; ++i )
+            shortened.insert( pinnable[i].first );
+
+        if ( !shortened.empty() && shortened.size() < clause.size() )
+        {
+            _numVivifyLpLiteralsRemoved += clause.size() - shortened.size();
+            ++_numVivifyLpShortened;
+            _inVivifyLpPass = true;
+            addExternalClause( shortened, false );
+            _inVivifyLpPass = false;
+        }
+    }
+
+    setProbeMode( false );
+
+    _vivifyLpTimeMicro += TimeUtils::timePassed( start, TimeUtils::sampleMicro() );
+}
+
 void CdclCore::vivifyClause( Set<int> &clause )
 {
+    struct timespec start = TimeUtils::sampleMicro();
+
     bool changed = true;
     while ( changed && clause.size() > 1 )
     {
         changed = false;
         for ( int literal : clause )
         {
+            bool byBounds = false;
             // -literal is a root fact: literal can never help satisfy.
-            bool removable = _skeletonUnits.exists( -literal );
-
-            // Some other literal's negation directly implies -literal.
-            if ( !removable )
-            {
-                for ( int other : clause )
-                {
-                    if ( other == literal )
-                        continue;
-                    if ( _skeletonImplied.exists( -other ) &&
-                         _skeletonImplied[-other].exists( -literal ) )
-                    {
-                        removable = true;
-                        break;
-                    }
-                }
-            }
+            bool removable = _skeletonUnits.exists( -literal ) ||
+                             vivifyCandidateRemovable( clause, literal, byBounds );
 
             if ( removable )
             {
                 clause.erase( literal );
-                ++_numVivifiedLiterals;
+                if ( byBounds )
+                    ++_numVivifiedLiteralsBounds;
+                else
+                    ++_numVivifiedLiterals;
                 changed = true;
                 break; // iterator invalidated; restart scan
             }
         }
     }
+
+    _vivifyTimeMicro += TimeUtils::timePassed( start, TimeUtils::sampleMicro() );
+}
+
+bool CdclCore::vivifyCandidateRemovable( const Set<int> &clause, int literal, bool &byBounds )
+{
+    // Dropping `literal` is sound iff Q ^ (negations of the remaining
+    // literals) is infeasible - then C \ {literal} is itself entailed.
+    // Rung 0 decides this from probe-time facts only, no LP calls:
+    //   1. BCP closure of the pinned negations over the skeleton edges
+    //      (boolean contradiction / clash with a root unit / forcing
+    //      -literal directly);
+    //   2. intersection of the closure pins' stored bound vectors (each is
+    //      entailed under its pin, so all hold under the conjunction): an
+    //      empty box, or a forced sign on literal's own b, kills literal.
+    byBounds = false;
+
+    static constexpr unsigned CLOSURE_CAP = 256;
+    static constexpr double VIVIFY_EPS = 1e-6;
+    static const unsigned maxNumericSize = [] {
+        const char *s = getenv( "SKELETON_VIVIFY_MAX_SIZE" );
+        return s ? (unsigned)atoi( s ) : 64u;
+    }();
+
+    std::vector<int> worklist;
+    Set<int> closure;
+    for ( int other : clause )
+        if ( other != literal )
+            worklist.push_back( -other );
+
+    while ( !worklist.empty() )
+    {
+        int p = worklist.back();
+        worklist.pop_back();
+        if ( closure.exists( p ) )
+            continue;
+        // The pins contradict each other or a root unit: infeasible outright.
+        if ( closure.exists( -p ) || _skeletonUnits.exists( -p ) )
+            return true;
+        // The pins force -literal (multi-hop closure of the old one-edge check).
+        if ( p == -literal )
+            return true;
+        closure.insert( p );
+        if ( closure.size() >= CLOSURE_CAP )
+            break;
+        if ( _skeletonImplied.exists( p ) )
+            for ( int q : _skeletonImplied[p] )
+                if ( !closure.exists( q ) )
+                    worklist.push_back( q );
+    }
+
+    if ( clause.size() > _maxVivifyClauseSize )
+        _maxVivifyClauseSize = clause.size();
+    if ( _probePinFacts.empty() )
+        return false;
+    if ( clause.size() > maxNumericSize )
+    {
+        ++_numVivifySizeSkips;
+        return false;
+    }
+    ++_numVivifyNumericChecks;
+
+    // Intersect the stored bound vectors of every closure pin with the root
+    // box. Only tightened (delta) entries can participate in a crossing, so
+    // the sparse lists suffice.
+    std::map<unsigned, std::pair<double, double>> eff;
+    auto touch = [&]( unsigned v ) -> std::pair<double, double> & {
+        auto it = eff.find( v );
+        if ( it == eff.end() )
+            it = eff.emplace( v, std::make_pair( _probeRootLbs[v], _probeRootUbs[v] ) ).first;
+        return it->second;
+    };
+
+    for ( int p : closure )
+    {
+        if ( !_probePinFacts.exists( p ) )
+            continue;
+        const ProbePinFacts &facts = _probePinFacts[p];
+        for ( const auto &d : facts.lbDeltas )
+        {
+            auto &e = touch( d.first );
+            if ( d.second > e.first )
+                e.first = d.second;
+        }
+        for ( const auto &d : facts.ubDeltas )
+        {
+            auto &e = touch( d.first );
+            if ( d.second < e.second )
+                e.second = d.second;
+        }
+    }
+
+    if ( eff.empty() )
+        return false;
+
+    // Box emptiness: some variable's intersected lower bound crosses its
+    // intersected upper bound.
+    for ( const auto &entry : eff )
+        if ( entry.second.first > entry.second.second + VIVIFY_EPS )
+        {
+            byBounds = true;
+            return true;
+        }
+
+    // Forced sign on literal's own pre-activation: b < 0 makes the active
+    // literal false, b > 0 makes the inactive literal false.
+    unsigned var = (unsigned)( literal > 0 ? literal : -literal );
+    if ( _cdclVarToB.exists( var ) )
+    {
+        auto it = eff.find( _cdclVarToB[var] );
+        if ( it != eff.end() )
+        {
+            if ( literal > 0 && it->second.second < -VIVIFY_EPS )
+            {
+                byBounds = true;
+                return true;
+            }
+            if ( literal < 0 && it->second.first > VIVIFY_EPS )
+            {
+                byBounds = true;
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 void CdclCore::addDecisionBasedConflictClause()

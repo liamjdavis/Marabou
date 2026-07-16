@@ -30,6 +30,9 @@
 
 #include <cadical.hpp>
 #include <mutex>
+#include <set>
+#include <utility>
+#include <vector>
 
 #define CDCL_LOG( x, ... ) LOG( GlobalConfiguration::CDCL_LOGGING, "CDCL: %s\n", x )
 
@@ -81,6 +84,32 @@ public:
                 _skeletonImplied[-b].insert( a );
             }
         }
+    }
+
+    /*
+      Per-pin facts from the skeleton probe pass, for rung-0 numeric
+      vivification: the pin's bound tightenings vs the root box, stored
+      sparsely as (variable, bound) deltas. Everything here is entailed by
+      the query under the pin (Q ^ pin |= bounds).
+    */
+    struct ProbePinFacts
+    {
+        std::vector<std::pair<unsigned, double>> lbDeltas;
+        std::vector<std::pair<unsigned, double>> ubDeltas;
+    };
+
+    void setProbePinFacts( const Map<int, ProbePinFacts> &pinFacts,
+                           const Map<unsigned, unsigned> &cdclVarToB,
+                           const std::vector<double> &rootLbs,
+                           const std::vector<double> &rootUbs )
+    {
+        _probePinFacts = pinFacts;
+        _cdclVarToB = cdclVarToB;
+        _probeRootLbs = rootLbs;
+        _probeRootUbs = rootUbs;
+        _bToCdclVar.clear();
+        for ( const auto &pair : cdclVarToB )
+            _bToCdclVar[pair.second] = pair.first;
     }
 
     /*
@@ -344,14 +373,64 @@ private:
     Map<int, Set<int>> _skeletonImplied;
     unsigned _numVivifiedLiterals = 0;
 
+    // Rung-0 numeric vivification state: per-pin sparse bound deltas, the
+    // root box they are relative to, and the cdcl-var -> b-variable map for
+    // the forced-sign test. See setProbePinFacts.
+    Map<int, ProbePinFacts> _probePinFacts;
+    Map<unsigned, unsigned> _cdclVarToB;
+    std::vector<double> _probeRootLbs;
+    std::vector<double> _probeRootUbs;
+    unsigned _numVivifiedLiteralsBounds = 0;
+    unsigned long long _vivifyTimeMicro = 0;
+    // Diagnostics: how often the numeric test actually ran vs was size-skipped,
+    // and the largest clause seen (distinguishes weak-oracle from wrong-gate).
+    unsigned _numVivifyNumericChecks = 0;
+    unsigned _numVivifySizeSkips = 0;
+    unsigned _maxVivifyClauseSize = 0;
+
+    // Rung-1 (LP-grade) vivification: learned clauses queue here and are
+    // descended at the next level-0 visit (restart), when the engine is at
+    // its root state. See processVivifyLpQueue.
+    List<Set<int>> _vivifyLpQueue;
+    bool _inVivifyLpPass = false;
+    unsigned _numVivifyLpDescents = 0;
+    unsigned _numVivifyLpShortened = 0;
+    unsigned _numVivifyLpLiteralsRemoved = 0;
+    unsigned long long _vivifyLpTimeMicro = 0;
+    // Diagnostics: level-0 visits that reached the pass, clauses ever
+    // queued, clauses skipped for containing a fixed literal.
+    unsigned _numVivifyLpVisits = 0;
+    unsigned _numVivifyLpQueued = 0;
+    unsigned _numVivifyLpSkippedFixed = 0;
+
+    // Implication edges harvested from descent pin-1 fixpoints (clausalized
+    // graph growth); _seenHarvestEdges dedupes across descents, keyed by the
+    // normalized literal pair. _bToCdclVar maps a pre-activation variable
+    // back to its boolean var for the harvest.
+    Map<unsigned, unsigned> _bToCdclVar;
+    std::set<std::pair<int, int>> _seenHarvestEdges;
+    unsigned _numVivifyLpHarvestedEdges = 0;
+
     /*
-      First-order vivification: drop literal l from an entailed clause when
-      -l is a skeleton unit, or some other literal l' of the clause has the
-      direct skeleton edge -l' -> -l (any assignment falsifying the rest of
-      the clause then forces -l, so the shortened clause is still entailed).
-      Never empties a clause.
+      Rung-1 theory vivification: for each queued clause, one incremental
+      engine descent over the pins of the negated literals
+      (most-tightening-first, per the rung-0 delta counts); infeasibility
+      after j pins entails the j-literal prefix subclause, which is added
+      through the normal external-clause path. Runs only at boolean level 0
+      with the engine at root state; probe mode is held for the whole pass.
+    */
+    void processVivifyLpQueue();
+
+    /*
+      Theory-grade (rung-0) vivification: drop literal l from an entailed
+      clause when pinning the negations of the remaining literals is provably
+      infeasible - decided purely from probe-time facts (skeleton units,
+      BCP closure over skeleton edges, and the intersection of the stored
+      per-pin bound vectors: box emptiness or a forced sign on l's own b).
+      No LP, no propagation. Never empties a clause.
     */
     void vivifyClause( Set<int> &clause );
+    bool vivifyCandidateRemovable( const Set<int> &clause, int literal, bool &byBounds );
 
     std::shared_ptr<PLConstraintScoreTracker> _scoreTracker;
 

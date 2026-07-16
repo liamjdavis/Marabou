@@ -527,6 +527,13 @@ private:
     std::shared_ptr<Query> _skeletonAuditQuery;
     bool probeTightenToFixpoint();
     bool probeLpFeasible( unsigned pivotCap );
+
+public:
+    int probePinDescent( const Vector<Pair<unsigned, bool>> &pins,
+                         unsigned pivotCap,
+                         Vector<Pair<unsigned, bool>> *impliedPhases ) override;
+
+private:
 #endif
 
     /*

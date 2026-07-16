@@ -358,6 +358,16 @@ public:
     {
     }
 
+    int probePinDescent( const Vector<Pair<unsigned, bool>> &pins,
+                         unsigned pivotCap,
+                         Vector<Pair<unsigned, bool>> *impliedPhases ) override
+    {
+        (void)pins;
+        (void)pivotCap;
+        (void)impliedPhases;
+        return -1;
+    }
+
     void incNumOfLemmas() override
     {
     }

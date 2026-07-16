@@ -4840,6 +4840,62 @@ void Engine::computeImplicationSkeleton()
     // bounds applied when the literal held mid-search) was measured dead in
     // every delivery form and removed; see INPROCESSING.md for the numbers.
 
+    // ---- Rung-0 vivification facts: hand the per-pin bound snapshots to the
+    // CDCL core as sparse deltas vs the (post-hull-fold) root box. Learned
+    // clauses are then vivified by intersecting the pins of their negated
+    // literals - a delivery through the clause database, trail-independent.
+    // Deltas below SKELETON_VIVIFY_DELTA_FRAC of the root gap are dropped:
+    // they can never produce a crossing that matters and dominate the cost.
+    unsigned vivifyPins = 0, vivifyDeltas = 0;
+    if ( !getenv( "SKELETON_NO_SEED" ) )
+    {
+        double deltaFrac = 0.05;
+        if ( const char *fracEnv = getenv( "SKELETON_VIVIFY_DELTA_FRAC" ) )
+            deltaFrac = atof( fracEnv );
+        bool storeDeltas = !getenv( "SKELETON_NO_VIVIFY_BOUNDS" );
+
+        std::vector<double> rootLbs( n ), rootUbs( n );
+        for ( unsigned v = 0; v < n; ++v )
+        {
+            rootLbs[v] = _tableau->getLowerBound( v );
+            rootUbs[v] = _tableau->getUpperBound( v );
+        }
+
+        // The var -> b map also drives rung-1 (LP) vivification, so it is
+        // installed even when the rung-0 delta store is disabled.
+        Map<int, CdclCore::ProbePinFacts> pinFacts;
+        Map<unsigned, unsigned> cdclVarToB;
+        for ( unsigned i = 0; i < targets.size(); ++i )
+        {
+            cdclVarToB[(unsigned)targets[i].var] = targets[i].relu->getB();
+            if ( !storeDeltas )
+                continue;
+            for ( bool activePhase : { true, false } )
+            {
+                unsigned probeIndex = 2 * i + ( activePhase ? 0 : 1 );
+                if ( probeRefuted[probeIndex] )
+                    continue; // refuted pins are already skeleton units
+                CdclCore::ProbePinFacts facts;
+                for ( unsigned v = 0; v < n; ++v )
+                {
+                    double gap = rootUbs[v] - rootLbs[v];
+                    double threshold = FloatUtils::max( 1e-6, deltaFrac * gap );
+                    if ( probeLbs[probeIndex][v] >= rootLbs[v] + threshold )
+                        facts.lbDeltas.emplace_back( v, probeLbs[probeIndex][v] );
+                    if ( probeUbs[probeIndex][v] <= rootUbs[v] - threshold )
+                        facts.ubDeltas.emplace_back( v, probeUbs[probeIndex][v] );
+                }
+                if ( !facts.lbDeltas.empty() || !facts.ubDeltas.empty() )
+                {
+                    vivifyDeltas += facts.lbDeltas.size() + facts.ubDeltas.size();
+                    ++vivifyPins;
+                    pinFacts[activePhase ? targets[i].var : -targets[i].var] = facts;
+                }
+            }
+        }
+        _cdclCore.setProbePinFacts( pinFacts, cdclVarToB, rootLbs, rootUbs );
+    }
+
     // Diagnostic knobs: SKELETON_NO_SEED probes but seeds nothing (isolates
     // probe-time state perturbation from clause effects); SKELETON_UNITS_ONLY
     // seeds just the failed-literal units.
@@ -4858,11 +4914,14 @@ void Engine::computeImplicationSkeleton()
     if ( _verbosity > 0 )
     {
         printf( "Implication skeleton (LP probes): %u probes -> %u failed-literal units, "
-                "%u binary implications, %u hull-tightened root bounds (t=%.2fs)\n",
+                "%u binary implications, %u hull-tightened root bounds, "
+                "%u vivify pins / %u deltas (t=%.2fs)\n",
                 probes,
                 failedLiterals,
                 binaryImplications,
                 hullTightened,
+                vivifyPins,
+                vivifyDeltas,
                 TimeUtils::timePassed( start, TimeUtils::sampleMicro() ) / 1e6 );
         fflush( stdout );
     }
@@ -4971,6 +5030,97 @@ bool Engine::probeLpFeasible( unsigned pivotCap )
     }
 
     return true;
+}
+
+int Engine::probePinDescent( const Vector<Pair<unsigned, bool>> &pins,
+                             unsigned pivotCap,
+                             Vector<Pair<unsigned, bool>> *impliedPhases )
+{
+    // One incremental descent: apply the pins in order, tightening to
+    // fixpoint + budgeted LP after each. Infeasibility after j pins proves
+    // Q ^ pin_1 ^ .. ^ pin_j infeasible, i.e. the disjunction of the first
+    // j literals is entailed. All facts derived under the pins are
+    // conditional - the caller must have probe mode set.
+    unsigned applied = 0;
+    int result = -1;
+
+    // For the pin-1 implication harvest: the ReLUs (with a boolean
+    // abstraction) that are unfixed before the descent starts.
+    Vector<ReluConstraint *> unfixedBefore;
+    if ( impliedPhases )
+        for ( auto *plc : _plConstraints )
+            if ( plc->getType() == RELU && plc->isActive() && !plc->phaseFixed() &&
+                 !plc->getCdclVars().empty() )
+                unfixedBefore.append( (ReluConstraint *)plc );
+
+    preContextPushHook();
+    getContext().push();
+    try
+    {
+        for ( unsigned i = 0; i < pins.size(); ++i )
+        {
+            ++applied;
+            PiecewiseLinearCaseSplit pin;
+            pin.storeBoundTightening( Tightening(
+                pins[i].first(), 0.0, pins[i].second() ? Tightening::LB : Tightening::UB ) );
+            applySplit( pin );
+
+            if ( !probeTightenToFixpoint() || !probeLpFeasible( pivotCap ) )
+            {
+                result = (int)applied;
+                break;
+            }
+
+            // Everything the first pin's fixpoint fixed is an entailed
+            // implication edge (pin => phase), free to harvest.
+            if ( i == 0 && impliedPhases )
+            {
+                for ( ReluConstraint *relu : unfixedBefore )
+                {
+                    if ( relu->getB() == pins[0].first() )
+                        continue;
+                    bool impliedActive = false;
+                    bool impliedInactive = false;
+                    if ( relu->phaseFixed() )
+                    {
+                        PhaseStatus phase = relu->getPhaseStatus();
+                        impliedActive = phase == RELU_PHASE_ACTIVE;
+                        impliedInactive = phase == RELU_PHASE_INACTIVE;
+                    }
+                    if ( !impliedActive && !impliedInactive )
+                    {
+                        unsigned b = relu->getB();
+                        if ( !FloatUtils::isNegative( _tableau->getLowerBound( b ) ) )
+                            impliedActive = true;
+                        else if ( !FloatUtils::isPositive( _tableau->getUpperBound( b ) ) )
+                            impliedInactive = true;
+                    }
+                    if ( impliedActive || impliedInactive )
+                        impliedPhases->append(
+                            Pair<unsigned, bool>( relu->getB(), impliedActive ) );
+                }
+            }
+        }
+    }
+    catch ( const InfeasibleQueryException & )
+    {
+        result = (int)applied;
+    }
+    catch ( ... )
+    {
+        // Numerical trouble: no facts from this descent.
+        result = -1;
+    }
+    getContext().pop();
+    postContextPopHook();
+
+    // Implications harvested at pin 1 are only valid if pin 1 itself
+    // survived; infeasibility at pin 1 voids them (the caller gets a unit
+    // clause out of the shortening instead).
+    if ( impliedPhases && result == 1 )
+        impliedPhases->clear();
+
+    return result;
 }
 
 Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litConstraint )

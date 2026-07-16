@@ -105,6 +105,9 @@ Environment knobs (diagnostics/ablation):
 | `SKELETON_UNITS_ONLY=1` | seed only the failed-literal units, not the binaries |
 | `SKELETON_NO_HULL=1` | disable the C2 hull fold |
 | `SKELETON_VERIFY_UNITS=<sec>` | after probing, audit each failed-literal unit on a fresh engine (timeout per unit, default 120s); prints `VERIFIED entailed` / `UNSOUND UNIT` / `unresolved` per unit |
+| `SKELETON_NO_VIVIFY_BOUNDS=1` | disable rung-0 numeric vivification (see graveyard — measured inert, on by default) |
+| `SKELETON_VIVIFY_DELTA_FRAC=<f>` | min probe-delta size as a fraction of the root gap to store for vivification (default 0.05) |
+| `SKELETON_VIVIFY_MAX_SIZE=<n>` | max clause size for the numeric vivification test (default 64) |
 
 At verbosity ≥ 1 you get a probe-progress line every 100 probes, a summary
 line (`Implication skeleton (LP probes): ...`), and a `CDCL progress` heartbeat
@@ -123,6 +126,18 @@ density: dense skeleton = real wins, thin skeleton = pure noise.
 | 3_4 (dense: 3 units, 141 binaries) | 744 hull bounds | 6,062 | 4,241 (−30%) | **3,934 (−35%)** |
 | 1_2 (thin: 2 units, 31 binaries) | 736 hull bounds | 1,982 | 3,945 (hurt) | 2,106 (mild hurt) |
 
+Rung-1 LP vivification on top of C1+C2 (2026-07-15, see "Rung-1" below):
+
+| instance | C1+C2 | + rung-1 (32/visit) | + hybrid (256/visit + harvest) | descent hit rate |
+|---|---|---|---|---|
+| 3_4 | 3,934 | 3,501 (−11%) | **3,497** | 147/149 (99%) |
+| 1_2 | 2,106 | 2,023 | **2,001** (control 1,982) | 134/151 (89%) |
+
+On the thin instance each vivification increment claws back the skeleton's
+loss toward the baseline; on the dense instance it extends the win. Learned
+clauses are massively compressible (2,362 literals removed on 3_4 in 1.4s),
+confirming the decision-based reason coarseness diagnosis.
+
 ## The graveyard (measured dead — do not resurrect without new evidence)
 
 - **C3, conditional-tightening table**: per feasible pin, memoize the branch
@@ -140,6 +155,24 @@ density: dense skeleton = real wins, thin skeleton = pure noise.
   vacuous — the seeded binaries make SAT propagation pre-empt every
   first-order removal (scaffold retained in `CdclCore::vivifyClause` for a
   future theory-grade oracle).
+- **Rung-0 numeric vivification (probe-vector intersection)**: for each
+  learned-clause literal, intersect the stored single-pin probe bound
+  vectors of the remaining literals' negations (plus BCP closure over
+  skeleton edges) and drop the literal on box emptiness or a forced sign on
+  its own `b`. Implemented 2026-07-15 (`CdclCore::vivifyCandidateRemovable`,
+  sparse deltas vs the post-hull root box, knobs
+  `SKELETON_NO_VIVIFY_BOUNDS` / `SKELETON_VIVIFY_DELTA_FRAC` /
+  `SKELETON_VIVIFY_MAX_SIZE`). Measured dead on both calibration instances:
+  3_4 = 48,892 numeric checks, 0 removals, 4.4s (visited states byte-identical
+  3,934); 1_2 = 0 removals (2,106); unfiltered deltas (frac=0, 9,128 deltas)
+  change nothing. Diagnosis: probe tightenings are sparse (~7–18 deltas/pin)
+  and single-pin root boxes never jointly cross — the conflicts CDCL learns
+  needed LP-grade *joint* reasoning to find, so box-grade joint reasoning
+  cannot refute their subsets. Same signature as the C3 autopsy (86% numeric
+  residue) and abcrown's BICCOS-edge vivification (0 removals). Conclusion:
+  theory vivification needs the rung-1 oracle (joint-pin fixpoint + budgeted
+  LP per candidate, one incremental descent per clause); rung 0 cannot
+  pre-filter for it — it fires on nothing.
 - **SCC phase merging**: forward-only probes make the implication graph a
   layered DAG; 2-cycles essentially impossible.
 
@@ -157,9 +190,22 @@ not at all.
 2. Root promotion v2: on a level-0 fix, fold the literal's probe bounds into
    the *root tableau* with a cascade so new root facts feed the SAT solver
    globally (the per-check form was neutral; the global form is untested).
-3. Theory-grade vivification: upgrade the vivification oracle to the probe
-   stack (pin the negations of `C∖{l}`, fixpoint + budgeted LP, infeasible ⇒
-   drop `l`), selectively — short clauses / on-reuse. Expensive; gate on
-   sweep evidence.
+3. DONE 2026-07-15 — **Rung-1 LP vivification + clausalized graph** (the
+   "let CaDiCaL maintain the implication graph" architecture). Learned
+   clauses queue (`CdclCore::processVivifyLpQueue`); at boolean level 0
+   (post-restart, engine at root state) each gets ONE incremental descent
+   (`Engine::probePinDescent`): pins of the negated literals applied
+   most-tightening-first, fixpoint + budgeted LP after each; infeasibility
+   after j pins ⇒ the j-literal prefix replaces the clause. The pin-1
+   fixpoint's phase fixes are harvested as binary edges (free graph growth
+   in the current root box). Probe mode held throughout; injected clauses
+   are excluded from the restart schedule. ~14ms/descent. Knobs:
+   `SKELETON_NO_VIVIFY_LP`, `SKELETON_VIVIFY_LP_MAX_SIZE` (32),
+   `SKELETON_VIVIFY_LP_CLAUSES` (256/visit), `SKELETON_VIVIFY_LP_BUDGET`
+   (60s). Rung 0 (probe-vector intersection) is measured dead (graveyard);
+   there is no cheap pre-filter, but none is needed — descents are cheap and
+   hit 89–99%. NOTE: descents run only at restarts (2–3/run), so most of the
+   queue is never processed; forcing more restarts or processing at every
+   backjump-to-0 is untested headroom.
 4. Conditioned re-probing at depth: density grows as boxes shrink (17 vs 144
    root clauses across instances).

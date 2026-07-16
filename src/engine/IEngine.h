@@ -23,6 +23,7 @@
 #include "GroundBoundManager.h"
 #include "LPSolverType.h"
 #include "List.h"
+#include "Pair.h"
 #include "PlcLemma.h"
 #include "SnCDivideStrategy.h"
 #include "SymbolicBoundTighteningType.h"
@@ -239,6 +240,21 @@ public:
     virtual NLR::NetworkLevelReasoner *getNetworkLevelReasoner() const = 0;
 
     virtual void restoreInitialEngineState() = 0;
+
+    /*
+      Rung-1 vivification oracle: push a context level, apply the given phase
+      pins one at a time - (b variable, pin b >= 0) - tightening to fixpoint
+      and running a budgeted LP feasibility check after each, then pop.
+      Returns the number of pins applied when infeasibility was detected, or
+      -1 if all pins were applied and the box stayed (budget-)feasible.
+      If impliedPhases is non-null and the first pin's fixpoint survives, the
+      ReLU phases it fixed are reported as (b variable, active) pairs - each
+      is an entailed implication edge (first pin => phase), harvested at no
+      extra LP cost. Must only be called with the engine at its root context.
+    */
+    virtual int probePinDescent( const Vector<Pair<unsigned, bool>> &pins,
+                                 unsigned pivotCap,
+                                 Vector<Pair<unsigned, bool>> *impliedPhases ) = 0;
 
     /*
      Solve the input query with a MILP solver
