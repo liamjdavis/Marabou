@@ -29,6 +29,7 @@
 #include "context/cdhashset.h"
 
 #include <cadical.hpp>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <utility>
@@ -410,6 +411,64 @@ private:
     Map<unsigned, unsigned> _bToCdclVar;
     std::set<std::pair<int, int>> _seenHarvestEdges;
     unsigned _numVivifyLpHarvestedEdges = 0;
+    // Mirror-UNSAT proofs: the mirror holds only query-entailed clauses, so
+    // when it goes UNSAT below its assumptions the QUERY is unsat - an
+    // early-termination certificate delivered as the root conflict.
+    unsigned _numMirrorUnsatProofs = 0;
+
+    /*
+      Mirror solver: a second CaDiCaL instance holding a copy of the clause
+      database (skeleton + learned + harvested + vivified), used as a full
+      boolean vivification oracle. Assuming the negations of a clause's
+      literals and solving (conflict-bounded), an UNSAT answer's
+      failed-assumption core IS a shortened clause - full conflict-analysis
+      power at zero theory cost. A clause enters the mirror only AFTER its
+      own vivification attempt, so it can never refute itself; level-0 fixed
+      literals sync in as units per pass (_mirroredFixed tracks them).
+    */
+    std::unique_ptr<CaDiCaL::Solver> _vivifyMirror;
+    Set<int> _mirroredFixed;
+
+    /*
+      The oracle's remaining duties (consolidated design - exactly one extra
+      CaDiCaL):
+      - Learner harvest: every unit/binary the oracle LEARNS during its
+        bounded solves is entailed by the clause DB (learned clauses never
+        depend on assumptions), so it feeds the edge maps and the main
+        solver. Buffered during solves, flushed after.
+      - Failed-literal probing: assume(lit) + decisions-0 solve = pure
+        propagation over everything learned so far; UNSAT => -lit is a free
+        unit. Runs when the oracle's DB has grown since the last pass.
+    */
+    std::unique_ptr<CaDiCaL::Learner> _mirrorLearner;
+    std::vector<std::vector<int>> _mirrorLearnedBuffer;
+    Set<int> _seenMirrorUnits;
+    unsigned _numMirrorClauses = 0;
+    unsigned _lastMirrorProbeClauses = 0;
+    unsigned _numMirrorProbeSolves = 0;
+    unsigned _numMirrorFailedLits = 0;
+    unsigned _numMirrorEdgesLearned = 0;
+    unsigned _numMirrorUnitsLearned = 0;
+    void flushMirrorLearned();
+    void mirrorProbePass();
+
+public:
+    // Called by the oracle's Learner callback (buffering only).
+    void bufferMirrorLearned( const std::vector<int> &lits )
+    {
+        _mirrorLearnedBuffer.push_back( lits );
+    }
+
+private:
+    unsigned _numVivifyMirrorCalls = 0;
+    unsigned _numVivifyMirrorShortened = 0;
+    unsigned _numVivifyMirrorLiteralsRemoved = 0;
+    // Outcome breakdown: solve() results and full-core (no-gain) UNSATs.
+    unsigned _numVivifyMirrorUnsat = 0;
+    unsigned _numVivifyMirrorSat = 0;
+    unsigned _numVivifyMirrorUnknown = 0;
+    unsigned _numVivifyMirrorFullCore = 0;
+    void mirrorAddClause( const Set<int> &clause );
 
     /*
       Rung-1 theory vivification: for each queued clause, one incremental

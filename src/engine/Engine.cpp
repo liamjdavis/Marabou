@@ -36,6 +36,8 @@
 #include "Vector.h"
 
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <random>
 
 namespace fs = std::filesystem;
@@ -4622,6 +4624,10 @@ void Engine::computeImplicationSkeleton()
              plc->getCdclVars().empty() )
             continue;
         targets.append( ProbeTarget{ (ReluConstraint *)plc, (int)plc->getCdclVars().front() } );
+        if ( getenv( "DUMP_VAR_MAP" ) )
+            printf( "VAR_MAP: cdclVar=%u b=%u\n",
+                    plc->getCdclVars().front(),
+                    ( (ReluConstraint *)plc )->getB() );
     }
 
     // Facts derived under a pin are conditional on it: keep them away from

@@ -26,6 +26,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <map>
 #include <thread>
 #include <utility>
@@ -853,12 +854,18 @@ void CdclCore::addExternalClause( const Set<int> &clause, bool shareClause )
         const char *s = getenv( "SKELETON_VIVIFY_LP_MAX_SIZE" );
         return s ? (unsigned)atoi( s ) : 32u;
     }();
+    bool queuedForVivify = false;
     if ( !_inVivifyLpPass && !_probeMode && !_cdclVarToB.empty() && clause.size() > 1 &&
          clause.size() <= lpMaxSize && !getenv( "SKELETON_NO_VIVIFY_LP" ) )
     {
         _vivifyLpQueue.append( clause );
         ++_numVivifyLpQueued;
+        queuedForVivify = true;
     }
+    // Queued clauses reach the mirror when dequeued (post-attempt, so a
+    // clause can never refute itself); everything else mirrors now.
+    if ( !queuedForVivify )
+        mirrorAddClause( clause );
 
     if ( shareClause &&
          clause.size() <=
@@ -964,6 +971,7 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
     {
         _satSolver->addClause( clause );
         _initialClauses.append( clause );
+        mirrorAddClause( clause );
     }
 
     Set<int> externalClause;
@@ -993,10 +1001,27 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
                     _numVivifySizeSkips,
                     _maxVivifyClauseSize,
                     _vivifyTimeMicro / 1e6 );
+        if ( _numVivifyMirrorCalls > 0 )
+            printf( "\tMirror oracle: %u solves -> %u clauses shortened, %u literals "
+                    "removed (%u unsat / %u sat / %u unknown, %u full-core); "
+                    "%u probe solves -> %u failed literals; %u units + %u edges "
+                    "learned; %u unsat proofs\n",
+                    _numVivifyMirrorCalls,
+                    _numVivifyMirrorShortened,
+                    _numVivifyMirrorLiteralsRemoved,
+                    _numVivifyMirrorUnsat,
+                    _numVivifyMirrorSat,
+                    _numVivifyMirrorUnknown,
+                    _numVivifyMirrorFullCore,
+                    _numMirrorProbeSolves,
+                    _numMirrorFailedLits,
+                    _numMirrorUnitsLearned,
+                    _numMirrorEdgesLearned,
+                    _numMirrorUnsatProofs );
         if ( _numVivifyLpVisits > 0 || _numVivifyLpQueued > 0 )
             printf( "\tLP vivification (rung 1): %u descents -> %u clauses shortened, "
-                    "%u literals removed, %u edges harvested (%u level-0 visits, %u queued, "
-                    "%u fixed-skips, %u still queued, %.2fs total)\n",
+                    "%u literals removed, %u edges harvested (%u level-0 visits, "
+                    "%u queued, %u fixed-skips, %u still queued, %.2fs total)\n",
                     _numVivifyLpDescents,
                     _numVivifyLpShortened,
                     _numVivifyLpLiteralsRemoved,
@@ -1103,6 +1128,172 @@ bool CdclCore::isLiteralToBePropagated( int literal ) const
     return false;
 }
 
+namespace {
+// Harvests the oracle's learned units and binaries: learned clauses are
+// resolution consequences of the clause DB alone (never of the assumptions),
+// so each is an entailed fact.
+class CdclMirrorLearner : public CaDiCaL::Learner
+{
+public:
+    CdclMirrorLearner( CdclCore *core )
+        : _core( core )
+    {
+    }
+    bool learning( int size ) override
+    {
+        return size <= 2;
+    }
+    void learn( int lit ) override
+    {
+        if ( lit )
+        {
+            _current.push_back( lit );
+            return;
+        }
+        if ( !_current.empty() )
+            _core->bufferMirrorLearned( _current );
+        _current.clear();
+    }
+
+private:
+    CdclCore *_core;
+    std::vector<int> _current;
+};
+} // namespace
+
+void CdclCore::mirrorAddClause( const Set<int> &clause )
+{
+    if ( getenv( "SKELETON_NO_VIVIFY_MIRROR" ) )
+        return;
+    // The empty clause (root-conflict signal, incl. our own mirror-UNSAT
+    // delivery) must not enter the mirror: it would flatten the DB to bare
+    // falsum and destroy the oracle's remaining duties.
+    if ( clause.empty() )
+        return;
+    if ( !_vivifyMirror )
+    {
+        _vivifyMirror = std::make_unique<CaDiCaL::Solver>();
+        _mirrorLearner = std::make_unique<CdclMirrorLearner>( this );
+        _vivifyMirror->connect_learner( _mirrorLearner.get() );
+    }
+    for ( int lit : clause )
+        _vivifyMirror->add( lit );
+    _vivifyMirror->add( 0 );
+    ++_numMirrorClauses;
+
+    // Streaming clause log for offline poison analysis: the solver's own
+    // dump is post-simplification and hides the original clauses.
+    if ( const char *logPath = getenv( "MIRROR_LOG" ) )
+    {
+        static std::ofstream mirrorLog( logPath );
+        for ( int lit : clause )
+            mirrorLog << lit << " ";
+        mirrorLog << "0\n";
+        mirrorLog.flush();
+    }
+}
+
+void CdclCore::flushMirrorLearned()
+{
+    for ( const auto &lits : _mirrorLearnedBuffer )
+    {
+        if ( lits.size() == 1 )
+        {
+            int u = lits[0];
+            if ( _seenMirrorUnits.exists( u ) )
+                continue;
+            _seenMirrorUnits.insert( u );
+            _skeletonUnits.insert( u );
+            Set<int> unit;
+            unit.insert( u );
+            ++_numMirrorUnitsLearned;
+            _inVivifyLpPass = true;
+            addExternalClause( unit, false );
+            _inVivifyLpPass = false;
+        }
+        else if ( lits.size() == 2 )
+        {
+            int a = lits[0];
+            int b = lits[1];
+            std::pair<int, int> key( std::min( a, b ), std::max( a, b ) );
+            if ( _seenHarvestEdges.count( key ) )
+                continue;
+            _seenHarvestEdges.insert( key );
+            _skeletonImplied[-a].insert( b );
+            _skeletonImplied[-b].insert( a );
+            Set<int> binary;
+            binary.insert( a );
+            binary.insert( b );
+            ++_numMirrorEdgesLearned;
+            _inVivifyLpPass = true;
+            addExternalClause( binary, false );
+            _inVivifyLpPass = false;
+        }
+    }
+    _mirrorLearnedBuffer.clear();
+}
+
+void CdclCore::mirrorProbePass()
+{
+    // Boolean failed-literal probing: decisions-0 solves are pure
+    // propagation over the oracle's DB (including everything it has
+    // learned); a conflict makes the negation a free unit. Re-runs only
+    // when the DB has grown since the last pass.
+    if ( !_vivifyMirror || getenv( "SKELETON_NO_MIRROR_PROBE" ) )
+        return;
+    if ( _numMirrorClauses < _lastMirrorProbeClauses + 32 )
+        return;
+    _lastMirrorProbeClauses = _numMirrorClauses;
+
+    struct timespec start = TimeUtils::sampleMicro();
+    for ( const auto &pair : _cdclVarToB )
+    {
+        int var = (int)pair.first;
+        if ( isLiteralFixed( var ) || isLiteralFixed( -var ) )
+            continue;
+        for ( int lit : { var, -var } )
+        {
+            if ( _seenMirrorUnits.exists( lit ) || _seenMirrorUnits.exists( -lit ) )
+                continue;
+            if ( _vivifyMirror->fixed( lit ) != 0 )
+                continue;
+            _vivifyMirror->assume( lit );
+            _vivifyMirror->limit( "decisions", 0 );
+            int result = _vivifyMirror->solve();
+            ++_numMirrorProbeSolves;
+            flushMirrorLearned();
+            if ( result == 20 && !_vivifyMirror->failed( lit ) )
+            {
+                // UNSAT below the assumption: global unsat proof.
+                ++_numMirrorUnsatProofs;
+                if ( _engine->getVerbosity() > 0 )
+                {
+                    printf( "Mirror UNSAT proof (probe pass): query is unsat\n" );
+                    fflush( stdout );
+                }
+                Set<int> emptyClause;
+                _inVivifyLpPass = true;
+                addExternalClause( emptyClause, false );
+                _inVivifyLpPass = false;
+                return;
+            }
+            if ( result == 20 && !_seenMirrorUnits.exists( -lit ) )
+            {
+                ++_numMirrorFailedLits;
+                _seenMirrorUnits.insert( -lit );
+                _skeletonUnits.insert( -lit );
+                Set<int> unit;
+                unit.insert( -lit );
+                _inVivifyLpPass = true;
+                addExternalClause( unit, false );
+                _inVivifyLpPass = false;
+            }
+        }
+        if ( TimeUtils::timePassed( start, TimeUtils::sampleMicro() ) / 1e6 > 5.0 )
+            break;
+    }
+}
+
 void CdclCore::processVivifyLpQueue()
 {
     ++_numVivifyLpVisits;
@@ -1123,6 +1314,19 @@ void CdclCore::processVivifyLpQueue()
         return;
 
     struct timespec start = TimeUtils::sampleMicro();
+
+    // Sync level-0 fixed literals into the mirror: theory-propagated units
+    // never appear in the external clause stream, so the mirror cannot
+    // re-derive them on its own.
+    if ( _vivifyMirror )
+        for ( int lit : _fixedCadicalVars )
+            if ( !_mirroredFixed.exists( lit ) )
+            {
+                Set<int> unit;
+                unit.insert( lit );
+                mirrorAddClause( unit );
+                _mirroredFixed.insert( lit );
+            }
 
     // Facts derived under the descent pins are conditional on them: keep
     // them away from the SAT solver (same guard as the probe pass).
@@ -1156,6 +1360,65 @@ void CdclCore::processVivifyLpQueue()
             continue;
         }
 
+        // Full-SAT boolean vivification: refute the negated clause against
+        // the mirrored clause DB (conflict-bounded); on UNSAT the
+        // failed-assumption core IS a shortened clause - full conflict
+        // analysis over everything learned so far, zero theory cost. The
+        // clause itself is not yet in the mirror, so it cannot refute
+        // itself; it enters post-attempt (shortened version wins).
+        if ( _vivifyMirror )
+        {
+            for ( int lit : clause )
+                _vivifyMirror->assume( -lit );
+            _vivifyMirror->limit( "conflicts", 200 );
+            int mirrorResult = _vivifyMirror->solve();
+            ++_numVivifyMirrorCalls;
+            flushMirrorLearned();
+            if ( mirrorResult == 20 )
+                ++_numVivifyMirrorUnsat;
+            else if ( mirrorResult == 10 )
+                ++_numVivifyMirrorSat;
+            else
+                ++_numVivifyMirrorUnknown;
+            if ( mirrorResult == 20 )
+            {
+                Set<int> shortened;
+                for ( int lit : clause )
+                    if ( _vivifyMirror->failed( -lit ) )
+                        shortened.insert( lit );
+                if ( shortened.empty() )
+                {
+                    // UNSAT below the assumptions: the mirror holds only
+                    // query-entailed clauses, so the QUERY is unsat. Deliver
+                    // the root conflict; the search ends here.
+                    ++_numMirrorUnsatProofs;
+                    if ( _engine->getVerbosity() > 0 )
+                    {
+                        printf( "Mirror UNSAT proof: entailed clause set is "
+                                "boolean-unsat; query is unsat\n" );
+                        fflush( stdout );
+                    }
+                    Set<int> emptyClause;
+                    _inVivifyLpPass = true;
+                    addExternalClause( emptyClause, false );
+                    _inVivifyLpPass = false;
+                    break;
+                }
+                if ( shortened.size() >= clause.size() )
+                    ++_numVivifyMirrorFullCore;
+                if ( shortened.size() < clause.size() )
+                {
+                    _numVivifyMirrorLiteralsRemoved += clause.size() - shortened.size();
+                    ++_numVivifyMirrorShortened;
+                    _inVivifyLpPass = true;
+                    addExternalClause( shortened, false ); // also mirrors it
+                    _inVivifyLpPass = false;
+                    continue;
+                }
+            }
+        }
+        mirrorAddClause( clause );
+
         // Pin order: most-tightening-first (rung-0 delta counts), so
         // infeasibility hits as early as possible in the descent.
         std::vector<std::pair<int, unsigned>> pinnable; // (literal, delta count)
@@ -1180,8 +1443,9 @@ void CdclCore::processVivifyLpQueue()
                        return a.second > b.second;
                    } );
 
-        // The pin of literal lit's NEGATION: lit = active (b >= 0), so
-        // -lit pins b <= 0, and vice versa.
+        // Plain pins over the original literals: boolean shortening is the
+        // mirror's job now (full conflict analysis beats hand-rolled BCP),
+        // the LP descent handles what only the theory can refute.
         Vector<Pair<unsigned, bool>> pins;
         for ( const auto &p : pinnable )
             pins.append( Pair<unsigned, bool>( _cdclVarToB[(unsigned)std::abs( p.first )],
@@ -1215,6 +1479,10 @@ void CdclCore::processVivifyLpQueue()
                 edge.insert( l1 );
                 edge.insert( q );
                 addExternalClause( edge, false );
+                // Feed the edge into the implication map too, so BCP-extended
+                // descents and rung-0 closure see the growing graph.
+                _skeletonImplied[-l1].insert( q );
+                _skeletonImplied[-q].insert( l1 );
                 ++_numVivifyLpHarvestedEdges;
             }
             _inVivifyLpPass = false;
@@ -1239,6 +1507,9 @@ void CdclCore::processVivifyLpQueue()
             _inVivifyLpPass = false;
         }
     }
+
+    // Boolean failed-literal probing over the oracle, when its DB has grown.
+    mirrorProbePass();
 
     setProbeMode( false );
 

@@ -24,6 +24,10 @@
 #include "BoundManager.h"
 #ifdef BUILD_CADICAL
 #include "CdclCore.h"
+
+#include <tuple>
+#include <utility>
+#include <vector>
 #endif
 #include "Checker.h"
 #include "DantzigsRule.h"

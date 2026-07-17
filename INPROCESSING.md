@@ -138,7 +138,97 @@ loss toward the baseline; on the dense instance it extends the win. Learned
 clauses are massively compressible (2,362 literals removed on 3_4 in 1.4s),
 confirming the decision-based reason coarseness diagnosis.
 
+With the mirror oracle (2026-07-16, see "The mirror oracle" below), the
+unsat-proof channel terminates both anchors at their first level-0 visit:
+3_4 **3,493**, 1_2 **1,999** — small absolute gains only because the first
+luby restart lands near the end of these searches (see the cadence
+bottleneck note).
+
+## The mirror oracle (one extra CaDiCaL, 2026-07-16)
+
+The consolidated boolean side: exactly two CaDiCaL instances total. The main
+solver searches; the **mirror** holds a copy of every entailed clause
+(skeleton seed, learned conflicts post-vivify-attempt, harvested edges,
+vivified outputs, level-0 fixed literals synced per pass) and serves five
+duties at level-0 visits (`CdclCore::processVivifyLpQueue` /
+`mirrorProbePass`):
+
+1. **Vivification by assumption core**: assume the negations of a clause's
+   literals, conflict-bounded solve; UNSAT ⇒ the `failed()` core IS the
+   shortened clause — full conflict analysis, zero theory cost. A clause
+   enters the mirror only AFTER its own attempt (no self-refutation; CaDiCaL
+   cannot delete clauses, so conditionality must ride assumptions).
+2. **UNSAT proofs**: mirror UNSAT below its assumptions (empty core) means
+   the entailed clause set is boolean-unsat ⇒ THE QUERY IS UNSAT. Delivered
+   as the root-conflict empty clause; the search ends. Measured: fires on
+   the FIRST oracle solve on both anchors. Cannot misfire on satisfiable
+   queries (entailed clauses of a SAT query are consistent; verified silent
+   on safenlp-418).
+3. **Failed-literal probing**: assume(lit) + decisions-0 solve = pure
+   propagation over everything learned; conflict ⇒ free unit. Gated on
+   mirror-DB growth.
+4. **Learner harvest**: `connect_learner` streams the mirror's own learned
+   units/binaries back as entailed facts (edge maps + main solver).
+5. **Runtime soundness audit**: any unsound clause in any channel surfaces
+   as a premature boolean conflict (this is how the "poison" incident
+   resolved: both "contradictory" units were verified entailed by fresh
+   full solves — the instance was unsat and the mirror had proven it).
+
+**The cadence bottleneck (measured, decides the next step):** all oracle
+duties run at level-0 visits, and the first luby restart (512 conflicts)
+lands near the END of these ACAS searches — proofs fire at ~95% done,
+vivification touches ~20% of the queue. The oracle's power is gated by
+level-0 visit frequency, not by its strength. Cheapest capitalization, not
+yet built: a PRE-SEARCH oracle pass right after the skeleton probe (level 0
+by construction, no restart-schedule change) — catches skeletons that are
+already boolean-unsat at visited-state zero. Beyond that: earlier first
+restart / periodic forced level-0 visits (deferred by scope decision).
+
+Env knobs: `SKELETON_NO_VIVIFY_MIRROR=1` (disable the oracle entirely),
+`SKELETON_NO_MIRROR_PROBE=1` (disable duty 3), `MIRROR_LOG=<file>`
+(streaming clause log for offline audit — the solver's own dump is
+post-simplification and useless for forensics).
+
 ## The graveyard (measured dead — do not resurrect without new evidence)
+
+- **BCP-interleaved descents** (binary-edge propagation woven into the LP
+  descent pin sequence: zero-LP shortenings, implied-literal rule, extra
+  pins): worked well (78–134 of ~140 shortenings at zero LP cost) but
+  REMOVED 2026-07-16 — superseded, not refuted. The mirror's assumption
+  cores strictly dominate the shortening duties with a real solver's
+  conflict analysis, and deleting the hand-rolled prefix/blockEnd mapping
+  removed the largest surface of soundness-proof-by-hand in the codebase.
+  The one uncovered loss is implied extra pins for the LP descent
+  (unmeasured marginal value; LP hit rate was 88–99% before extras
+  existed). Resurrect only as a 10-line closure over the Learner-densified
+  edge maps if LP hit rates ever sag.
+
+- **Probe → compact → solve (theory-level neuron elimination)**: root-fixed
+  ReLUs eliminated by re-preprocessing the pristine snapshot under the
+  refined box, fresh engine, b-space binary transfer with parent-side
+  resolution, delegate SAT solutions. Built and fully debugged 2026-07-16,
+  then REMOVED the same day (user call: out if it hurts at all). Measured:
+  1_2 1,488 (beat the 1,982 control — best config seen) but 3_4 7,876 vs
+  3,497 uncompacted — on dense instances compaction consumes the graph (121
+  of 141 binaries satisfied-absorbed into the box) and box knowledge does
+  not replace boolean guidance. Machinery-only ablation was sound (5,437 vs
+  6,062 control). ACAS fixation is only 1–2%; if a high-fixation family ever
+  makes this attractive again, the code is in git history (look for
+  "Skeleton compaction" around this doc's date). Related law, measured
+  three ways now: **clauses are portable; numeric propagation results are
+  not** — the child's second-pass hull fold was load-bearing (skipping it
+  cost 1_2 its win, 1,488 → 2,821).
+- **Cross-instance skeleton cache (SKELETON_CACHE)**: original-space facts +
+  hull with a per-variable subset guard; validated end-to-end (safenlp SAT
+  instance 418: control 40 visited states, probing 15,401+ — the cluster's
+  0.13× SAT disaster is probe-time state perturbation, not clauses; cache
+  hit restored control-identical 40). Removed with compaction: family
+  instances are sibling boxes (never nested), so real hits need a union-box
+  cache whose facts are near-empty, and the one real benefit (skip probing
+  on easy instances) doesn't need a cache. The genuine cross-instance
+  object is learned clauses under assumption-encoded boxes = incremental
+  solving = a different architecture. Diagnosis retained: gate probing by
+  cost/benefit, don't cache it.
 
 - **C3, conditional-tightening table**: per feasible pin, memoize the branch
   bounds beating the refined root; apply when the literal holds mid-search.
@@ -202,10 +292,14 @@ not at all.
    are excluded from the restart schedule. ~14ms/descent. Knobs:
    `SKELETON_NO_VIVIFY_LP`, `SKELETON_VIVIFY_LP_MAX_SIZE` (32),
    `SKELETON_VIVIFY_LP_CLAUSES` (256/visit), `SKELETON_VIVIFY_LP_BUDGET`
-   (60s). Rung 0 (probe-vector intersection) is measured dead (graveyard);
-   there is no cheap pre-filter, but none is needed — descents are cheap and
-   hit 89–99%. NOTE: descents run only at restarts (2–3/run), so most of the
-   queue is never processed; forcing more restarts or processing at every
-   backjump-to-0 is untested headroom.
+   (60s). Rung 0 (probe-vector intersection) is measured dead (graveyard).
+   2026-07-16 update: the boolean half now belongs to the mirror oracle
+   (see its section); the LP descent runs plain original-literal pins.
+4. **Pre-search oracle pass** (next): run the mirror's first solve right
+   after the skeleton probe, before any search — catches boolean-unsat
+   skeletons at visited-state zero, no restart-schedule change needed.
+5. **Level-0 cadence** (deferred by scope decision): earlier first restart
+   or periodic forced level-0 visits would multiply every oracle duty —
+   the measured bottleneck for proofs, vivification coverage, and probing.
 4. Conditioned re-probing at depth: density grows as boxes shrink (17 vs 144
    root clauses across instances).
