@@ -1678,6 +1678,11 @@ void CdclCore::addDecisionBasedConflictClause()
     if ( _probeMode )
         return;
 
+    // The pre-search pristine root check runs before the SAT solver exists;
+    // a root conflict there is rediscovered by the search's own root solve.
+    if ( !_satSolver )
+        return;
+
     CDCL_LOG( Stringf( "%u l%d Add Decision Clause", _index, _satSolver->getLevel() ).ascii() )
 
     struct timespec start = TimeUtils::sampleMicro();

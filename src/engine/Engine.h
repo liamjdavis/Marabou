@@ -529,6 +529,13 @@ private:
     */
     bool _skeletonComputed = false;
     std::shared_ptr<Query> _skeletonAuditQuery;
+
+    /*
+      _pristineCheckEngine: fresh engine that ran the pre-search root SAT
+      check on the pristine snapshot; non-null iff it found the model, in
+      which case extractSolution() reads the assignment from it.
+    */
+    std::shared_ptr<Engine> _pristineCheckEngine;
     bool probeTightenToFixpoint();
     bool probeLpFeasible( unsigned pivotCap );
 

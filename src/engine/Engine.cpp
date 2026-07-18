@@ -1166,10 +1166,12 @@ void Engine::invokePreprocessor( const IQuery &inputQuery, bool preprocess )
                             Stringf( "Error! Have %u infinite bounds", infiniteBounds ).ascii() );
     }
 
-    // Pristine snapshot for the skeleton unit audit: the query's constraints
-    // are not yet registered with this engine (no live CDOs / bound-manager
-    // pointers), so this is the last point where a deep copy is safe.
-    if ( getenv( "SKELETON_VERIFY_UNITS" ) )
+    // Pristine snapshot for the skeleton unit audit and the pre-search
+    // fresh-engine SAT check: the query's constraints are not yet registered
+    // with this engine (no live CDOs / bound-manager pointers), so this is
+    // the last point where a deep copy is safe.
+    if ( getenv( "SKELETON_VERIFY_UNITS" ) ||
+         Options::get()->getBool( Options::IMPLICATION_SKELETON ) )
         _skeletonAuditQuery = std::make_shared<Query>( *_preprocessedQuery );
 }
 
@@ -1901,6 +1903,22 @@ void Engine::performMILPSolverBoundedTighteningForSingleLayer( unsigned targetIn
 
 void Engine::extractSolution( IQuery &inputQuery, Preprocessor *preprocessor )
 {
+    // If the pre-search fresh-engine check found the model, pull the
+    // assignment from it. The check engine solved a copy of this engine's
+    // post-preprocessing query, so its extracted solution is in OUR
+    // post-preprocessing variable space; the mapping below then translates
+    // it to the caller's space through our own preprocessor as usual.
+    std::unique_ptr<Query> delegatedSolution;
+    if ( _pristineCheckEngine && _skeletonAuditQuery )
+    {
+        delegatedSolution = std::make_unique<Query>( *_skeletonAuditQuery );
+        _pristineCheckEngine->extractSolution( *delegatedSolution );
+    }
+    auto assignedValue = [&]( unsigned variable ) {
+        return delegatedSolution ? delegatedSolution->getSolutionValue( variable )
+                                 : _tableau->getValue( variable );
+    };
+
     Preprocessor *preprocessorInUse = nullptr;
     if ( preprocessor != nullptr )
         preprocessorInUse = preprocessor;
@@ -1932,11 +1950,11 @@ void Engine::extractSolution( IQuery &inputQuery, Preprocessor *preprocessor )
             variable = preprocessorInUse->getNewIndex( variable );
 
             // Finally, set the assigned value
-            inputQuery.setSolutionValue( i, _tableau->getValue( variable ) );
+            inputQuery.setSolutionValue( i, assignedValue( variable ) );
         }
         else
         {
-            inputQuery.setSolutionValue( i, _tableau->getValue( i ) );
+            inputQuery.setSolutionValue( i, assignedValue( i ) );
         }
     }
 
@@ -4597,7 +4615,53 @@ bool Engine::solveWithCDCL( double timeoutInSeconds )
     }
 
     if ( Options::get()->getBool( Options::IMPLICATION_SKELETON ) )
+    {
+        // SAT-first, out-of-band: run the root theory check (the search's
+        // first visit) on a FRESH engine over the pristine post-preprocessing
+        // snapshot. Probe residue on the shared engine derails the root SoI
+        // descent on easy-SAT instances (safenlp 2026-07-17: probe-only,
+        // nothing seeded, 1 -> 17k visited states), and in-band checks
+        // perturb the budget-capped probe LPs through plain-member numeric
+        // caches (steepest-edge weights et al.) that no snapshot restores -
+        // measured as changed probe RESULTS (1_2: 31 -> 32 binaries). The
+        // fresh engine leaves this engine bit-untouched: probing and the
+        // search run exactly as if the check did not exist.
+        if ( _skeletonAuditQuery )
+        {
+            try
+            {
+                Query checkQuery = *_skeletonAuditQuery;
+                std::shared_ptr<Engine> checkEngine = std::make_shared<Engine>();
+                checkEngine->setVerbosity( 0 );
+                if ( checkEngine->processInputQuery( checkQuery ) &&
+                     checkEngine->solve( timeoutInSeconds ) )
+                {
+                    // In CDCL mode solve() returns at the first split
+                    // request, so this was exactly control's first visit;
+                    // true means a model was found at the root. Keep the
+                    // engine alive: extractSolution() reads the model from
+                    // it (in this engine's post-preprocessing space).
+                    _pristineCheckEngine = checkEngine;
+                    setExitCode( ExitCode::SAT );
+                    if ( GlobalConfiguration::WRITE_ALETHE_PROOF &&
+                         !Options::get()->getBool( Options::DNC_MODE ) )
+                        deleteProofIfExists();
+                    return true;
+                }
+                if ( checkEngine->getExitCode() == ExitCode::TIMEOUT )
+                {
+                    setExitCode( ExitCode::TIMEOUT );
+                    return false;
+                }
+            }
+            catch ( ... )
+            {
+                // No verdict from the pristine check; run the search.
+            }
+        }
+
         computeImplicationSkeleton();
+    }
 
     return _cdclCore.solveWithCDCL( timeoutInSeconds );
 }
