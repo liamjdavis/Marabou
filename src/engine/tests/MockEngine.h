@@ -368,6 +368,29 @@ public:
         return -1;
     }
 
+    unsigned tightenRootBounds( const std::vector<std::pair<unsigned, double>> &lowerBounds,
+                                const std::vector<std::pair<unsigned, double>> &upperBounds ) override
+    {
+        (void)lowerBounds;
+        (void)upperBounds;
+        return 0;
+    }
+
+    bool rootTightenCascade() override
+    {
+        return true;
+    }
+
+    unsigned reprobeSkeleton( Vector<int> &units,
+                              Vector<Pair<int, int>> &binaries,
+                              double timeBudgetSec ) override
+    {
+        (void)units;
+        (void)binaries;
+        (void)timeBudgetSec;
+        return 0;
+    }
+
     void incNumOfLemmas() override
     {
     }

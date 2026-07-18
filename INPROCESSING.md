@@ -51,6 +51,41 @@ Probing runs from `Engine::solveWithCDCL` before the CDCL loop
   snapshot (`Engine::_skeletonAuditQuery`) — the live query cannot be deep
   copied (its constraints carry registered CDOs and bound-manager pointers).
 
+### The pre-search SAT check (out-of-band, 2026-07-17)
+
+Probing's easy-SAT regression: probe residue ALONE (nothing seeded) turns
+1-visit safenlp SAT instances into ~17k-state searches (3990: 1 → 17,226;
+`SKELETON_NO_SEED=1 SKELETON_NO_HULL=1`). The per-probe context pops rewind
+CDO state (bounds, phase CDOs) but not the tableau's plain numeric caches
+(basis/assignment, steepest-edge weights), and the root SoI descent that
+finds the model at visit 1 is exquisitely sensitive to them. The
+pseudo-impact heuristic is NOT written by probing (no probe path reaches
+`performDeepSoILocalSearch`; CaDiCaL doesn't exist yet) — it diverges only
+downstream of the perturbed descent.
+
+Fix (`Engine::solveWithCDCL`, commit 9c839cda): before probing, a FRESH
+engine solves a copy of the pristine post-preprocessing snapshot
+(`_skeletonAuditQuery`, now taken whenever `--implication-skeleton` is on)
+for exactly one root visit — in CDCL mode `solve()` returns at the first
+split request. Model found ⇒ SAT, main engine never searches (witness
+delegated through `extractSolution` via `_pristineCheckEngine`); otherwise
+the fresh engine is discarded and probing + search run on the bit-untouched
+main engine. Verified: safenlp 3990/5381 sat at the check; anchors
+bit-identical to pre-fix treated (3_4 = 3,493, 1_2 = 1,999).
+
+**In-band variants are unwinnable (measured, all of):** check-after-probe
+with basis restore, check-before-probe reorder, EngineState restore
+(entire tableau) around the probe pass, and context-push + pop around the
+check with pseudo-impact score restore — every one changed the PROBE
+RESULTS themselves (1_2: 31 → 32 binaries, hull 744 → ~513) because the
+budget-capped probe LPs (400 pivots) flip under perturbed
+steepest-edge/basis caches; anchors resampled 3,493 → 5.8k–11.4k (one arm
+timed out). Law: any numeric work on the shared engine, however carefully
+restored, reperturbs budget-sensitive downstream computation — run it
+out-of-band or not at all. Residual exposure: SAT instances not solvable
+at the root visit still search under post-probe state (unchanged from
+before this fix); only the cluster can price that tail.
+
 ## Running it
 
 Build (CaDiCaL required; note `file(GLOB)` in CMakeLists — adding/removing
@@ -189,6 +224,51 @@ Env knobs: `SKELETON_NO_VIVIFY_MIRROR=1` (disable the oracle entirely),
 (streaming clause log for offline audit — the solver's own dump is
 post-simplification and useless for forensics).
 
+## Boolean → theory injection (2026-07-18)
+
+Closing the asymmetry: theory→boolean was rich (probes, harvest, descents,
+mirror), boolean→theory was only trail splits. Three channels built, at
+level-0 visits (`CdclCore` in `cb_decide`), each with its own stats line
+and kill knob:
+
+- **Root promotion v2** (`promoteRootFixedLiterals`, kept): each newly
+  fixed literal's pin bound + its stored probe deltas folded into the root
+  tableau, one cascade per batch (`runRootCascadeIfPending`, probe mode
+  off) so phase fixes flow back to CaDiCaL. Measured INERT on 4 ACAS
+  instances: stale probe snapshots are fully subsumed by trail propagation
+  (3_4: 29 literals → 0 bounds applied; 1_2: 5 bounds, 11 phase fixes
+  returned, byte-identical search). Kept because cost is ~0 (0.000–0.004s).
+  Knob: `SKELETON_NO_ROOT_PROMOTE=1`.
+- **Clause-hull folds** (REMOVED, see graveyard).
+- **Conditioned re-probing** (`reprobeAfterRootInjection` /
+  `Engine::reprobeSkeleton`): when the level-0 fixed set grows, re-probe
+  ALL unfixed pins under the CURRENT root box (full fixpoint + budgeted LP
+  per pin, ~8ms; ~3.5–4s per pass) and inject fresh units/binaries through
+  the external-clause channel (deduped, mirrored). Naive by decision —
+  no per-probe filtering; global cap `SKELETON_REPROBE_BUDGET` (60s),
+  kill `SKELETON_NO_REPROBE=1`. Measured (ACAS prop1, visited states,
+  baseline → treated):
+
+  | inst | baseline | + re-probe | fresh facts | note |
+  |---|---|---|---|---|
+  | 3_4 | 3,493 | **22** | 10 units + 14 binaries | 2 passes; search collapsed, 17s wall |
+  | 1_2 | 1,999 | 1,972 | 5 units + 98 binaries | |
+  | 4_3 | 1,637 | 580 | 0 | residue luck, not information |
+  | 2_1 | 8,911 (solved) | **14,385 TIMEOUT** | 0 | residue un-luck: one 4.3s pass, zero facts, lost the instance |
+
+  "Density grows as boxes shrink" is real and can be decisive (3_4
+  root-fixed 10 more ReLUs mid-search). The zero-fact case is pure
+  trajectory dice via probe residue — symmetric (4_3 won, 2_1 lost).
+  Cluster A/B pending before any gating decision; candidate mitigations if
+  losses dominate: state-restore around the pass, or fact-conditional
+  disable. CAVEAT: re-probe units are budgeted-LP refutations with no
+  fresh-engine audit yet (`SKELETON_VERIFY_UNITS` covers only pre-search
+  pins) — extend the audit before trusting at scale.
+
+  Law (measured three ways today): stored theory numerics do not survive
+  transport across time — replay is subsumed; only FRESH derivation under
+  the current context adds information.
+
 ## The graveyard (measured dead — do not resurrect without new evidence)
 
 - **BCP-interleaved descents** (binary-edge propagation woven into the LP
@@ -265,6 +345,14 @@ post-simplification and useless for forensics).
   pre-filter for it — it fires on nothing.
 - **SCC phase merging**: forward-only probes make the implication graph a
   layered DAG; 2-cycles essentially impossible.
+- **Clause-hull folds** (2026-07-18): for an entailed clause, the
+  elementwise hull of its literals' probe boxes is root-valid (C2 is the
+  special case `a OR -a`). Built, measured 0 firings on 4 ACAS instances,
+  removed same day. Two structural starvations: freshly learned clauses at
+  dequeue time are decision dumps far over the size gate (they only get
+  short AFTER mirror/LP shortening, one visit too late), and on anchors the
+  mirror UNSAT proof ends the search at the first level-0 visit. Same stale
+  single-pin-box inputs as rung-0 — and the same verdict.
 
 **Design law (measured repeatedly, both here and in α,β-CROWN):** the value
 of probe information is dwarfed by sensitivity to *where* it is injected.

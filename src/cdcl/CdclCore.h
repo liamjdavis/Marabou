@@ -404,6 +404,23 @@ private:
     unsigned _numVivifyLpQueued = 0;
     unsigned _numVivifyLpSkippedFixed = 0;
 
+    // Boolean -> theory root injection (promotion).
+    Set<int> _promotedRootLiterals;
+    bool _pendingRootCascade = false;
+    unsigned _numRootPromotedLiterals = 0;
+    unsigned _numRootPromotedBounds = 0;
+    unsigned _numRootCascades = 0;
+    unsigned _numRootCascadePhaseFixes = 0;
+    unsigned long long _rootPromoteTimeMicro = 0;
+
+    // Conditioned re-probing at level-0 visits.
+    unsigned _lastReprobeFixedCount = 0;
+    unsigned _numReprobePasses = 0;
+    unsigned _numReprobeProbes = 0;
+    unsigned _numReprobeUnits = 0;
+    unsigned _numReprobeBinaries = 0;
+    unsigned long long _reprobeTimeMicro = 0;
+
     // Implication edges harvested from descent pin-1 fixpoints (clausalized
     // graph growth); _seenHarvestEdges dedupes across descents, keyed by the
     // normalized literal pair. _bToCdclVar maps a pre-activation variable
@@ -479,6 +496,25 @@ private:
       with the engine at root state; probe mode is held for the whole pass.
     */
     void processVivifyLpQueue();
+
+    /*
+      Boolean -> theory injection at level-0 visits (root promotion v2):
+      promoteRootFixedLiterals folds each newly fixed literal's pin bound
+      AND its stored probe deltas into the root tableau; the cascade runs
+      once per batch via runRootCascadeIfPending with probe mode OFF, so
+      phase fixes flow back to the SAT solver as root facts.
+    */
+    void promoteRootFixedLiterals();
+    void runRootCascadeIfPending();
+
+    /*
+      Naive conditioned re-probing: when new root information arrived since
+      the last pass (new level-0 fixed literals), re-probe every unfixed pin
+      under the CURRENT root box and inject the fresh units/binaries through
+      the external-clause channel. Fresh derivation is the only composition
+      that measures; stale-snapshot replay is fully subsumed.
+    */
+    void reprobeAfterRootInjection();
 
     /*
       Theory-grade (rung-0) vivification: drop literal l from an entailed

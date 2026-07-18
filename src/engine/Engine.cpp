@@ -5193,6 +5193,140 @@ int Engine::probePinDescent( const Vector<Pair<unsigned, bool>> &pins,
     return result;
 }
 
+unsigned Engine::tightenRootBounds( const std::vector<std::pair<unsigned, double>> &lowerBounds,
+                                    const std::vector<std::pair<unsigned, double>> &upperBounds )
+{
+    unsigned applied = 0;
+    for ( const auto &lb : lowerBounds )
+        if ( FloatUtils::gt( lb.second, _tableau->getLowerBound( lb.first ) ) )
+        {
+            _tableau->tightenLowerBound( lb.first, lb.second );
+            ++applied;
+        }
+    for ( const auto &ub : upperBounds )
+        if ( FloatUtils::lt( ub.second, _tableau->getUpperBound( ub.first ) ) )
+        {
+            _tableau->tightenUpperBound( ub.first, ub.second );
+            ++applied;
+        }
+    return applied;
+}
+
+bool Engine::rootTightenCascade()
+{
+    try
+    {
+        return probeTightenToFixpoint();
+    }
+    catch ( const InfeasibleQueryException & )
+    {
+        return false;
+    }
+    catch ( ... )
+    {
+        // Numerical trouble: no conclusion; bounds already written are sound.
+        return true;
+    }
+}
+
+unsigned Engine::reprobeSkeleton( Vector<int> &units,
+                                  Vector<Pair<int, int>> &binaries,
+                                  double timeBudgetSec )
+{
+    // Re-probing under the CURRENT root box: fresh joint derivation instead
+    // of stale-snapshot replay (which measures as fully subsumed). Same
+    // per-pin machinery as the pre-search pass, minus hull/audit/pin-facts.
+    if ( !_networkLevelReasoner || _lpSolverType != LPSolverType::NATIVE )
+        return 0;
+
+    struct timespec start = TimeUtils::sampleMicro();
+
+    Vector<ReluConstraint *> targets;
+    Vector<int> vars;
+    for ( auto *plc : _plConstraints )
+        if ( plc->getType() == RELU && plc->isActive() && !plc->phaseFixed() &&
+             !plc->getCdclVars().empty() )
+        {
+            targets.append( (ReluConstraint *)plc );
+            vars.append( (int)plc->getCdclVars().front() );
+        }
+
+    unsigned probes = 0;
+    for ( unsigned i = 0; i < targets.size(); ++i )
+    {
+        for ( bool activePhase : { true, false } )
+        {
+            if ( getExitCode() != ExitCode::NOT_DONE ||
+                 TimeUtils::timePassed( start, TimeUtils::sampleMicro() ) / 1e6 >
+                     timeBudgetSec )
+                return probes;
+
+            ++probes;
+            bool refuted = false;
+
+            preContextPushHook();
+            getContext().push();
+            try
+            {
+                PiecewiseLinearCaseSplit pin;
+                pin.storeBoundTightening( Tightening( targets[i]->getB(),
+                                                      0.0,
+                                                      activePhase ? Tightening::LB
+                                                                  : Tightening::UB ) );
+                applySplit( pin );
+                refuted = !probeTightenToFixpoint() ||
+                          !probeLpFeasible(
+                              GlobalConfiguration::SKELETON_PROBE_SIMPLEX_PIVOT_CAP );
+            }
+            catch ( const InfeasibleQueryException & )
+            {
+                refuted = true;
+            }
+            catch ( ... )
+            {
+                // Numerical trouble: no facts from this probe.
+            }
+
+            int pinnedLiteral = activePhase ? vars[i] : -vars[i];
+            if ( refuted )
+                units.append( -pinnedLiteral );
+            else
+            {
+                for ( unsigned j = 0; j < targets.size(); ++j )
+                {
+                    if ( j == i )
+                        continue;
+                    ReluConstraint *other = targets[j];
+                    bool impliedActive = false;
+                    bool impliedInactive = false;
+                    if ( other->phaseFixed() )
+                    {
+                        PhaseStatus phase = other->getPhaseStatus();
+                        impliedActive = phase == RELU_PHASE_ACTIVE;
+                        impliedInactive = phase == RELU_PHASE_INACTIVE;
+                    }
+                    if ( !impliedActive && !impliedInactive )
+                    {
+                        unsigned b = other->getB();
+                        if ( !FloatUtils::isNegative( _tableau->getLowerBound( b ) ) )
+                            impliedActive = true;
+                        else if ( !FloatUtils::isPositive( _tableau->getUpperBound( b ) ) )
+                            impliedInactive = true;
+                    }
+                    if ( impliedActive || impliedInactive )
+                        binaries.append( Pair<int, int>(
+                            -pinnedLiteral, impliedActive ? vars[j] : -vars[j] ) );
+                }
+            }
+
+            getContext().pop();
+            postContextPopHook();
+        }
+    }
+
+    return probes;
+}
+
 Set<int> Engine::explainPhaseWithProof( const PiecewiseLinearConstraint *litConstraint )
 {
     ASSERT( _solveWithCDCL && _produceUNSATProofs );

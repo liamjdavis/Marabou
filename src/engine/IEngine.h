@@ -257,6 +257,29 @@ public:
                                  Vector<Pair<unsigned, bool>> *impliedPhases ) = 0;
 
     /*
+      Boolean -> theory injection at the root. tightenRootBounds applies the
+      given bound tightenings to the root tableau (monotone: only bounds
+      beating the current root box are written) and returns how many were
+      applied. rootTightenCascade runs one tighten-to-fixpoint pass at the
+      root; false means the root box became infeasible (the query is unsat).
+    */
+    virtual unsigned
+    tightenRootBounds( const std::vector<std::pair<unsigned, double>> &lowerBounds,
+                       const std::vector<std::pair<unsigned, double>> &upperBounds ) = 0;
+    virtual bool rootTightenCascade() = 0;
+
+    /*
+      Re-probe every unfixed ReLU pin (both phases) under the CURRENT root
+      box: fixpoint + budgeted LP per pin, context pushed/popped around each.
+      Fills failed-literal units and pin => phase binary implications (over
+      CDCL variables). Returns the number of probes run. The caller must
+      hold probe mode; stops early when timeBudgetSec is exhausted.
+    */
+    virtual unsigned reprobeSkeleton( Vector<int> &units,
+                                      Vector<Pair<int, int>> &binaries,
+                                      double timeBudgetSec ) = 0;
+
+    /*
      Solve the input query with a MILP solver
     */
     virtual bool solveWithMILPEncoding( double timeoutInSeconds ) = 0;

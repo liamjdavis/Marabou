@@ -345,9 +345,15 @@ int CdclCore::cb_decide()
 
     // Rung-1 vivification runs at the amortized point: boolean level 0
     // (post-restart), engine restored to its root state, before the next
-    // decision. Descents push/pop context around the root.
+    // decision. Descents push/pop context around the root. Root injection
+    // (promotion + clause hulls) shares the same point.
     if ( _satSolver->getLevel() == 0 )
+    {
+        promoteRootFixedLiterals();
+        runRootCascadeIfPending();
+        reprobeAfterRootInjection();
         processVivifyLpQueue();
+    }
 
     unsigned decisionVariable =
         GlobalConfiguration::USE_DEEPSOI_LOCAL_SEARCH && _satSolver->getLevel() > 3
@@ -1031,6 +1037,22 @@ bool CdclCore::solveWithCDCL( double timeoutInSeconds )
                     _numVivifyLpSkippedFixed,
                     _vivifyLpQueue.size(),
                     _vivifyLpTimeMicro / 1e6 );
+        if ( _numRootPromotedLiterals > 0 )
+            printf( "\tRoot promotion: %u fixed literals -> %u root bounds; "
+                    "%u cascades, %u phase fixes returned (%.3fs)\n",
+                    _numRootPromotedLiterals,
+                    _numRootPromotedBounds,
+                    _numRootCascades,
+                    _numRootCascadePhaseFixes,
+                    _rootPromoteTimeMicro / 1e6 );
+        if ( _numReprobePasses > 0 )
+            printf( "\tConditioned re-probing: %u passes, %u probes -> %u new units, "
+                    "%u new binaries (%.2fs)\n",
+                    _numReprobePasses,
+                    _numReprobeProbes,
+                    _numReprobeUnits,
+                    _numReprobeBinaries,
+                    _reprobeTimeMicro / 1e6 );
         _statistics->print();
     }
 
@@ -1292,6 +1314,146 @@ void CdclCore::mirrorProbePass()
         if ( TimeUtils::timePassed( start, TimeUtils::sampleMicro() ) / 1e6 > 5.0 )
             break;
     }
+}
+
+void CdclCore::promoteRootFixedLiterals()
+{
+    // Root promotion v2 (boolean -> theory): a literal fixed at level 0 is a
+    // root fact, so its pin bound AND the bounds probing derived under that
+    // pin hold at the root outright. Fold them into the root tableau; the
+    // caller cascades once so consequences (phase fixes) flow back to the
+    // SAT solver through the normal propagation pump.
+    if ( getenv( "SKELETON_NO_ROOT_PROMOTE" ) || _cdclVarToB.empty() || !_satSolver )
+        return;
+
+    struct timespec start = TimeUtils::sampleMicro();
+
+    std::vector<std::pair<unsigned, double>> lbs, ubs;
+    for ( int lit : _fixedCadicalVars )
+    {
+        if ( _promotedRootLiterals.exists( lit ) )
+            continue;
+        _promotedRootLiterals.insert( lit );
+        unsigned var = (unsigned)( lit > 0 ? lit : -lit );
+        if ( !_cdclVarToB.exists( var ) )
+            continue;
+        ++_numRootPromotedLiterals;
+        unsigned b = _cdclVarToB[var];
+        if ( lit > 0 )
+            lbs.emplace_back( b, 0.0 );
+        else
+            ubs.emplace_back( b, 0.0 );
+        if ( _probePinFacts.exists( lit ) )
+        {
+            const ProbePinFacts &facts = _probePinFacts[lit];
+            lbs.insert( lbs.end(), facts.lbDeltas.begin(), facts.lbDeltas.end() );
+            ubs.insert( ubs.end(), facts.ubDeltas.begin(), facts.ubDeltas.end() );
+        }
+    }
+
+    if ( !lbs.empty() || !ubs.empty() )
+    {
+        unsigned applied = _engine->tightenRootBounds( lbs, ubs );
+        _numRootPromotedBounds += applied;
+        if ( applied > 0 )
+            _pendingRootCascade = true;
+    }
+
+    _rootPromoteTimeMicro += TimeUtils::timePassed( start, TimeUtils::sampleMicro() );
+}
+
+void CdclCore::runRootCascadeIfPending()
+{
+    // One cascade per injection batch, with probe mode OFF: the resulting
+    // tightenings are unconditional root facts, and phase fixes reach the
+    // SAT solver via addLiteralToPropagate.
+    if ( !_pendingRootCascade )
+        return;
+    ASSERT( !_probeMode )
+    _pendingRootCascade = false;
+
+    struct timespec start = TimeUtils::sampleMicro();
+    unsigned literalsBefore = _literalsToPropagate.size();
+    bool feasible = _engine->rootTightenCascade();
+    ++_numRootCascades;
+    if ( _literalsToPropagate.size() > literalsBefore )
+        _numRootCascadePhaseFixes += _literalsToPropagate.size() - literalsBefore;
+    if ( !feasible && !hasConflictClause() )
+    {
+        // Refined root box infeasible: the query is unsat.
+        Set<int> emptyClause;
+        addExternalClause( emptyClause, false );
+    }
+    _rootPromoteTimeMicro += TimeUtils::timePassed( start, TimeUtils::sampleMicro() );
+}
+
+void CdclCore::reprobeAfterRootInjection()
+{
+    // Naive trigger: any growth of the level-0 fixed set since the last
+    // pass means the root box shrank, so stale probe results may flip.
+    // Full two-tier probes (~8ms each: fixpoint + budgeted LP), no
+    // per-probe filtering; a global wall-clock budget bounds the total.
+    if ( getenv( "SKELETON_NO_REPROBE" ) || !_satSolver || _cdclVarToB.empty() )
+        return;
+    if ( _fixedCadicalVars.size() == _lastReprobeFixedCount )
+        return;
+
+    static const double totalBudgetSec = [] {
+        const char *s = getenv( "SKELETON_REPROBE_BUDGET" );
+        return s ? atof( s ) : 60.0;
+    }();
+    if ( _reprobeTimeMicro / 1e6 >= totalBudgetSec )
+        return;
+
+    _lastReprobeFixedCount = _fixedCadicalVars.size();
+    struct timespec start = TimeUtils::sampleMicro();
+
+    // Facts derived under the probe pins are conditional: same guard as
+    // every other probing pass.
+    setProbeMode( true );
+    Vector<int> units;
+    Vector<Pair<int, int>> binaries;
+    unsigned probes = _engine->reprobeSkeleton(
+        units, binaries, totalBudgetSec - _reprobeTimeMicro / 1e6 );
+    setProbeMode( false );
+
+    ++_numReprobePasses;
+    _numReprobeProbes += probes;
+
+    // Inject through the external-clause channel (mirrors immediately, no
+    // re-queue), deduped against everything already known.
+    _inVivifyLpPass = true;
+    for ( int lit : units )
+    {
+        if ( _skeletonUnits.exists( lit ) || isLiteralFixed( lit ) )
+            continue;
+        Set<int> unit;
+        unit.insert( lit );
+        addExternalClause( unit, false );
+        _skeletonUnits.insert( lit );
+        ++_numReprobeUnits;
+    }
+    for ( const Pair<int, int> &edge : binaries )
+    {
+        int a = edge.first();
+        int b = edge.second();
+        std::pair<int, int> key( std::min( a, b ), std::max( a, b ) );
+        if ( _seenHarvestEdges.count( key ) )
+            continue;
+        if ( _skeletonImplied.exists( -a ) && _skeletonImplied[-a].exists( b ) )
+            continue; // already an edge of the graph
+        _seenHarvestEdges.insert( key );
+        Set<int> clause;
+        clause.insert( a );
+        clause.insert( b );
+        addExternalClause( clause, false );
+        _skeletonImplied[-a].insert( b );
+        _skeletonImplied[-b].insert( a );
+        ++_numReprobeBinaries;
+    }
+    _inVivifyLpPass = false;
+
+    _reprobeTimeMicro += TimeUtils::timePassed( start, TimeUtils::sampleMicro() );
 }
 
 void CdclCore::processVivifyLpQueue()

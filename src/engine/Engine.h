@@ -544,6 +544,13 @@ public:
                          unsigned pivotCap,
                          Vector<Pair<unsigned, bool>> *impliedPhases ) override;
 
+    unsigned tightenRootBounds( const std::vector<std::pair<unsigned, double>> &lowerBounds,
+                                const std::vector<std::pair<unsigned, double>> &upperBounds ) override;
+    bool rootTightenCascade() override;
+    unsigned reprobeSkeleton( Vector<int> &units,
+                              Vector<Pair<int, int>> &binaries,
+                              double timeBudgetSec ) override;
+
 private:
 #endif
 
