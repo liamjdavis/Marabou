@@ -259,15 +259,75 @@ and kill knob:
   "Density grows as boxes shrink" is real and can be decisive (3_4
   root-fixed 10 more ReLUs mid-search). The zero-fact case is pure
   trajectory dice via probe residue — symmetric (4_3 won, 2_1 lost).
-  Cluster A/B pending before any gating decision; candidate mitigations if
-  losses dominate: state-restore around the pass, or fact-conditional
-  disable. CAVEAT: re-probe units are budgeted-LP refutations with no
-  fresh-engine audit yet (`SKELETON_VERIFY_UNITS` covers only pre-search
-  pins) — extend the audit before trusting at scale.
 
   Law (measured three ways today): stored theory numerics do not survive
   transport across time — replay is subsumed; only FRESH derivation under
   the current context adds information.
+
+### Cluster A/B: re-probing pays, and stays naive (2026-07-18)
+
+1,505 paired instances (ACASXu 186 + MNIST 258 + safenlp 1080), re-probe vs
+`SKELETON_NO_REPROBE=1`, 19 verdict-mismatched instances excluded (see the
+soundness caveat below). The four-instance picture above understated it:
+
+| | count |
+|---|---|
+| solves re-probe gains that plain inprocessing misses | **31** |
+| solves it loses | 7 |
+| effort wins (<0.9x visited) / losses (>1.1x) | **134 / 11** |
+| total visited over the 314 both-solved | **0.83x** |
+
+Where the benefit lives, by root skeleton density (binary implications seeded
+before the search — the only gating signal available for free):
+
+| root bins | n | new solves | lost | eff-win | eff-loss | net |
+|---|---|---|---|---|---|---|
+| 0 | 288 | 1 | 0 | 14 | 0 | +16 |
+| 1–9 | 157 | 3 | 3 | 16 | 2 | +14 |
+| **10–49** | 87 | **20** | 1 | 31 | 7 | **+62** |
+| 50–149 | 53 | 3 | 1 | 26 | 2 | +28 |
+| 150+ | 96 | 4 | 1 | 47 | 0 | +53 |
+
+**The driver is verdict class, not density.** UNSAT: 30 new solves / 119
+effort-wins vs 5 lost / 6 effort-losses. SAT: 1 / 15 vs 2 / 5 — break-even, and
+carrying most of the risk. Mechanically expected: re-probing prunes, which
+shortens proofs but destroys the luck that stumbles onto counterexamples. Class
+is not knowable at gate time, so density is only a proxy for it.
+
+**A density gate was built, measured, and removed** (commit reverted same day).
+Gating at >= 10 root binaries fires on 15.7% of instances pooled and retains
++143 of the +173 net benefit *on paper* — but on the families that matter it
+barely filters (ACAS median 35 binaries, so the gate opens on 91% of
+instances), and the head-to-head was a wash: ACASXu +3 solved / 1.014x visited,
+MNIST −2 / 1.001x, both inside trajectory variance. Removed rather than carried
+as a knob that does nothing. Search length was tested as a gate too and
+rejected: every bucket is net-positive (<100 visited: +54; >10k: +43), because
+short searches gain via effort and long ones via new solves — a threshold
+forfeits one of the two.
+
+**Soundness caveat, unresolved.** Re-probing turns genuinely-SAT instances into
+`unsat`: on ACASXu, 12 disagreements vs plain inprocessing's 2, direction
+12 sat→unsat / 0 reverse, and 10 of the 12 carry counterexamples robust to 1e-2
+(verified out of band with onnxruntime on the original inputs). Bisected: not
+probe residue (probing with *nothing* injected is correct), not root promotion,
+and present on the first pass. `probeLpFeasible` never returns false — budget
+exhaustion counts as feasible — so every re-probe unit comes from
+`probeTightenToFixpoint` alone, i.e. bound propagation on the live mid-search
+engine. An out-of-band gate (prove each fact on a fresh engine over
+`_skeletonAuditQuery` before injecting) does **not** fix it: every fact passes,
+and the audit is self-consistent (no literal and its negation both entailed).
+Correlated failure across two runs of the same numeric path is the signature of
+shared numerical error rather than a logic bug — the same DeepPoly/simplex
+stack both derives the fact and "confirms" it. A sound gate therefore needs an
+*independent* oracle (Gurobi cross-check, or the UNSAT-proof machinery), not
+another pass of the same stack. Until then re-probing is a measured win that is
+not yet trustworthy as a headline number.
+
+Note on interpreting the +173: the 19 excluded mismatches are not randomly
+distributed — they concentrate exactly where re-probing is most aggressive, so
+some of the measured benefit is the same over-constraining that produced the
+wrong verdicts. Treat it as an upper bound on what a sound implementation
+would deliver.
 
 ## The graveyard (measured dead — do not resurrect without new evidence)
 
@@ -389,5 +449,9 @@ not at all.
 5. **Level-0 cadence** (deferred by scope decision): earlier first restart
    or periodic forced level-0 visits would multiply every oracle duty —
    the measured bottleneck for proofs, vivification coverage, and probing.
-4. Conditioned re-probing at depth: density grows as boxes shrink (17 vs 144
-   root clauses across instances).
+6. DONE 2026-07-18 — **Conditioned re-probing at depth**: built, and priced on
+   1,505 instances (see "Cluster A/B" above). Net +24 solves, 0.83x visited,
+   kept naive — a density gate measured as a wash and was removed. Remaining
+   work is soundness, not tuning: an INDEPENDENT oracle (Gurobi cross-check or
+   the UNSAT-proof machinery) to gate re-probe facts, since a fresh-engine
+   audit over the same DeepPoly/simplex stack certifies the bad facts too.
